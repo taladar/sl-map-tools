@@ -1,0 +1,58 @@
+[package]
+name = "sl-map-apis"
+description = "Wraps the SL map API to convert grid coordinates to region names and vice versa and to fetch map tiles"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
+edition = "2021"
+publish = false
+
+exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
+
+[dependencies]
+reqwest = "0.12.7"
+sl-types = { path = "../sl-types" }
+thiserror = "1.0.63"
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+tokio = { version = "1.40.0", features = ["full", "test-util"] }
+
+[lints.rust]
+unknown_lints = "deny"
+renamed_and_removed_lints = "deny"
+unsafe_code = "forbid"
+deprecated = "deny"
+private_interfaces = "forbid"
+private_bounds = "forbid"
+non_fmt_panics = "forbid"
+unreachable_code = "deny"
+unreachable_patterns = "deny"
+unused_doc_comments = "forbid"
+unused_must_use = "forbid"
+while_true = "deny"
+unused_parens = "deny"
+redundant_semicolons = "deny"
+non_ascii_idents = "deny"
+confusable_idents = "deny"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+missing_docs_in_private_items = "warn"
+cargo_common_metadata = "warn"
+mod_module_files = "deny"
+#pedantic = "warn"
+redundant_else = "warn"
+must_use_candidate = "warn"
+missing_panics_doc = "warn"
+missing_errors_doc = "warn"
+panic = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+incompatible_msrv = "deny"
+
+[lints.rustdoc]
+missing_crate_level_docs = "warn"
+broken_intra_doc_links = "deny"

@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+  "sl-types",
+  "sl-map-apis",
+]
+
+[profile.release]
+# do not strip debug info from release builds, useful for debugging those, cargo-flamegraph profiling or similar use cases
+debug = true

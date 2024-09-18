@@ -10,6 +10,9 @@ pub struct MapTile {
     /// the lower left corner of the map tile
     lower_left_corner: GridCoordinates,
 
+    /// the cache policy that determines how long this map tile can be cached
+    cache_policy: http_cache_semantics::CachePolicy,
+
     /// the actual image data
     image: image::DynamicImage,
 }
@@ -20,6 +23,13 @@ pub enum MapTileFetchError {
     /// reqwest error when fetching the map tile from the server
     #[error("reqwest error when fetching the map tile from the server: {0}")]
     ReqwestError(#[from] reqwest::Error),
+    /// failed to clone request for cache policy use (which should not happen
+    /// unless the body is a stream which it is not for us)
+    #[error("failed to clone request for cache policy")]
+    FailedToCloneRequest,
+    /// error guessing image format
+    #[error("error guessing image format: {0}")]
+    ImageFormatGuessError(std::io::Error),
     /// error reading the raw map tile into an image
     #[error("error reading the raw map tile into an image: {0}")]
     ImageError(#[from] image::ImageError),
@@ -30,7 +40,8 @@ impl MapTile {
     ///
     /// # Errors
     ///
-    /// returns an error if the HTTP request fails
+    /// returns an error if the HTTP request fails of if the result fails to be
+    /// parsed as an image
     pub async fn fetch(
         client: &reqwest::Client,
         grid_coordinates: &GridCoordinates,
@@ -43,13 +54,24 @@ impl MapTile {
             lower_left_corner.x(),
             lower_left_corner.y()
         );
-        let response = client.get(&url).send().await?;
-        dbg!(response.headers());
+        let request = client.get(&url).build()?;
+        let response = client
+            .execute(
+                request
+                    .try_clone()
+                    .ok_or(MapTileFetchError::FailedToCloneRequest)?,
+            )
+            .await?;
+        let cache_policy = http_cache_semantics::CachePolicy::new(&request, &response);
         let raw_response_body = response.bytes().await?;
-        let image = image::ImageReader::new(std::io::Cursor::new(raw_response_body)).decode()?;
+        let image = image::ImageReader::new(std::io::Cursor::new(raw_response_body))
+            .with_guessed_format()
+            .map_err(|err| MapTileFetchError::ImageFormatGuessError(err))?
+            .decode()?;
         Ok(MapTile {
             zoom_level: zoom_level.to_owned(),
             lower_left_corner,
+            cache_policy,
             image,
         })
     }

@@ -3,7 +3,9 @@
 /// Grid coordinates for the position of a region on the map
 ///
 /// the first region, Da Boom is located at 1000, 1000
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct GridCoordinates {
     /// the x coordinate of the region, this is basically the horizontal
     /// position of the region on the map increasing from west to east
@@ -44,7 +46,7 @@ impl GridCoordinates {
 /// in the process of crossing from one region to another or in similar
 /// situations where they belong to one simulator logically but are located
 /// outside of that simulator's region
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct RegionCoordinates {
     /// the x coordinate inside the region from the western edge (0) to the
     /// eastern edge (256)
@@ -88,14 +90,25 @@ impl RegionCoordinates {
 #[nutype::nutype(
     sanitize(trim),
     validate(len_char_min = 3, len_char_max = 35),
-    derive(Debug, Clone, Display, Hash, PartialEq, Eq, PartialOrd, Ord)
+    derive(
+        Debug,
+        Clone,
+        Display,
+        Hash,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize
+    )
 )]
 pub struct RegionName(String);
 
 /// A location inside Second Life the way it is usually represented in
 /// SLURLs or map URLs, based on a Region Name and integer coordinates
 /// inside the region
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Location {
     /// the name of the region of the location
     region_name: RegionName,
@@ -265,7 +278,18 @@ impl Location {
 #[nutype::nutype(
     validate(greater_or_equal = 1, less_or_equal = 8),
     derive(
-        Debug, Clone, Copy, Display, FromStr, Hash, PartialEq, Eq, PartialOrd, Ord
+        Debug,
+        Clone,
+        Copy,
+        Display,
+        FromStr,
+        Hash,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Serialize,
+        Deserialize
     )
 )]
 pub struct ZoomLevel(u8);

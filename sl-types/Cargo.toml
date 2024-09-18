@@ -12,7 +12,8 @@ exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nutype = "0.5.0"
+nutype = { version = "0.5.0", features = ["serde"] }
+serde = { version = "1.0.210", features = ["derive"] }
 thiserror = "1.0.63"
 
 [dev-dependencies]

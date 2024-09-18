@@ -11,6 +11,7 @@ publish = false
 exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 
 [dependencies]
+image = { version = "0.25.2", default-features = false, features = ["jpeg", "png", "rayon"] }
 reqwest = "0.12.7"
 sl-types = { path = "../sl-types" }
 thiserror = "1.0.63"

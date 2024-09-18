@@ -270,9 +270,37 @@ impl Location {
 )]
 pub struct ZoomLevel(u8);
 
+/// Errors that can occur when trying to find the correct zoom level to fit
+/// regions into an output image of a given size
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ZoomFitError {
+    /// The region size in the x direction can not be zero
+    #[error("region size in x direction can not be zero")]
+    RegionSizeXZero,
+
+    /// The region size in the y direction can not be zero
+    #[error("region size in y direction can not be zero")]
+    RegionSizeYZero,
+
+    /// The output image size in the x direction can not be zero
+    #[error("output image size in x direction can not be zero")]
+    OutputSizeXZero,
+
+    /// The output image size in the y direction can not be zero
+    #[error("output image size in y direction can not be zero")]
+    OutputSizeYZero,
+
+    /// Error creating the zoom level from the calculated value
+    /// (should never happen)
+    #[error("error creating zoom level from calculated value")]
+    ZoomLevelError(#[from] ZoomLevelError),
+}
+
 impl ZoomLevel {
-    /// returns the map tile size in number of regions (tiles are always square)
-    /// at this zoom level
+    /// returns the map tile size in number of regions at this zoom level
+    ///
+    /// This applies to both dimensions equally since both regions and map tiles
+    /// are square
     #[must_use]
     pub fn tile_size(&self) -> u16 {
         let exponent: u32 = self.into_inner().into();
@@ -293,6 +321,70 @@ impl ZoomLevel {
             x: x - (x % tile_size),
             y: y - (y % tile_size),
         }
+    }
+
+    /// returns the size of a region in pixels in a map tile of this zoom level
+    ///
+    /// The size applies to both dimensions equally since both regions and map tiles
+    /// are square
+    #[must_use]
+    pub fn region_size_in_map_tile(&self) -> u8 {
+        let exponent: u32 = self.into_inner().into();
+        let exponent = exponent - 1;
+        let exponent = 8 - exponent;
+        2u8.pow(exponent)
+    }
+
+    /// returns the zoom level that is the highest zoom level that makes sense
+    /// to use if we want to fit a given area of regions into a given image size
+    /// assuming we want to always have one map tile pixel on one output pixel
+    ///
+    /// # Errors
+    ///
+    /// returns an error if any of the parameters are zero or in the (theoretically
+    /// impossible if the algorithm is correct) case that ZoomLevel::try_new()
+    /// returns an error on the calculated value
+    #[allow(clippy::missing_panics_doc)]
+    pub fn max_zoom_level_to_fit_regions_into_output_image(
+        region_x: u16,
+        region_y: u16,
+        output_x: u32,
+        output_y: u32,
+    ) -> Result<ZoomLevel, ZoomFitError> {
+        if region_x == 0 {
+            return Err(ZoomFitError::RegionSizeXZero);
+        }
+        if region_y == 0 {
+            return Err(ZoomFitError::RegionSizeYZero);
+        }
+        if output_x == 0 {
+            return Err(ZoomFitError::OutputSizeXZero);
+        }
+        if output_y == 0 {
+            return Err(ZoomFitError::OutputSizeYZero);
+        }
+        let output_pixels_per_region_x: u32 = output_x.div_ceil(region_x.into());
+        let output_pixels_per_region_y: u32 = output_y.div_ceil(region_y.into());
+        #[allow(clippy::expect_used)]
+        let max_zoom_level_x: u8 = 9 - std::cmp::min(
+            8,
+            output_pixels_per_region_x
+                .ilog2()
+                .try_into()
+                .expect("Logarithm of a u32 should always fit in a u8"),
+        );
+        #[allow(clippy::expect_used)]
+        let max_zoom_level_y: u8 = 9 - std::cmp::min(
+            8,
+            output_pixels_per_region_y
+                .ilog2()
+                .try_into()
+                .expect("Logarithm of a u32 should always fit in a u8"),
+        );
+        Ok(ZoomLevel::try_new(std::cmp::min(
+            max_zoom_level_x,
+            max_zoom_level_y,
+        ))?)
     }
 }
 

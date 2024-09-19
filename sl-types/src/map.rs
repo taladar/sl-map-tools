@@ -332,6 +332,18 @@ impl ZoomLevel {
         2u16.pow(exponent)
     }
 
+    /// returns the map tile size in pixels at this zoom level
+    ///
+    /// This applies to both dimensions equally since both regions and map tiles
+    /// are square
+    #[must_use]
+    pub fn tile_size_in_pixels(&self) -> u32 {
+        let tile_size: u32 = self.tile_size().into();
+        let region_size_in_map_tile_in_pixels: u32 =
+            self.region_size_in_map_tile_in_pixels().into();
+        tile_size * region_size_in_map_tile_in_pixels
+    }
+
     /// returns the lower left (lowest coordinate for each axis) coordinate of
     /// the map tile containing the given grid coordinates at this zoom level
     ///
@@ -352,11 +364,11 @@ impl ZoomLevel {
     /// The size applies to both dimensions equally since both regions and map tiles
     /// are square
     #[must_use]
-    pub fn region_size_in_map_tile(&self) -> u8 {
+    pub fn region_size_in_map_tile_in_pixels(&self) -> u16 {
         let exponent: u32 = self.into_inner().into();
         let exponent = exponent - 1;
         let exponent = 8 - exponent;
-        2u8.pow(exponent)
+        2u16.pow(exponent)
     }
 
     /// returns the zoom level that is the highest zoom level that makes sense
@@ -409,6 +421,54 @@ impl ZoomLevel {
             max_zoom_level_x,
             max_zoom_level_y,
         ))?)
+    }
+}
+
+/// describes a map tile
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MapTileDescriptor {
+    /// the zoom level of the map tile
+    zoom_level: ZoomLevel,
+    /// the lower left corner of the map tile
+    lower_left_corner: GridCoordinates,
+}
+
+impl MapTileDescriptor {
+    /// create a new `MapTileDescriptor`
+    ///
+    /// this will automatically normalize the given `GridCoordinates` to the
+    /// lower left corner of a map tile at that zoom level
+    #[must_use]
+    pub fn new(zoom_level: ZoomLevel, grid_coordinates: GridCoordinates) -> Self {
+        let lower_left_corner = zoom_level.map_tile_corner(&grid_coordinates);
+        MapTileDescriptor {
+            zoom_level,
+            lower_left_corner,
+        }
+    }
+
+    /// the `ZoomLevel` of the map tile
+    #[must_use]
+    pub fn zoom_level(&self) -> &ZoomLevel {
+        &self.zoom_level
+    }
+
+    /// the `GridCoordinates` of the lower left corner of this map tile
+    #[must_use]
+    pub fn lower_left_corner(&self) -> &GridCoordinates {
+        &self.lower_left_corner
+    }
+
+    /// the size of this map tile in regions
+    #[must_use]
+    pub fn tile_size(&self) -> u16 {
+        self.zoom_level.tile_size()
+    }
+
+    /// the size of this map tile in pixels
+    #[must_use]
+    pub fn tile_size_in_pixels(&self) -> u32 {
+        self.zoom_level.tile_size_in_pixels()
     }
 }
 

@@ -116,6 +116,154 @@ pub async fn grid_coordinates_to_region_name(
         .map_err(|err| GridCoordinatesToRegionNameError::RegionName(response.to_owned(), err))
 }
 
+/// a cache for region names to grid coordinates
+/// that allows lookups in both directions
+#[derive(Debug)]
+pub struct RegionNameToGridCoordinatesCache {
+    /// the reqwest Client used to lookup data not cached locally
+    client: reqwest::Client,
+    /// the cache database
+    db: redb::Database,
+}
+
+/// describes an error that can occur as part of the cache operation for the `RegionNameToGridCoordinatesCache`
+#[derive(Debug, thiserror::Error)]
+pub enum CacheError {
+    /// redb database error
+    #[error("redb database error: {0}")]
+    DatabaseError(#[from] redb::DatabaseError),
+    /// redb transaction error
+    #[error("redb transaction error: {0}")]
+    TransactionError(#[from] redb::TransactionError),
+    /// redb table error
+    #[error("redb table error: {0}")]
+    TableError(#[from] redb::TableError),
+    /// redb storage error
+    #[error("redb storage error: {0}")]
+    StorageError(#[from] redb::StorageError),
+    /// redb commit error
+    #[error("redb storage error: {0}")]
+    CommitError(#[from] redb::CommitError),
+    /// error looking up grid coordinates via HTTP
+    #[error("error looking up grid coordinates via HTTP: {0}")]
+    GridCoordinatesHttpError(#[from] RegionNameToGridCoordinatesError),
+    /// error looking up region name via HTTP
+    #[error("error looking up region name via HTTP: {0}")]
+    RegionNameHttpError(#[from] GridCoordinatesToRegionNameError),
+    /// error creating region name from cached string
+    #[error("error creating region name from cached string: {0}")]
+    RegionNameError(#[from] RegionNameError),
+}
+
+/// describes the redb table to store region names and grid coordinates
+const GRID_COORDINATE_CACHE_TABLE: redb::TableDefinition<String, (u16, u16)> =
+    redb::TableDefinition::new("grid_coordinates");
+
+/// describes the redb table to store grid coordinates and region names
+const REGION_NAME_CACHE_TABLE: redb::TableDefinition<(u16, u16), String> =
+    redb::TableDefinition::new("region_name");
+
+impl RegionNameToGridCoordinatesCache {
+    /// create a new cache
+    ///
+    /// # Errors
+    ///
+    /// returns an error if the database could not be created or opened
+    pub fn new(cache_directory: std::path::PathBuf) -> Result<Self, CacheError> {
+        let client = reqwest::Client::new();
+        let db = redb::Database::create(cache_directory.join("region_name.redb"))?;
+        Ok(Self { client, db })
+    }
+
+    /// get the grid coordinates for a region name
+    ///
+    /// # Errors
+    ///
+    /// returns an error if either the local database operations or the HTTP requests fail
+    pub async fn get_grid_coordinates(
+        &self,
+        region_name: &RegionName,
+    ) -> Result<Option<GridCoordinates>, CacheError> {
+        {
+            let read_txn = self.db.begin_read()?;
+            if let Ok(table) = read_txn.open_table(GRID_COORDINATE_CACHE_TABLE) {
+                if let Some(access_guard) = table.get(region_name.to_owned().into_inner())? {
+                    let (x, y) = access_guard.value();
+                    return Ok(Some(GridCoordinates::new(x, y)));
+                }
+            }
+        }
+        match region_name_to_grid_coordinates(&self.client, region_name).await {
+            Ok(grid_coordinates) => {
+                let write_txn = self.db.begin_write()?;
+                {
+                    let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
+                    table.insert(
+                        region_name.to_owned().into_inner(),
+                        (grid_coordinates.x(), grid_coordinates.y()),
+                    )?;
+                }
+                {
+                    let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
+                    table.insert(
+                        (grid_coordinates.x(), grid_coordinates.y()),
+                        region_name.to_owned().into_inner(),
+                    )?;
+                }
+                write_txn.commit()?;
+                Ok(Some(grid_coordinates))
+            }
+            Err(RegionNameToGridCoordinatesError::ResponseError) => Ok(None),
+            Err(err) => Err(CacheError::GridCoordinatesHttpError(err)),
+        }
+    }
+
+    /// get the region name for a set of grid coordinates
+    ///
+    /// # Errors
+    ///
+    /// returns an error if either the local database operations or the HTTP requests fail
+    pub async fn get_region_name(
+        &self,
+        grid_coordinates: &GridCoordinates,
+    ) -> Result<Option<RegionName>, CacheError> {
+        {
+            let read_txn = self.db.begin_read()?;
+            if let Ok(table) = read_txn.open_table(REGION_NAME_CACHE_TABLE) {
+                if let Some(access_guard) =
+                    table.get((grid_coordinates.x(), grid_coordinates.y()))?
+                {
+                    let region_name = access_guard.value();
+                    return Ok(Some(RegionName::try_new(region_name)?));
+                }
+            }
+        }
+        match grid_coordinates_to_region_name(&self.client, grid_coordinates).await {
+            Ok(region_name) => {
+                let write_txn = self.db.begin_write()?;
+                {
+                    let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
+                    table.insert(
+                        region_name.to_owned().into_inner(),
+                        (grid_coordinates.x(), grid_coordinates.y()),
+                    )?;
+                }
+                {
+                    let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
+                    table.insert(
+                        (grid_coordinates.x(), grid_coordinates.y()),
+                        region_name.to_owned().into_inner(),
+                    )?;
+                }
+                write_txn.commit()?;
+                Ok(Some(region_name))
+            }
+            Err(GridCoordinatesToRegionNameError::ResponseError) => Ok(None),
+            Err(err) => Err(CacheError::RegionNameHttpError(err)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,6 +285,74 @@ mod tests {
         assert_eq!(
             grid_coordinates_to_region_name(&client, &GridCoordinates::new(1136, 1075)).await?,
             RegionName::try_new("Thorkell")?
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cache_region_name_to_grid_coordinates() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let tempdir = tempfile::tempdir()?;
+        let cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
+        assert_eq!(
+            cache
+                .get_grid_coordinates(&RegionName::try_new("Thorkell")?)
+                .await?,
+            Some(GridCoordinates::new(1136, 1075))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cache_region_name_to_grid_coordinates_twice(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let tempdir = tempfile::tempdir()?;
+        let cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
+        assert_eq!(
+            cache
+                .get_grid_coordinates(&RegionName::try_new("Thorkell")?)
+                .await?,
+            Some(GridCoordinates::new(1136, 1075))
+        );
+        assert_eq!(
+            cache
+                .get_grid_coordinates(&RegionName::try_new("Thorkell")?)
+                .await?,
+            Some(GridCoordinates::new(1136, 1075))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cache_grid_coordinates_to_region_name() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let tempdir = tempfile::tempdir()?;
+        let cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
+        assert_eq!(
+            cache
+                .get_region_name(&GridCoordinates::new(1136, 1075))
+                .await?,
+            Some(RegionName::try_new("Thorkell")?)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cache_grid_coordinates_to_region_name_twice(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let tempdir = tempfile::tempdir()?;
+        let cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
+        assert_eq!(
+            cache
+                .get_region_name(&GridCoordinates::new(1136, 1075))
+                .await?,
+            Some(RegionName::try_new("Thorkell")?)
+        );
+        assert_eq!(
+            cache
+                .get_region_name(&GridCoordinates::new(1136, 1075))
+                .await?,
+            Some(RegionName::try_new("Thorkell")?)
         );
         Ok(())
     }

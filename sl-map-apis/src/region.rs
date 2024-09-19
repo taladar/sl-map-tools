@@ -124,6 +124,8 @@ pub struct RegionNameToGridCoordinatesCache {
     client: reqwest::Client,
     /// the cache database
     db: redb::Database,
+    /// the cache ttl, after this we recheck with the server if a value has changed
+    ttl: std::time::Duration,
 }
 
 /// describes an error that can occur as part of the cache operation for the `RegionNameToGridCoordinatesCache`
@@ -153,6 +155,9 @@ pub enum CacheError {
     /// error creating region name from cached string
     #[error("error creating region name from cached string: {0}")]
     RegionNameError(#[from] RegionNameError),
+    /// error handling system time for cache age calculations
+    #[error("error handling system time for cache age calculations: {0}")]
+    SystemTimeError(#[from] std::time::SystemTimeError),
 }
 
 /// describes the redb table to store region names and grid coordinates
@@ -163,16 +168,27 @@ const GRID_COORDINATE_CACHE_TABLE: redb::TableDefinition<String, (u16, u16)> =
 const REGION_NAME_CACHE_TABLE: redb::TableDefinition<(u16, u16), String> =
     redb::TableDefinition::new("region_name");
 
+/// describes the redb table to store the last lookup of some grid coordinates
+const GRID_COORDINATES_LAST_LOOKUP_TABLE: redb::TableDefinition<(u16, u16), u64> =
+    redb::TableDefinition::new("last_grid_coordinate_lookup");
+
+/// describes the redb table to store the last lookup of a region name
+const REGION_NAME_LAST_LOOKUP_TABLE: redb::TableDefinition<String, u64> =
+    redb::TableDefinition::new("last_region_name_lookup");
+
 impl RegionNameToGridCoordinatesCache {
     /// create a new cache
     ///
     /// # Errors
     ///
     /// returns an error if the database could not be created or opened
-    pub fn new(cache_directory: std::path::PathBuf) -> Result<Self, CacheError> {
+    pub fn new(
+        cache_directory: std::path::PathBuf,
+        ttl: std::time::Duration,
+    ) -> Result<Self, CacheError> {
         let client = reqwest::Client::new();
         let db = redb::Database::create(cache_directory.join("region_name.redb"))?;
-        Ok(Self { client, db })
+        Ok(Self { client, db, ttl })
     }
 
     /// get the grid coordinates for a region name
@@ -185,17 +201,41 @@ impl RegionNameToGridCoordinatesCache {
         region_name: &RegionName,
     ) -> Result<Option<GridCoordinates>, CacheError> {
         {
+            let mut use_cache = false;
             let read_txn = self.db.begin_read()?;
-            if let Ok(table) = read_txn.open_table(GRID_COORDINATE_CACHE_TABLE) {
+            if let Ok(table) = read_txn.open_table(REGION_NAME_LAST_LOOKUP_TABLE) {
                 if let Some(access_guard) = table.get(region_name.to_owned().into_inner())? {
-                    let (x, y) = access_guard.value();
-                    return Ok(Some(GridCoordinates::new(x, y)));
+                    if let Some(last_lookup_time) = std::time::UNIX_EPOCH
+                        .checked_add(std::time::Duration::from_secs(access_guard.value()))
+                    {
+                        let now = std::time::SystemTime::now();
+                        if now.duration_since(last_lookup_time)? < self.ttl {
+                            use_cache = true;
+                        }
+                    }
+                }
+            }
+            if use_cache {
+                if let Ok(table) = read_txn.open_table(GRID_COORDINATE_CACHE_TABLE) {
+                    if let Some(access_guard) = table.get(region_name.to_owned().into_inner())? {
+                        let (x, y) = access_guard.value();
+                        return Ok(Some(GridCoordinates::new(x, y)));
+                    }
+                    return Ok(None);
                 }
             }
         }
         match region_name_to_grid_coordinates(&self.client, region_name).await {
             Ok(grid_coordinates) => {
                 let write_txn = self.db.begin_write()?;
+                let now = std::time::SystemTime::now();
+                {
+                    let mut table = write_txn.open_table(REGION_NAME_LAST_LOOKUP_TABLE)?;
+                    table.insert(
+                        region_name.to_owned().into_inner(),
+                        now.duration_since(std::time::UNIX_EPOCH)?.as_secs(),
+                    )?;
+                }
                 {
                     let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
                     table.insert(
@@ -213,7 +253,22 @@ impl RegionNameToGridCoordinatesCache {
                 write_txn.commit()?;
                 Ok(Some(grid_coordinates))
             }
-            Err(RegionNameToGridCoordinatesError::ResponseError) => Ok(None),
+            Err(RegionNameToGridCoordinatesError::ResponseError) => {
+                let write_txn = self.db.begin_write()?;
+                let now = std::time::SystemTime::now();
+                {
+                    let mut table = write_txn.open_table(REGION_NAME_LAST_LOOKUP_TABLE)?;
+                    table.insert(
+                        region_name.to_owned().into_inner(),
+                        now.duration_since(std::time::UNIX_EPOCH)?.as_secs(),
+                    )?;
+                }
+                {
+                    let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
+                    table.remove(region_name.to_owned().into_inner())?;
+                }
+                Ok(None)
+            }
             Err(err) => Err(CacheError::GridCoordinatesHttpError(err)),
         }
     }
@@ -228,19 +283,45 @@ impl RegionNameToGridCoordinatesCache {
         grid_coordinates: &GridCoordinates,
     ) -> Result<Option<RegionName>, CacheError> {
         {
+            let mut use_cache = false;
             let read_txn = self.db.begin_read()?;
-            if let Ok(table) = read_txn.open_table(REGION_NAME_CACHE_TABLE) {
+            if let Ok(table) = read_txn.open_table(GRID_COORDINATES_LAST_LOOKUP_TABLE) {
                 if let Some(access_guard) =
                     table.get((grid_coordinates.x(), grid_coordinates.y()))?
                 {
-                    let region_name = access_guard.value();
-                    return Ok(Some(RegionName::try_new(region_name)?));
+                    if let Some(last_lookup_time) = std::time::UNIX_EPOCH
+                        .checked_add(std::time::Duration::from_secs(access_guard.value()))
+                    {
+                        let now = std::time::SystemTime::now();
+                        if now.duration_since(last_lookup_time)? < self.ttl {
+                            use_cache = true;
+                        }
+                    }
+                }
+            }
+            if use_cache {
+                if let Ok(table) = read_txn.open_table(REGION_NAME_CACHE_TABLE) {
+                    if let Some(access_guard) =
+                        table.get((grid_coordinates.x(), grid_coordinates.y()))?
+                    {
+                        let region_name = access_guard.value();
+                        return Ok(Some(RegionName::try_new(region_name)?));
+                    }
+                    return Ok(None);
                 }
             }
         }
         match grid_coordinates_to_region_name(&self.client, grid_coordinates).await {
             Ok(region_name) => {
                 let write_txn = self.db.begin_write()?;
+                let now = std::time::SystemTime::now();
+                {
+                    let mut table = write_txn.open_table(GRID_COORDINATES_LAST_LOOKUP_TABLE)?;
+                    table.insert(
+                        (grid_coordinates.x(), grid_coordinates.y()),
+                        now.duration_since(std::time::UNIX_EPOCH)?.as_secs(),
+                    )?;
+                }
                 {
                     let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
                     table.insert(
@@ -258,7 +339,22 @@ impl RegionNameToGridCoordinatesCache {
                 write_txn.commit()?;
                 Ok(Some(region_name))
             }
-            Err(GridCoordinatesToRegionNameError::ResponseError) => Ok(None),
+            Err(GridCoordinatesToRegionNameError::ResponseError) => {
+                let write_txn = self.db.begin_write()?;
+                let now = std::time::SystemTime::now();
+                {
+                    let mut table = write_txn.open_table(GRID_COORDINATES_LAST_LOOKUP_TABLE)?;
+                    table.insert(
+                        (grid_coordinates.x(), grid_coordinates.y()),
+                        now.duration_since(std::time::UNIX_EPOCH)?.as_secs(),
+                    )?;
+                }
+                {
+                    let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
+                    table.remove((grid_coordinates.x(), grid_coordinates.y()))?;
+                }
+                Ok(None)
+            }
             Err(err) => Err(CacheError::RegionNameHttpError(err)),
         }
     }
@@ -293,7 +389,10 @@ mod tests {
     async fn test_cache_region_name_to_grid_coordinates() -> Result<(), Box<dyn std::error::Error>>
     {
         let tempdir = tempfile::tempdir()?;
-        let cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
+        let cache = RegionNameToGridCoordinatesCache::new(
+            tempdir.path().to_path_buf(),
+            std::time::Duration::from_secs(7 * 24 * 60 * 60),
+        )?;
         assert_eq!(
             cache
                 .get_grid_coordinates(&RegionName::try_new("Thorkell")?)
@@ -307,7 +406,10 @@ mod tests {
     async fn test_cache_region_name_to_grid_coordinates_twice(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let tempdir = tempfile::tempdir()?;
-        let cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
+        let cache = RegionNameToGridCoordinatesCache::new(
+            tempdir.path().to_path_buf(),
+            std::time::Duration::from_secs(7 * 24 * 60 * 60),
+        )?;
         assert_eq!(
             cache
                 .get_grid_coordinates(&RegionName::try_new("Thorkell")?)
@@ -327,7 +429,10 @@ mod tests {
     async fn test_cache_grid_coordinates_to_region_name() -> Result<(), Box<dyn std::error::Error>>
     {
         let tempdir = tempfile::tempdir()?;
-        let cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
+        let cache = RegionNameToGridCoordinatesCache::new(
+            tempdir.path().to_path_buf(),
+            std::time::Duration::from_secs(7 * 24 * 60 * 60),
+        )?;
         assert_eq!(
             cache
                 .get_region_name(&GridCoordinates::new(1136, 1075))
@@ -341,7 +446,10 @@ mod tests {
     async fn test_cache_grid_coordinates_to_region_name_twice(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let tempdir = tempfile::tempdir()?;
-        let cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
+        let cache = RegionNameToGridCoordinatesCache::new(
+            tempdir.path().to_path_buf(),
+            std::time::Duration::from_secs(7 * 24 * 60 * 60),
+        )?;
         assert_eq!(
             cache
                 .get_region_name(&GridCoordinates::new(1136, 1075))

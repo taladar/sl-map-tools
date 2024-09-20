@@ -39,6 +39,73 @@ impl GridCoordinates {
     }
 }
 
+/// represents a rectangle of regions defined by the lower left (minimum coordinates)
+/// and upper right (maximum coordinates) corners in `GridCoordinates`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GridRectangle {
+    /// the lower left (minimum coordinates) corner of the rectangle
+    lower_left_corner: GridCoordinates,
+    /// the upper right (maximum coordinates) corner of the rectangle
+    upper_right_corner: GridCoordinates,
+}
+
+impl GridRectangle {
+    /// creates a new `GridRectangle` given any two corners
+    #[must_use]
+    pub fn new(corner1: GridCoordinates, corner2: GridCoordinates) -> Self {
+        GridRectangle {
+            lower_left_corner: GridCoordinates::new(
+                corner1.x().min(corner2.x()),
+                corner1.y().min(corner2.y()),
+            ),
+            upper_right_corner: GridCoordinates::new(
+                corner1.x().max(corner2.x()),
+                corner1.y().max(corner2.y()),
+            ),
+        }
+    }
+
+    /// returns the lower left corner of the rectangle
+    #[must_use]
+    pub fn lower_left_corner(&self) -> &GridCoordinates {
+        &self.lower_left_corner
+    }
+
+    /// returns the upper right corner of the rectangle
+    #[must_use]
+    pub fn upper_right_corner(&self) -> &GridCoordinates {
+        &self.upper_right_corner
+    }
+}
+
+/// A trait to allow adding methods to `Vec<GridCoordinates>`
+pub trait GridCoordinatesExt {
+    /// returns the coordinates of the lower left corner and the coordinates of
+    /// the upper right corner of a rectangle of regions containing all the grid
+    /// coordinates in this container
+    ///
+    /// returns None if the container is empty
+    fn bounding_rectangle(&self) -> Option<GridRectangle>;
+}
+
+impl GridCoordinatesExt for Vec<GridCoordinates> {
+    fn bounding_rectangle(&self) -> Option<GridRectangle> {
+        if self.is_empty() {
+            return None;
+        }
+        let (xs, ys): (Vec<u16>, Vec<u16>) = self.iter().map(|gc| (gc.x(), gc.y())).unzip();
+        // unwrap is okay in these cases because we checked above that the container is non-empty
+        #[allow(clippy::unwrap_used)]
+        let (min_x, max_x) = (xs.iter().min().unwrap(), xs.iter().max().unwrap());
+        #[allow(clippy::unwrap_used)]
+        let (min_y, max_y) = (ys.iter().min().unwrap(), ys.iter().max().unwrap());
+        Some(GridRectangle {
+            lower_left_corner: GridCoordinates::new(*min_x, *min_y),
+            upper_right_corner: GridCoordinates::new(*max_x, *max_y),
+        })
+    }
+}
+
 /// Region coordinates for the position of something inside a region
 ///
 /// Usually limited to 0..256 for x and y and 0..4096 for z (height)
@@ -469,6 +536,126 @@ impl MapTileDescriptor {
     #[must_use]
     pub fn tile_size_in_pixels(&self) -> u32 {
         self.zoom_level.tile_size_in_pixels()
+    }
+}
+
+/// A waypoint in the Universal Sailor Buddy (USB) notecard format
+#[derive(Debug, Clone)]
+pub struct USBWaypoint {
+    /// the location of the waypoint
+    location: Location,
+    /// the comment for the waypoint if any
+    comment: Option<String>,
+}
+
+impl USBWaypoint {
+    /// Create a new USB waypoint
+    #[must_use]
+    pub fn new(location: Location, comment: Option<String>) -> Self {
+        Self { location, comment }
+    }
+
+    /// get the location of the waypoint
+    #[must_use]
+    pub fn location(&self) -> &Location {
+        &self.location
+    }
+
+    /// get the comment for the waypoint if any
+    #[must_use]
+    pub fn comment(&self) -> Option<&String> {
+        self.comment.as_ref()
+    }
+}
+
+impl std::fmt::Display for USBWaypoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.location.as_maps_url())?;
+        if let Some(comment) = &self.comment {
+            write!(f, ",{}", comment)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::str::FromStr for USBWaypoint {
+    type Err = LocationParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some((location, comment)) = s.split_once(',') {
+            Ok(Self {
+                location: location.parse()?,
+                comment: Some(comment.to_owned()),
+            })
+        } else {
+            Ok(Self {
+                location: s.parse()?,
+                comment: None,
+            })
+        }
+    }
+}
+
+/// An Universal Sailor Buddy (USB) notecard
+#[derive(Debug, Clone)]
+pub struct USBNotecard {
+    /// the waypoints in the notecard
+    waypoints: Vec<USBWaypoint>,
+}
+
+/// Errors that can happen when an USB notecard is read from a file
+#[derive(Debug, thiserror::Error)]
+pub enum USBNotecardLoadError {
+    /// I/O errors opening or reading the file
+    #[error("I/O error opening or reading the file: {0}")]
+    Io(#[from] std::io::Error),
+    /// Parse error deserializing the USB notecard lines
+    #[error("parse error deserializing the USB notecard lines: {0}")]
+    LocationParseError(#[from] LocationParseError),
+}
+
+impl USBNotecard {
+    /// Create a new USB notecard
+    #[must_use]
+    pub fn new(waypoints: Vec<USBWaypoint>) -> Self {
+        Self { waypoints }
+    }
+
+    /// get the waypoints in the notecard
+    #[must_use]
+    pub fn waypoints(&self) -> &[USBWaypoint] {
+        &self.waypoints
+    }
+
+    /// load an USB Notecard from a text file
+    ///
+    /// # Errors
+    ///
+    /// this returns an error if either reading the file or parsing the content
+    /// as a `USBNotecard` fail
+    pub fn load_from_file(filename: &std::path::Path) -> Result<Self, USBNotecardLoadError> {
+        let contents = std::fs::read_to_string(filename)?;
+        Ok(contents.parse()?)
+    }
+}
+
+impl std::fmt::Display for USBNotecard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for waypoint in &self.waypoints {
+            writeln!(f, "{}", waypoint)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::str::FromStr for USBNotecard {
+    type Err = LocationParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.lines()
+            .map(|line| line.parse::<USBWaypoint>())
+            .collect::<Result<Vec<_>, _>>()
+            .map(|waypoints| USBNotecard { waypoints })
     }
 }
 

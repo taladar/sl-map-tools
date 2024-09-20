@@ -76,6 +76,30 @@ impl GridRectangle {
     pub fn upper_right_corner(&self) -> &GridCoordinates {
         &self.upper_right_corner
     }
+
+    /// returns the width of the rectangle
+    #[must_use]
+    pub fn size_x(&self) -> u16 {
+        self.upper_right_corner.x() - self.lower_left_corner.x() + 1
+    }
+
+    /// returns the height of the rectangle
+    #[must_use]
+    pub fn size_y(&self) -> u16 {
+        self.upper_right_corner.y() - self.lower_left_corner.y() + 1
+    }
+
+    /// returns a range for the region x coordinates of this rectangle
+    #[must_use]
+    pub fn x_range(&self) -> std::ops::RangeInclusive<u16> {
+        self.lower_left_corner.x()..=self.upper_right_corner.x()
+    }
+
+    /// returns a range for the region y coordinates of this rectangle
+    #[must_use]
+    pub fn y_range(&self) -> std::ops::RangeInclusive<u16> {
+        self.lower_left_corner.y()..=self.upper_right_corner.y()
+    }
 }
 
 /// A trait to allow adding methods to `Vec<GridCoordinates>`
@@ -536,6 +560,18 @@ impl MapTileDescriptor {
     #[must_use]
     pub fn tile_size_in_pixels(&self) -> u32 {
         self.zoom_level.tile_size_in_pixels()
+    }
+
+    /// the grid rectangle covered by this map tile
+    #[must_use]
+    pub fn grid_rectangle(&self) -> GridRectangle {
+        GridRectangle::new(
+            self.lower_left_corner,
+            GridCoordinates::new(
+                self.lower_left_corner.x() + self.zoom_level.tile_size() - 1,
+                self.lower_left_corner.y() + self.zoom_level.tile_size() - 1,
+            ),
+        )
     }
 }
 

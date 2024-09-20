@@ -1,5 +1,5 @@
 //! Contains functionality related to converting region names to grid coordinates and vice versa
-use sl_types::map::{GridCoordinates, RegionName, RegionNameError};
+use sl_types::map::{GridCoordinates, GridRectangle, RegionName, RegionNameError, USBNotecard};
 
 /// Represents the possible errors that can occur when converting a region name to grid coordinates
 #[derive(Debug, thiserror::Error)]
@@ -358,6 +358,84 @@ impl RegionNameToGridCoordinatesCache {
             Err(err) => Err(CacheError::RegionNameHttpError(err)),
         }
     }
+}
+
+/// errors that can occur when converting a USB notecard to a grid rectangle
+#[derive(Debug, thiserror::Error)]
+pub enum USBNotecardToGridRectangleError {
+    /// there were no waypoints in the USB notecards so we could not determine
+    /// a grid rectangle for it
+    #[error("There were no waypoints in the USB notecards which made determining a grid rectangle for it impossible")]
+    NoUSBNotecardWaypoints,
+    /// there were errors when converting region names to grid coordinates
+    #[error("error converting region name to grid coordinates: {0}")]
+    CacheError(#[from] CacheError),
+    /// no grid coordinates were returned for one of the region names in the
+    /// USB Notecard
+    #[error("No grid coordinates were returned for one of the regions in the USB notecard: {0}")]
+    NoGridCoordinatesForRegion(RegionName),
+}
+
+/// converts a USB notecard to the `GridRectangle` that contains all the waypoints
+///
+/// # Errors
+///
+/// returns an error if there were no waypoints or if conversions to grid coordinates failed
+pub async fn usb_notecard_to_grid_rectangle(
+    region_name_to_grid_coordinates_cache: &RegionNameToGridCoordinatesCache,
+    usb_notecard: &USBNotecard,
+) -> Result<GridRectangle, USBNotecardToGridRectangleError> {
+    let mut lower_left_x = None;
+    let mut lower_left_y = None;
+    let mut upper_right_x = None;
+    let mut upper_right_y = None;
+    for waypoint in usb_notecard.waypoints() {
+        let grid_coordinates = region_name_to_grid_coordinates_cache
+            .get_grid_coordinates(waypoint.location().region_name())
+            .await?;
+        if let Some(grid_coordinates) = grid_coordinates {
+            if let Some(llx) = lower_left_x {
+                lower_left_x = Some(std::cmp::min(llx, grid_coordinates.x()));
+            } else {
+                lower_left_x = Some(grid_coordinates.x());
+            }
+            if let Some(lly) = lower_left_y {
+                lower_left_y = Some(std::cmp::min(lly, grid_coordinates.y()));
+            } else {
+                lower_left_y = Some(grid_coordinates.y());
+            }
+            if let Some(urx) = upper_right_x {
+                upper_right_x = Some(std::cmp::max(urx, grid_coordinates.x()));
+            } else {
+                upper_right_x = Some(grid_coordinates.x());
+            }
+            if let Some(ury) = upper_right_y {
+                upper_right_y = Some(std::cmp::min(ury, grid_coordinates.y()));
+            } else {
+                upper_right_y = Some(grid_coordinates.y());
+            }
+        } else {
+            return Err(USBNotecardToGridRectangleError::NoGridCoordinatesForRegion(
+                waypoint.location().region_name().to_owned(),
+            ));
+        }
+    }
+    let Some(lower_left_x) = lower_left_x else {
+        return Err(USBNotecardToGridRectangleError::NoUSBNotecardWaypoints);
+    };
+    let Some(lower_left_y) = lower_left_y else {
+        return Err(USBNotecardToGridRectangleError::NoUSBNotecardWaypoints);
+    };
+    let Some(upper_right_x) = upper_right_x else {
+        return Err(USBNotecardToGridRectangleError::NoUSBNotecardWaypoints);
+    };
+    let Some(upper_right_y) = upper_right_y else {
+        return Err(USBNotecardToGridRectangleError::NoUSBNotecardWaypoints);
+    };
+    Ok(GridRectangle::new(
+        GridCoordinates::new(lower_left_x, lower_left_y),
+        GridCoordinates::new(upper_right_x, upper_right_y),
+    ))
 }
 
 #[cfg(test)]

@@ -289,14 +289,20 @@ impl Map {
         y: u32,
         grid_rectangle: GridRectangle,
     ) -> Result<Self, MapError> {
-        let mut image = image::DynamicImage::new_rgb8(x, y);
         let zoom_level = ZoomLevel::max_zoom_level_to_fit_regions_into_output_image(
             grid_rectangle.size_x(),
             grid_rectangle.size_y(),
             x,
             y,
         )?;
-        tracing::debug!("Determined max zoom level for map of size ({x}, {y}) for {grid_rectangle:?} to be {zoom_level:?}");
+        let actual_x =
+            zoom_level.tile_size_in_pixels() * <u16 as Into<u32>>::into(grid_rectangle.size_x());
+        let actual_y =
+            zoom_level.tile_size_in_pixels() * <u16 as Into<u32>>::into(grid_rectangle.size_y());
+        tracing::debug!("Determined max zoom level for map of size ({x}, {y}) for {grid_rectangle:?} to be {zoom_level:?}, actual map size will be ({actual_x}, {actual_y})");
+        let x = actual_x;
+        let y = actual_y;
+        let mut image = image::DynamicImage::new_rgb8(x, y);
         for region_x in grid_rectangle.x_range() {
             for region_y in grid_rectangle.y_range() {
                 let grid_coordinates = GridCoordinates::new(region_x, region_y);

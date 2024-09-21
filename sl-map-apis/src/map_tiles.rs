@@ -433,10 +433,10 @@ impl Map {
             x,
             y,
         )?;
-        let actual_x =
-            zoom_level.tile_size_in_pixels() * <u16 as Into<u32>>::into(grid_rectangle.size_x());
-        let actual_y =
-            zoom_level.tile_size_in_pixels() * <u16 as Into<u32>>::into(grid_rectangle.size_y());
+        let actual_x = <u16 as Into<u32>>::into(zoom_level.pixels_per_region())
+            * <u16 as Into<u32>>::into(grid_rectangle.size_x());
+        let actual_y = <u16 as Into<u32>>::into(zoom_level.pixels_per_region())
+            * <u16 as Into<u32>>::into(grid_rectangle.size_y());
         tracing::debug!("Determined max zoom level for map of size ({x}, {y}) for {grid_rectangle:?} to be {zoom_level:?}, actual map size will be ({actual_x}, {actual_y})");
         let x = actual_x;
         let y = actual_y;
@@ -465,10 +465,12 @@ impl Map {
                         (*crop).dimensions().0,
                         (*crop).dimensions().1
                     );
+                    // we need to use y = 256 here since the crop is inserted by pixel coordinates which means
+                    // we need the upper left corner, not the lower left one of the region as an origin
                     let (replace_x, replace_y) = result
                         .pixel_coordinates_for_coordinates(
                             &grid_coordinates,
-                            &RegionCoordinates::new(0f32, 0f32, 0f32),
+                            &RegionCoordinates::new(0f32, 256f32, 0f32),
                         )
                         .ok_or(MapError::MapCoordinateError)?;
                     tracing::debug!(

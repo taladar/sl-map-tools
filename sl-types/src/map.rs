@@ -39,6 +39,57 @@ impl GridCoordinates {
     }
 }
 
+/// an offset between two `GridCoordinates`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GridCoordinateOffset {
+    /// the offset in the x direction
+    x: i32,
+    /// the offset in the y direction
+    y: i32,
+}
+
+impl GridCoordinateOffset {
+    /// creates a new `GridCoordinateOffset`
+    #[must_use]
+    pub fn new(x: i32, y: i32) -> Self {
+        Self { x, y }
+    }
+
+    /// the offset in the x direction
+    #[must_use]
+    pub fn x(&self) -> i32 {
+        self.x
+    }
+
+    /// the offset in the y direction
+    #[must_use]
+    pub fn y(&self) -> i32 {
+        self.y
+    }
+}
+
+impl std::ops::Add<GridCoordinateOffset> for GridCoordinates {
+    type Output = GridCoordinates;
+
+    fn add(self, rhs: GridCoordinateOffset) -> Self::Output {
+        GridCoordinates::new(
+            (<u16 as Into<i32>>::into(self.x) + rhs.x) as u16,
+            (<u16 as Into<i32>>::into(self.y) + rhs.y) as u16,
+        )
+    }
+}
+
+impl std::ops::Sub<GridCoordinates> for GridCoordinates {
+    type Output = GridCoordinateOffset;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        GridCoordinateOffset::new(
+            <u16 as Into<i32>>::into(self.x) - <u16 as Into<i32>>::into(rhs.x),
+            <u16 as Into<i32>>::into(self.y) - <u16 as Into<i32>>::into(rhs.y),
+        )
+    }
+}
+
 /// represents a rectangle of regions defined by the lower left (minimum coordinates)
 /// and upper right (maximum coordinates) corners in `GridCoordinates`
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,41 +115,100 @@ impl GridRectangle {
             ),
         }
     }
+}
+
+/// represents a grid rectangle like type (usually one that contains a
+/// grid rectangle or one that contains a corner and is of a known size
+pub trait GridRectangleLike {
+    /// the `GridRectangle` represented by this map like image
+    #[must_use]
+    fn grid_rectangle(&self) -> GridRectangle;
 
     /// returns the lower left corner of the rectangle
     #[must_use]
-    pub fn lower_left_corner(&self) -> &GridCoordinates {
-        &self.lower_left_corner
+    fn lower_left_corner(&self) -> GridCoordinates {
+        self.grid_rectangle().lower_left_corner().to_owned()
     }
 
     /// returns the upper right corner of the rectangle
     #[must_use]
-    pub fn upper_right_corner(&self) -> &GridCoordinates {
-        &self.upper_right_corner
+    fn upper_right_corner(&self) -> GridCoordinates {
+        self.grid_rectangle().upper_right_corner().to_owned()
     }
 
-    /// returns the width of the rectangle
+    /// the size of the map like image in regions in the x direction (width)
     #[must_use]
-    pub fn size_x(&self) -> u16 {
-        self.upper_right_corner.x() - self.lower_left_corner.x() + 1
+    fn size_x(&self) -> u16 {
+        self.grid_rectangle().size_x()
     }
 
-    /// returns the height of the rectangle
+    /// the size of the map like image in regions in the y direction (width)
     #[must_use]
-    pub fn size_y(&self) -> u16 {
-        self.upper_right_corner.y() - self.lower_left_corner.y() + 1
+    fn size_y(&self) -> u16 {
+        self.grid_rectangle().size_y()
     }
 
     /// returns a range for the region x coordinates of this rectangle
     #[must_use]
-    pub fn x_range(&self) -> std::ops::RangeInclusive<u16> {
-        self.lower_left_corner.x()..=self.upper_right_corner.x()
+    fn x_range(&self) -> std::ops::RangeInclusive<u16> {
+        self.lower_left_corner().x()..=self.upper_right_corner().x()
     }
 
     /// returns a range for the region y coordinates of this rectangle
     #[must_use]
-    pub fn y_range(&self) -> std::ops::RangeInclusive<u16> {
+    fn y_range(&self) -> std::ops::RangeInclusive<u16> {
+        self.lower_left_corner().y()..=self.upper_right_corner().y()
+    }
+
+    /// checks if a given set of `GridCoordinates` is within this `GridRectangle`
+    #[must_use]
+    fn contains(&self, grid_coordinates: &GridCoordinates) -> bool {
+        self.lower_left_corner().x() <= grid_coordinates.x()
+            && grid_coordinates.x() <= self.upper_right_corner().x()
+            && self.lower_left_corner().y() <= grid_coordinates.y()
+            && grid_coordinates.y() <= self.upper_right_corner().y()
+    }
+}
+
+impl GridRectangleLike for GridRectangle {
+    fn grid_rectangle(&self) -> GridRectangle {
+        self.to_owned()
+    }
+
+    fn lower_left_corner(&self) -> GridCoordinates {
+        self.lower_left_corner.to_owned()
+    }
+
+    fn upper_right_corner(&self) -> GridCoordinates {
+        self.upper_right_corner.to_owned()
+    }
+
+    fn size_x(&self) -> u16 {
+        self.upper_right_corner.x() - self.lower_left_corner().x() + 1
+    }
+
+    fn size_y(&self) -> u16 {
+        self.upper_right_corner.y() - self.lower_left_corner().y() + 1
+    }
+
+    fn x_range(&self) -> std::ops::RangeInclusive<u16> {
+        self.lower_left_corner.x()..=self.upper_right_corner.x()
+    }
+
+    fn y_range(&self) -> std::ops::RangeInclusive<u16> {
         self.lower_left_corner.y()..=self.upper_right_corner.y()
+    }
+}
+
+impl GridRectangleLike for MapTileDescriptor {
+    fn grid_rectangle(&self) -> GridRectangle {
+        GridRectangle::new(
+            self.lower_left_corner,
+            GridCoordinates::new(
+                self.lower_left_corner.x() + self.zoom_level.tile_size() - 1,
+                self.lower_left_corner.y() + self.zoom_level.tile_size() - 1,
+            ),
+        )
     }
 }
 
@@ -430,8 +540,7 @@ impl ZoomLevel {
     #[must_use]
     pub fn tile_size_in_pixels(&self) -> u32 {
         let tile_size: u32 = self.tile_size().into();
-        let region_size_in_map_tile_in_pixels: u32 =
-            self.region_size_in_map_tile_in_pixels().into();
+        let region_size_in_map_tile_in_pixels: u32 = self.pixels_per_region().into();
         tile_size * region_size_in_map_tile_in_pixels
     }
 
@@ -455,11 +564,17 @@ impl ZoomLevel {
     /// The size applies to both dimensions equally since both regions and map tiles
     /// are square
     #[must_use]
-    pub fn region_size_in_map_tile_in_pixels(&self) -> u16 {
+    pub fn pixels_per_region(&self) -> u16 {
         let exponent: u32 = self.into_inner().into();
         let exponent = exponent - 1;
         let exponent = 8 - exponent;
         2u16.pow(exponent)
+    }
+
+    /// returns the number of pixels per meter at this zoom level
+    #[must_use]
+    pub fn pixels_per_meter(&self) -> f32 {
+        self.pixels_per_region() as f32 / 256f32
     }
 
     /// returns the zoom level that is the highest zoom level that makes sense

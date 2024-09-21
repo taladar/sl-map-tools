@@ -1,7 +1,103 @@
 //! Contains functionality related to fetching map tiles
 use std::path::PathBuf;
 
-use sl_types::map::{GridCoordinates, GridRectangle, MapTileDescriptor, ZoomFitError, ZoomLevel};
+use image::GenericImageView as _;
+use sl_types::map::{
+    GridCoordinateOffset, GridCoordinates, GridRectangle, GridRectangleLike, MapTileDescriptor,
+    RegionCoordinates, ZoomFitError, ZoomLevel,
+};
+
+/// represents a map like image, e.g. a map tile or a map that covers
+/// some `GridRectangle` of regions
+pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImageView {
+    /// the zoom level of the map
+    #[must_use]
+    fn zoom_level(&self) -> ZoomLevel;
+
+    /// pixels per meter
+    #[must_use]
+    fn pixels_per_meter(&self) -> f32 {
+        self.zoom_level().pixels_per_meter()
+    }
+
+    /// pixels per region
+    #[must_use]
+    fn pixels_per_region(&self) -> f32 {
+        self.pixels_per_meter() * 256f32
+    }
+
+    /// the pixel coordinates in the map that represent the given `GridCoordinates`
+    /// and `RegionCoordinates`
+    #[must_use]
+    fn pixel_coordinates_for_coordinates(
+        &self,
+        grid_coordinates: &GridCoordinates,
+        region_coordinates: &RegionCoordinates,
+    ) -> Option<(u32, u32)> {
+        if !self.contains(grid_coordinates) {
+            return None;
+        }
+        let grid_offset = *grid_coordinates - self.lower_left_corner();
+        let x = (self.pixels_per_region() * grid_offset.x() as f32
+            + self.pixels_per_meter() * region_coordinates.x()) as u32;
+        let y = (self.pixels_per_region() * grid_offset.y() as f32
+            + self.pixels_per_meter() * region_coordinates.y()) as u32;
+        let y = self.height() - y;
+        Some((x, y))
+    }
+
+    /// the `GridCoordinates` and `RegionCoordinates` at the given pixel coordinates
+    #[must_use]
+    fn coordinates_for_pixel_coordinates(
+        &self,
+        x: u32,
+        y: u32,
+    ) -> Option<(GridCoordinates, RegionCoordinates)> {
+        if !(x <= self.dimensions().0 && y <= self.dimensions().1) {
+            return None;
+        }
+        let y = self.height() - y;
+        let grid_result = self.lower_left_corner()
+            + GridCoordinateOffset::new(
+                (x as f32 / self.pixels_per_region()) as i32,
+                (y as f32 / self.pixels_per_region()) as i32,
+            );
+        let region_result = RegionCoordinates::new(
+            (x % self.pixels_per_region() as u32) as f32 / self.pixels_per_meter(),
+            (y % self.pixels_per_region() as u32) as f32 / self.pixels_per_meter(),
+            0f32,
+        );
+        Some((grid_result, region_result))
+    }
+
+    /// a crop of the map like image by coordinates and size
+    #[must_use]
+    fn crop_imm_grid_rectangle(
+        &self,
+        grid_rectangle: &GridRectangle,
+    ) -> Option<image::SubImage<&Self>>
+    where
+        Self: Sized,
+    {
+        let lower_left_corner_pixels = self.pixel_coordinates_for_coordinates(
+            &grid_rectangle.lower_left_corner(),
+            &RegionCoordinates::new(0f32, 0f32, 0f32),
+        )?;
+        let upper_right_corner_pixels = self.pixel_coordinates_for_coordinates(
+            &grid_rectangle.upper_right_corner(),
+            &RegionCoordinates::new(256f32, 256f32, 0f32),
+        )?;
+        let x = std::cmp::min(lower_left_corner_pixels.0, upper_right_corner_pixels.0);
+        let y = std::cmp::min(lower_left_corner_pixels.1, upper_right_corner_pixels.1);
+        let width = lower_left_corner_pixels
+            .0
+            .abs_diff(upper_right_corner_pixels.0);
+        let height = lower_left_corner_pixels
+            .1
+            .abs_diff(upper_right_corner_pixels.1);
+        Some(image::imageops::crop_imm(self, x, y, width, height))
+    }
+}
 
 /// represents a map tile fetched from the server
 #[derive(Debug, Clone)]
@@ -19,11 +115,45 @@ impl MapTile {
     pub fn descriptor(&self) -> &MapTileDescriptor {
         &self.descriptor
     }
+}
 
-    /// the image data of the map tile
-    #[must_use]
-    pub fn image(&self) -> &image::DynamicImage {
-        &self.image
+impl GridRectangleLike for MapTile {
+    fn grid_rectangle(&self) -> GridRectangle {
+        self.descriptor.grid_rectangle()
+    }
+}
+
+impl image::GenericImageView for MapTile {
+    type Pixel = <image::DynamicImage as image::GenericImageView>::Pixel;
+
+    fn dimensions(&self) -> (u32, u32) {
+        self.image.dimensions()
+    }
+
+    fn get_pixel(&self, x: u32, y: u32) -> Self::Pixel {
+        self.image.get_pixel(x, y)
+    }
+}
+
+impl image::GenericImage for MapTile {
+    fn get_pixel_mut(&mut self, x: u32, y: u32) -> &mut Self::Pixel {
+        #[allow(deprecated)]
+        self.image.get_pixel_mut(x, y)
+    }
+
+    fn put_pixel(&mut self, x: u32, y: u32, pixel: Self::Pixel) {
+        self.image.put_pixel(x, y, pixel)
+    }
+
+    fn blend_pixel(&mut self, x: u32, y: u32, pixel: Self::Pixel) {
+        #[allow(deprecated)]
+        self.image.blend_pixel(x, y, pixel)
+    }
+}
+
+impl MapLike for MapTile {
+    fn zoom_level(&self) -> ZoomLevel {
+        self.descriptor.zoom_level().to_owned()
     }
 }
 
@@ -252,6 +382,8 @@ impl MapTileCache {
 /// represents a map assembled from map tiles
 #[derive(Debug, Clone)]
 pub struct Map {
+    /// the zoom level of this map
+    zoom_level: ZoomLevel,
     /// the grid rectangle of regions represented by this map
     grid_rectangle: GridRectangle,
     /// the actual map image
@@ -268,6 +400,12 @@ pub enum MapError {
     /// map grid rectangle into the output image
     #[error("error when trying to calculate zoom level that fits the map grid rectangle into the output image: {0}")]
     ZoomFitError(#[from] ZoomFitError),
+    /// failed to crop a map tile to the required size
+    #[error("error when cropping a map tile to the required size")]
+    MapTileCropError,
+    /// failed to calculate pixel coordinates where we want to place a map tile crop
+    #[error("error when calculating pixel coordinates where we want to place a map tile crop")]
+    MapCoordinateError,
 }
 
 impl Map {
@@ -302,64 +440,50 @@ impl Map {
         tracing::debug!("Determined max zoom level for map of size ({x}, {y}) for {grid_rectangle:?} to be {zoom_level:?}, actual map size will be ({actual_x}, {actual_y})");
         let x = actual_x;
         let y = actual_y;
-        let mut image = image::DynamicImage::new_rgb8(x, y);
-        for region_x in grid_rectangle.x_range() {
-            for region_y in grid_rectangle.y_range() {
+        let image = image::DynamicImage::new_rgb8(x, y);
+        let mut result = Self {
+            zoom_level,
+            grid_rectangle,
+            image,
+        };
+        for region_x in result.x_range() {
+            for region_y in result.y_range() {
                 let grid_coordinates = GridCoordinates::new(region_x, region_y);
                 let map_tile_descriptor = MapTileDescriptor::new(zoom_level, grid_coordinates);
                 tracing::debug!("Map tile for {grid_coordinates:?} is {map_tile_descriptor:?}");
                 if let Some(map_tile) = map_tile_cache.get_map_tile(&map_tile_descriptor).await? {
-                    let crop_x = (zoom_level.region_size_in_map_tile_in_pixels()
-                        * (region_x - map_tile_descriptor.lower_left_corner().x()))
-                    .into();
-                    let crop_y: u32 = (zoom_level.region_size_in_map_tile_in_pixels()
-                        * (region_y - map_tile_descriptor.lower_left_corner().y() + 1))
-                        .into();
-                    let crop_y = zoom_level.tile_size_in_pixels() - crop_y;
-                    let crop_width = zoom_level.region_size_in_map_tile_in_pixels().into();
-                    let crop_height = zoom_level.region_size_in_map_tile_in_pixels().into();
+                    let crop = map_tile
+                        .crop_imm_grid_rectangle(&GridRectangle::new(
+                            grid_coordinates,
+                            grid_coordinates,
+                        ))
+                        .ok_or(MapError::MapTileCropError)?;
                     tracing::debug!(
-                        "Cropping map tile to ({crop_x}, {crop_y})+{crop_width}x{crop_height}"
+                        "Cropped map tile to ({}, {})+{}x{}",
+                        crop.offsets().0,
+                        crop.offsets().1,
+                        (*crop).dimensions().0,
+                        (*crop).dimensions().1
                     );
-                    let crop = image::imageops::crop_imm(
-                        map_tile.image(),
-                        crop_x,
-                        crop_y,
-                        crop_width,
-                        crop_height,
+                    let (replace_x, replace_y) = result
+                        .pixel_coordinates_for_coordinates(
+                            &grid_coordinates,
+                            &RegionCoordinates::new(0f32, 0f32, 0f32),
+                        )
+                        .ok_or(MapError::MapCoordinateError)?;
+                    tracing::debug!(
+                        "Placing map tile crop at ({replace_x}, {replace_y}) in the output image"
                     );
-                    let region_x: i64 = region_x.into();
-                    let region_y: i64 = region_y.into();
-                    let offset_x: i64 =
-                        region_x - <u16 as Into<i64>>::into(grid_rectangle.lower_left_corner().x());
-                    let offset_y: i64 =
-                        region_y - <u16 as Into<i64>>::into(grid_rectangle.lower_left_corner().y());
-                    let region_size_in_map_tile_in_pixels: i64 =
-                        zoom_level.region_size_in_map_tile_in_pixels().into();
-                    let y: i64 = y.into();
-                    let replace_x = offset_x * region_size_in_map_tile_in_pixels;
-                    let replace_y = y - ((offset_y + 1) * region_size_in_map_tile_in_pixels);
-                    tracing::debug!("Replacing target image ({replace_x}, {replace_y})+{crop_width}x{crop_height}");
-                    image::imageops::replace(&mut image, &*crop, replace_x, replace_y);
+                    image::imageops::replace(
+                        &mut result,
+                        &*crop,
+                        replace_x.into(),
+                        replace_y.into(),
+                    );
                 }
             }
         }
-        Ok(Self {
-            grid_rectangle,
-            image,
-        })
-    }
-
-    /// returns the grid rectangle this map represents
-    #[must_use]
-    pub fn grid_rectangle(&self) -> &GridRectangle {
-        &self.grid_rectangle
-    }
-
-    /// returns the image for this map
-    #[must_use]
-    pub fn image(&self) -> &image::DynamicImage {
-        &self.image
+        Ok(result)
     }
 
     /// saves the map to the specified path
@@ -373,8 +497,49 @@ impl Map {
     }
 }
 
+impl GridRectangleLike for Map {
+    fn grid_rectangle(&self) -> GridRectangle {
+        self.grid_rectangle.to_owned()
+    }
+}
+
+impl image::GenericImageView for Map {
+    type Pixel = <image::DynamicImage as image::GenericImageView>::Pixel;
+
+    fn dimensions(&self) -> (u32, u32) {
+        self.image.dimensions()
+    }
+
+    fn get_pixel(&self, x: u32, y: u32) -> Self::Pixel {
+        self.image.get_pixel(x, y)
+    }
+}
+
+impl image::GenericImage for Map {
+    fn get_pixel_mut(&mut self, x: u32, y: u32) -> &mut Self::Pixel {
+        #[allow(deprecated)]
+        self.image.get_pixel_mut(x, y)
+    }
+
+    fn put_pixel(&mut self, x: u32, y: u32, pixel: Self::Pixel) {
+        self.image.put_pixel(x, y, pixel)
+    }
+
+    fn blend_pixel(&mut self, x: u32, y: u32, pixel: Self::Pixel) {
+        #[allow(deprecated)]
+        self.image.blend_pixel(x, y, pixel)
+    }
+}
+
+impl MapLike for Map {
+    fn zoom_level(&self) -> ZoomLevel {
+        self.zoom_level
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use image::GenericImageView;
     use sl_types::map::{GridCoordinates, ZoomLevel};
     use tracing_test::traced_test;
 
@@ -508,6 +673,172 @@ mod test {
         map.save(std::path::Path::new(
             "/tmp/test_map_zoom_level_1_ratelimiter.jpg",
         ))?;
+        Ok(())
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    #[allow(clippy::panic)]
+    async fn test_map_tile_pixel_coordinates_for_coordinates_single_region(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = tempfile::tempdir()?;
+        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
+        let Some(map_tile) = map_tile_cache
+            .get_map_tile(&MapTileDescriptor::new(
+                ZoomLevel::try_new(1)?,
+                GridCoordinates::new(1136, 1075),
+            ))
+            .await?
+        else {
+            panic!("Expected there to be a region at this location");
+        };
+        for in_region_x in 0..=256 {
+            for in_region_y in 0..=256 {
+                let grid_coordinates = GridCoordinates::new(1136, 1075);
+                let region_coordinates =
+                    RegionCoordinates::new(in_region_x as f32, in_region_y as f32, 0f32);
+                tracing::debug!("Now checking {grid_coordinates:?}, {region_coordinates:?}");
+                assert_eq!(
+                    map_tile
+                        .pixel_coordinates_for_coordinates(&grid_coordinates, &region_coordinates,),
+                    Some((in_region_x, 256 - in_region_y)),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn test_map_pixel_coordinates_for_coordinates_four_regions(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = tempfile::tempdir()?;
+        let ratelimiter =
+            ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
+        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
+        let map = Map::new(
+            &map_tile_cache,
+            512,
+            512,
+            GridRectangle::new(
+                GridCoordinates::new(1136, 1074),
+                GridCoordinates::new(1137, 1075),
+            ),
+        )
+        .await?;
+        for region_offset_x in 0..=1 {
+            for region_offset_y in 0..=1 {
+                for in_region_x in 0..=256 {
+                    for in_region_y in 0..=256 {
+                        let grid_coordinates =
+                            GridCoordinates::new(1136 + region_offset_x, 1074 + region_offset_y);
+                        let region_coordinates =
+                            RegionCoordinates::new(in_region_x as f32, in_region_y as f32, 0f32);
+                        tracing::debug!(
+                            "Now checking {grid_coordinates:?}, {region_coordinates:?}"
+                        );
+                        assert_eq!(
+                            map.pixel_coordinates_for_coordinates(
+                                &grid_coordinates,
+                                &region_coordinates,
+                            ),
+                            Some((
+                                (region_offset_x * 256 + in_region_x) as u32,
+                                (512 - (region_offset_y * 256 + in_region_y)) as u32
+                            )),
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    #[allow(clippy::panic)]
+    async fn test_map_tile_coordinates_for_pixel_coordinates_single_region(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = tempfile::tempdir()?;
+        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
+        let Some(map_tile) = map_tile_cache
+            .get_map_tile(&MapTileDescriptor::new(
+                ZoomLevel::try_new(1)?,
+                GridCoordinates::new(1136, 1075),
+            ))
+            .await?
+        else {
+            panic!("Expected there to be a region at this location");
+        };
+        tracing::debug!("Dimensions of map tile are {:?}", map_tile.dimensions());
+        for in_region_x in 0..=256 {
+            for in_region_y in 0..=256 {
+                let pixel_x = in_region_x;
+                let pixel_y = 256 - in_region_y;
+                tracing::debug!("Now checking ({pixel_x}, {pixel_y})");
+                assert_eq!(
+                    map_tile.coordinates_for_pixel_coordinates(pixel_x, pixel_y,),
+                    Some((
+                        GridCoordinates::new(
+                            1136 + if in_region_x == 256 { 1 } else { 0 },
+                            1075 + if in_region_y == 256 { 1 } else { 0 }
+                        ),
+                        RegionCoordinates::new(
+                            (in_region_x % 256) as f32,
+                            (in_region_y % 256) as f32,
+                            0f32
+                        ),
+                    ))
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn test_map_coordinates_for_pixel_coordinates_four_regions(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = tempfile::tempdir()?;
+        let ratelimiter =
+            ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
+        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
+        let map = Map::new(
+            &map_tile_cache,
+            512,
+            512,
+            GridRectangle::new(
+                GridCoordinates::new(1136, 1074),
+                GridCoordinates::new(1137, 1075),
+            ),
+        )
+        .await?;
+        tracing::debug!("Dimensions of map are {:?}", map.dimensions());
+        for region_offset_x in 0..=1 {
+            for region_offset_y in 0..=1 {
+                for in_region_x in 0..=256 {
+                    for in_region_y in 0..=256 {
+                        let pixel_x = (region_offset_x * 256 + in_region_x) as u32;
+                        let pixel_y = (512 - (region_offset_y * 256 + in_region_y)) as u32;
+                        tracing::debug!("Now checking ({pixel_x}, {pixel_y})");
+                        assert_eq!(
+                            map.coordinates_for_pixel_coordinates(pixel_x, pixel_y,),
+                            Some((
+                                GridCoordinates::new(
+                                    1136 + region_offset_x + if in_region_x == 256 { 1 } else { 0 },
+                                    1074 + region_offset_y + if in_region_y == 256 { 1 } else { 0 }
+                                ),
+                                RegionCoordinates::new(
+                                    (in_region_x % 256) as f32,
+                                    (in_region_y % 256) as f32,
+                                    0f32
+                                ),
+                            )),
+                        );
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }

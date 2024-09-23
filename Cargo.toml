@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "sl-types",
   "sl-map-apis",
+  "sl-map-cli",
 ]
 
 [profile.release]

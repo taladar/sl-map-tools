@@ -1,6 +1,6 @@
 [package]
-name = "sl-map-apis"
-description = "Wraps the SL map API to convert grid coordinates to region names and vice versa and to fetch map tiles"
+name = "sl-map-cli"
+description = "Makes the SL map functionality available on the CLI"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 version = "0.1.0"
@@ -8,28 +8,39 @@ authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2021"
 publish = false
 
-exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
+exclude = ["push-deploy-branches.sh", ".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 
 [dependencies]
-derive_more = { version = "1.0.0", features = ["debug"] }
-http = "1.1.0"
-http-cache-semantics = { version = "2.1.0", features = ["reqwest"] }
-image = { version = "0.25.2", default-features = false, features = ["jpeg", "png", "rayon"] }
-lru = "0.12.4"
+clap = { version = "4.5.3", features = ["derive", "cargo"] }
+image = "0.25.2"
+log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 ratelimit = "0.9.1"
-redb = "2.1.3"
-reqwest = "0.12.7"
-serde_json = "1.0.128"
+sl-map-apis = { path = "../sl-map-apis" }
 sl-types = { path = "../sl-types" }
-thiserror = "1.0.63"
-tokio = { version = "1.40.0", features = ["full"] }
-tracing = "0.1.40"
+thiserror = { version = "1.0.58" }
+tokio = { version = "1.36.0", features = [ "full" ] }
+tracing = { version = "0.1.40" }
+tracing-appender = { version = "0.2.3" }
+tracing-subscriber = { version = "0.3.18", features = [ "env-filter", "tracing-log" ] }
 
-[dev-dependencies]
-pretty_assertions = "1.4.1"
-tempfile = "3.12.0"
-tokio = { version = "1.40.0", features = ["full", "test-util"] }
-tracing-test = "0.2.5"
+[package.metadata.deb]
+name = "sl-map-cli"
+depends = "$auto"
+extended-description = "Makes the SL map functionality available on the CLI"
+section = "database"
+copyright = "2024, Matthias Hörmann <mhoermann@gmail.com>"
+assets = [
+  [ "target/release/sl_map_cli", "usr/bin/", "755" ],
+  ]
+maintainer-scripts = "maintainer-scripts"
+changelog = "changelog"
+revision = "1"
+
+[package.metadata.rpm.cargo]
+buildflags = ["--release"]
+
+[package.metadata.rpm.targets]
+sl_map_cli = { path = "/usr/bin/sl_map_cli" }
 
 [lints.rust]
 unknown_lints = "deny"

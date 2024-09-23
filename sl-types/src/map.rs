@@ -631,7 +631,7 @@ impl ZoomLevel {
 }
 
 /// describes a map tile
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MapTileDescriptor {
     /// the zoom level of the map tile
     zoom_level: ZoomLevel,

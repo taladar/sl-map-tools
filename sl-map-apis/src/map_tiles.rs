@@ -199,16 +199,54 @@ pub struct MapTileCache {
     ratelimiter: Option<ratelimit::Ratelimiter>,
     /// the cache directory
     cache_directory: PathBuf,
+    /// the in-memory cache
+    #[debug(skip)]
+    cache: lru::LruCache<MapTileDescriptor, (Option<MapTile>, http_cache_semantics::CachePolicy)>,
+}
+
+/// status of a cache entry on disk
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MapTileCacheEntryStatus {
+    /// no files at all related to a map tile in the cache
+    Missing,
+    /// an incomplete set of files related to a map tile in the cache
+    Invalid,
+    /// a usable set of files related to a map tile in the cache (cache policy + either a map tile or an absence marker)
+    Valid,
+}
+
+/// a wrapper around response to force status from 403 to 404 for absent map
+/// tiles so `http_cache_semantics::CachePolicy` becomes usable on those responses
+#[derive(Debug)]
+pub struct MapTileNegativeResponse(reqwest::Response);
+
+impl http_cache_semantics::ResponseLike for MapTileNegativeResponse {
+    fn status(&self) -> http::status::StatusCode {
+        match self.0.status() {
+            http::status::StatusCode::FORBIDDEN => http::status::StatusCode::NOT_FOUND,
+            status => status,
+        }
+    }
+
+    fn headers(&self) -> &http::header::HeaderMap {
+        self.0.headers()
+    }
 }
 
 impl MapTileCache {
     /// creates a new `MapTileCache`
+    #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn new(cache_directory: PathBuf, ratelimiter: Option<ratelimit::Ratelimiter>) -> Self {
+        // unwrap is okay here because we know that the literal 16 is non-zero
+        // same reason for missing_panics_doc above
+        #[allow(clippy::unwrap_used)]
+        let cache = lru::LruCache::new(std::num::NonZeroUsize::new(16).unwrap());
         MapTileCache {
             client: reqwest::Client::new(),
             ratelimiter,
             cache_directory,
+            cache,
         }
     }
 
@@ -230,6 +268,18 @@ impl MapTileCache {
             .join(self.map_tile_file_name(map_tile_descriptor))
     }
 
+    /// the file name marking a negative response in the cache directory
+    #[must_use]
+    fn map_tile_cache_negative_response_file_name(
+        &self,
+        map_tile_descriptor: &MapTileDescriptor,
+    ) -> PathBuf {
+        self.cache_directory.join(format!(
+            "{}.does-not-exist",
+            self.map_tile_file_name(map_tile_descriptor)
+        ))
+    }
+
     /// the file name of the cache policy file in the cache directory
     #[must_use]
     fn cache_policy_file_name(&self, map_tile_descriptor: &MapTileDescriptor) -> PathBuf {
@@ -248,60 +298,179 @@ impl MapTileCache {
         )
     }
 
+    /// check if a cache entry is missing, invalid or valid (either cache policy + map tile or cache policy + negative response)
+    async fn cache_entry_status(
+        &self,
+        map_tile_descriptor: &MapTileDescriptor,
+    ) -> Result<MapTileCacheEntryStatus, MapTileCacheError> {
+        match (
+            self.cache_policy_file_name(map_tile_descriptor).exists(),
+            self.map_tile_cache_file_name(map_tile_descriptor).exists(),
+            self.map_tile_cache_negative_response_file_name(map_tile_descriptor)
+                .exists(),
+        ) {
+            (false, false, false) => Ok(MapTileCacheEntryStatus::Missing),
+            (true, true, false) => Ok(MapTileCacheEntryStatus::Valid),
+            (true, false, true) => Ok(MapTileCacheEntryStatus::Valid),
+            (cp, tile, neg) => {
+                tracing::warn!(
+                    "cache entry status is invalid: cache policy file: {}, map tile file: {}, negative response file: {}",
+                    cp, tile, neg
+                );
+                Ok(MapTileCacheEntryStatus::Invalid)
+            }
+        }
+    }
+
     /// loads the cached `MapTile` and cache policy from the cache directory
+    /// or from the in-memory LRU cache
     ///
     /// # Errors
     ///
     /// returns an error if file operations fail
     async fn fetch_cached_map_tile(
-        &self,
+        &mut self,
         map_tile_descriptor: &MapTileDescriptor,
-    ) -> Result<Option<(MapTile, http_cache_semantics::CachePolicy)>, MapTileCacheError> {
+    ) -> Result<Option<(Option<MapTile>, http_cache_semantics::CachePolicy)>, MapTileCacheError>
+    {
+        if let Some(cache_entry) = self.cache.get(map_tile_descriptor) {
+            return Ok(Some(cache_entry.to_owned()));
+        }
         let cache_file = self.map_tile_cache_file_name(map_tile_descriptor);
         let cache_policy_file = self.cache_policy_file_name(map_tile_descriptor);
+        let cache_entry_status = self.cache_entry_status(map_tile_descriptor).await?;
+        if cache_entry_status == MapTileCacheEntryStatus::Invalid {
+            self.remove_cached_tile(map_tile_descriptor).await?;
+            return Ok(None);
+        }
+        if cache_entry_status == MapTileCacheEntryStatus::Missing {
+            return Ok(None);
+        }
+        let cache_policy = std::fs::read_to_string(cache_policy_file)
+            .map_err(MapTileCacheError::CacheDirectoryFileError)?;
+        let cache_policy: http_cache_semantics::CachePolicy = serde_json::from_str(&cache_policy)?;
         if cache_file.exists() {
-            if !cache_policy_file.exists() {
-                std::fs::remove_file(cache_file)
-                    .map_err(MapTileCacheError::CacheDirectoryFileError)?;
-                Ok(None)
-            } else {
-                let cached_map_tile = image::ImageReader::open(cache_file)
-                    .map_err(MapTileCacheError::CacheDirectoryFileError)?
-                    .decode()?;
-                let cache_policy = std::fs::read_to_string(cache_policy_file)
-                    .map_err(MapTileCacheError::CacheDirectoryFileError)?;
-                let cache_policy: http_cache_semantics::CachePolicy =
-                    serde_json::from_str(&cache_policy)?;
-                Ok(Some((
-                    MapTile {
-                        descriptor: map_tile_descriptor.to_owned(),
-                        image: cached_map_tile,
-                    },
-                    cache_policy,
-                )))
-            }
+            let cached_map_tile = image::ImageReader::open(cache_file)
+                .map_err(MapTileCacheError::CacheDirectoryFileError)?
+                .decode()?;
+            Ok(Some((
+                Some(MapTile {
+                    descriptor: map_tile_descriptor.to_owned(),
+                    image: cached_map_tile,
+                }),
+                cache_policy,
+            )))
         } else {
-            if cache_policy_file.exists() {
-                std::fs::remove_file(cache_policy_file)
-                    .map_err(MapTileCacheError::CacheDirectoryFileError)?;
-            }
-            Ok(None)
+            // since we know the cache entry status is valid and no map tile exists we must be dealing with a cached absence
+            Ok(Some((None, cache_policy)))
         }
     }
 
     /// clears the data about a specific map tile from the cache
     async fn remove_cached_tile(
-        &self,
+        &mut self,
         map_tile_descriptor: &MapTileDescriptor,
     ) -> Result<(), MapTileCacheError> {
+        tracing::debug!("Removing {map_tile_descriptor:?} from map tile cache");
+        self.cache.pop(map_tile_descriptor);
         let cache_file = self.map_tile_cache_file_name(map_tile_descriptor);
+        let cache_file_negative_response =
+            self.map_tile_cache_negative_response_file_name(map_tile_descriptor);
         let cache_policy_file = self.cache_policy_file_name(map_tile_descriptor);
         if cache_file.exists() {
             std::fs::remove_file(cache_file).map_err(MapTileCacheError::CacheDirectoryFileError)?;
         }
+        if cache_file_negative_response.exists() {
+            std::fs::remove_file(cache_file_negative_response)
+                .map_err(MapTileCacheError::CacheDirectoryFileError)?;
+        }
         if cache_policy_file.exists() {
             std::fs::remove_file(cache_policy_file)
                 .map_err(MapTileCacheError::CacheDirectoryFileError)?;
+        }
+        Ok(())
+    }
+
+    /// stores the cache policy in the disk cache
+    ///
+    /// # Errors
+    ///
+    /// returns an error if there was an error in the file operation or when
+    /// serializing the cache policy
+    async fn store_cache_policy(
+        &self,
+        map_tile_descriptor: &MapTileDescriptor,
+        cache_policy: http_cache_semantics::CachePolicy,
+    ) -> Result<(), MapTileCacheError> {
+        if !self.cache_directory.exists() {
+            std::fs::create_dir_all(&self.cache_directory)
+                .map_err(MapTileCacheError::CacheDirectoryFileError)?;
+        }
+        let cache_policy = serde_json::to_string(&cache_policy)?;
+        std::fs::write(
+            self.cache_policy_file_name(map_tile_descriptor),
+            cache_policy,
+        )
+        .map_err(MapTileCacheError::CacheDirectoryFileError)?;
+        Ok(())
+    }
+
+    /// marks a tile as missing in the cache if the cache policy indicates
+    /// it is storable
+    ///
+    /// # Errors
+    ///
+    /// returns an error if there was an error in the file operations
+    /// or serialization of the cache policy
+    async fn cache_missing_tile(
+        &mut self,
+        map_tile_descriptor: &MapTileDescriptor,
+        cache_policy: http_cache_semantics::CachePolicy,
+    ) -> Result<(), MapTileCacheError> {
+        if cache_policy.is_storable() {
+            tracing::debug!("Caching absence of map tile {map_tile_descriptor:?}");
+            self.store_cache_policy(map_tile_descriptor, cache_policy.to_owned())
+                .await?;
+            let cache_file_negative_response =
+                self.map_tile_cache_negative_response_file_name(map_tile_descriptor);
+            std::fs::File::create(cache_file_negative_response)
+                .map_err(MapTileCacheError::CacheDirectoryFileError)?;
+            self.cache
+                .put(map_tile_descriptor.clone(), (None, cache_policy));
+        } else {
+            tracing::warn!("Absence of map tile {map_tile_descriptor:?} not storable according to cache policy");
+        }
+        Ok(())
+    }
+
+    /// stores a tile in the cache if the cache policy indicates that
+    /// it is storable
+    ///
+    /// # Errors
+    ///
+    /// returns an error if there was an error in the file operations
+    /// or serialization of the cache policy
+    async fn cache_tile(
+        &mut self,
+        map_tile_descriptor: &MapTileDescriptor,
+        map_tile: &MapTile,
+        cache_policy: http_cache_semantics::CachePolicy,
+    ) -> Result<(), MapTileCacheError> {
+        if cache_policy.is_storable() {
+            tracing::debug!("Caching map tile {map_tile_descriptor:?}");
+            self.store_cache_policy(map_tile_descriptor, cache_policy.to_owned())
+                .await?;
+            map_tile
+                .image
+                .save(self.map_tile_cache_file_name(map_tile_descriptor))?;
+            self.cache.put(
+                map_tile_descriptor.clone(),
+                (Some(map_tile.to_owned()), cache_policy),
+            );
+        } else {
+            tracing::warn!(
+                "Map tile {map_tile_descriptor:?} not storable according to cache policy"
+            );
         }
         Ok(())
     }
@@ -314,27 +483,41 @@ impl MapTileCache {
     /// returns an error if the HTTP request fails of if the result fails to be
     /// parsed as an image
     pub async fn get_map_tile(
-        &self,
+        &mut self,
         map_tile_descriptor: &MapTileDescriptor,
     ) -> Result<Option<MapTile>, MapTileCacheError> {
+        tracing::debug!("Map tile {map_tile_descriptor:?} requested");
         let url = self.map_tile_url(map_tile_descriptor);
         let request = self.client.get(&url).build()?;
         let now = std::time::SystemTime::now();
         if let Some((cached_map_tile, cache_policy)) =
             self.fetch_cached_map_tile(map_tile_descriptor).await?
         {
+            if cached_map_tile.is_some() {
+                tracing::debug!("Found matching map tile in cache, checking freshness");
+            } else {
+                tracing::debug!("Found matching map tile absence in cache, checking freshness");
+            }
             if let http_cache_semantics::BeforeRequest::Fresh(_) =
                 cache_policy.before_request(&request, now)
             {
-                return Ok(Some(cached_map_tile));
+                if cached_map_tile.is_some() {
+                    tracing::debug!("Using cached map tile");
+                } else {
+                    tracing::debug!("Using cached map tile absence");
+                }
+                return Ok(cached_map_tile);
             }
+            tracing::debug!("Map tile cache not fresh, removing from cache");
             self.remove_cached_tile(map_tile_descriptor).await?;
         }
+        tracing::debug!("Waiting for ratelimiter to fetch map tile from server");
         if let Some(ratelimiter) = &self.ratelimiter {
             while let Err(duration) = ratelimiter.try_wait() {
                 tokio::time::sleep(duration).await;
             }
         }
+        tracing::debug!("Fetching map tile from server at {}", url);
         let response = self
             .client
             .execute(
@@ -343,10 +526,22 @@ impl MapTileCache {
                     .ok_or(MapTileCacheError::FailedToCloneRequest)?,
             )
             .await?;
+        tracing::debug!(
+            "Server response received: status {}, headers\n{:#?}",
+            response.status(),
+            response.headers()
+        );
         if !response.status().is_success() {
             if response.status() == reqwest::StatusCode::FORBIDDEN {
                 // FORBIDDEN (403) is returned when the file does not exist
                 // which likely means there is no region/map tile
+                tracing::debug!("Received 403 FORBIDDEN response, interpreting as no map tile for these grid coordinates");
+                let cache_policy = http_cache_semantics::CachePolicy::new(
+                    &request,
+                    &MapTileNegativeResponse(response),
+                );
+                self.cache_missing_tile(map_tile_descriptor, cache_policy)
+                    .await?;
                 return Ok(None);
             }
             return Err(MapTileCacheError::HttpError(
@@ -358,23 +553,18 @@ impl MapTileCache {
         }
         let cache_policy = http_cache_semantics::CachePolicy::new(&request, &response);
         let raw_response_body = response.bytes().await?;
+        tracing::debug!("Parsing received map tile to image");
         let image = image::ImageReader::new(std::io::Cursor::new(raw_response_body))
             .with_guessed_format()
             .map_err(MapTileCacheError::ImageFormatGuessError)?
             .decode()?;
-        if cache_policy.is_storable() {
-            let cache_policy = serde_json::to_string(&cache_policy)?;
-            std::fs::write(
-                self.cache_policy_file_name(map_tile_descriptor),
-                cache_policy,
-            )
-            .map_err(MapTileCacheError::CacheDirectoryFileError)?;
-            image.save(self.map_tile_cache_file_name(map_tile_descriptor))?;
-        }
         let map_tile = MapTile {
             descriptor: map_tile_descriptor.to_owned(),
             image,
         };
+        self.cache_tile(map_tile_descriptor, &map_tile, cache_policy)
+            .await?;
+        tracing::debug!("Returning freshly fetched map tile");
         Ok(Some(map_tile))
     }
 }
@@ -422,7 +612,7 @@ impl Map {
     /// * `y` - the height of the map in pixels
     /// * `grid_rectangle` - the grid rectangle of regions represented by this map
     pub async fn new(
-        map_tile_cache: &MapTileCache,
+        map_tile_cache: &mut MapTileCache,
         x: u32,
         y: u32,
         grid_rectangle: GridRectangle,
@@ -550,7 +740,7 @@ mod test {
     #[tokio::test]
     async fn test_fetch_map_tile_highest_detail() -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
+        let mut map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
         map_tile_cache
             .get_map_tile(&MapTileDescriptor::new(
                 ZoomLevel::try_new(1)?,
@@ -563,7 +753,7 @@ mod test {
     #[tokio::test]
     async fn test_fetch_map_tile_highest_detail_twice() -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
+        let mut map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
         map_tile_cache
             .get_map_tile(&MapTileDescriptor::new(
                 ZoomLevel::try_new(1)?,
@@ -582,7 +772,7 @@ mod test {
     #[tokio::test]
     async fn test_fetch_map_tile_lowest_detail() -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
+        let mut map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
         map_tile_cache
             .get_map_tile(&MapTileDescriptor::new(
                 ZoomLevel::try_new(8)?,
@@ -598,9 +788,10 @@ mod test {
         let temp_dir = tempfile::tempdir()?;
         let ratelimiter =
             ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
+        let mut map_tile_cache =
+            MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
-            &map_tile_cache,
+            &mut map_tile_cache,
             512,
             512,
             GridRectangle::new(
@@ -619,9 +810,10 @@ mod test {
         let temp_dir = tempfile::tempdir()?;
         let ratelimiter =
             ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
+        let mut map_tile_cache =
+            MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
-            &map_tile_cache,
+            &mut map_tile_cache,
             256,
             256,
             GridRectangle::new(
@@ -640,9 +832,10 @@ mod test {
         let temp_dir = tempfile::tempdir()?;
         let ratelimiter =
             ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
+        let mut map_tile_cache =
+            MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
-            &map_tile_cache,
+            &mut map_tile_cache,
             128,
             128,
             GridRectangle::new(
@@ -661,9 +854,10 @@ mod test {
         let temp_dir = tempfile::tempdir()?;
         let ratelimiter =
             ratelimit::Ratelimiter::builder(1, std::time::Duration::from_millis(100)).build()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
+        let mut map_tile_cache =
+            MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
-            &map_tile_cache,
+            &mut map_tile_cache,
             2048,
             2048,
             GridRectangle::new(
@@ -684,7 +878,7 @@ mod test {
     async fn test_map_tile_pixel_coordinates_for_coordinates_single_region(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
+        let mut map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
         let Some(map_tile) = map_tile_cache
             .get_map_tile(&MapTileDescriptor::new(
                 ZoomLevel::try_new(1)?,
@@ -717,9 +911,10 @@ mod test {
         let temp_dir = tempfile::tempdir()?;
         let ratelimiter =
             ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
+        let mut map_tile_cache =
+            MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
-            &map_tile_cache,
+            &mut map_tile_cache,
             512,
             512,
             GridRectangle::new(
@@ -762,7 +957,7 @@ mod test {
     async fn test_map_tile_coordinates_for_pixel_coordinates_single_region(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
+        let mut map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
         let Some(map_tile) = map_tile_cache
             .get_map_tile(&MapTileDescriptor::new(
                 ZoomLevel::try_new(1)?,
@@ -804,9 +999,10 @@ mod test {
         let temp_dir = tempfile::tempdir()?;
         let ratelimiter =
             ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
-        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
+        let mut map_tile_cache =
+            MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
-            &map_tile_cache,
+            &mut map_tile_cache,
             512,
             512,
             GridRectangle::new(

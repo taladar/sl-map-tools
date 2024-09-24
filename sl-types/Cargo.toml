@@ -8,7 +8,7 @@ authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2021"
 repository = "https://github.com/taladar/sl-map-tools"
 keywords = ["secondlife", "map", "route", "usb_notecard"]
-categories = ["types"]
+categories = ["science::geo"]
 
 exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

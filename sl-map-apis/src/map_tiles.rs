@@ -117,10 +117,35 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
 
     /// draw a line from the given coordinates to the given coordinates
     fn draw_line(&mut self, from_x: u32, from_y: u32, to_x: u32, to_y: u32) {
-        imageproc::drawing::draw_antialiased_line_segment_mut(
+        let from_x = from_x as f32;
+        let from_y = from_y as f32;
+        let to_x = to_x as f32;
+        let to_y = to_y as f32;
+        let diff = (to_x - from_x, to_y - from_y);
+        let perpendicular = (-diff.1, diff.0);
+        let magnitude = (diff.0.powi(2) + diff.1.powi(2)).sqrt();
+        let perpendicular_normalized = (perpendicular.0 / magnitude, perpendicular.1 / magnitude);
+        let points = vec![
+            imageproc::point::Point::new(
+                (from_x + perpendicular_normalized.0 * 5.0) as i32,
+                (from_y + perpendicular_normalized.1 * 5.0) as i32,
+            ),
+            imageproc::point::Point::new(
+                (to_x + perpendicular_normalized.0 * 5.0) as i32,
+                (to_y + perpendicular_normalized.1 * 5.0) as i32,
+            ),
+            imageproc::point::Point::new(
+                (to_x - perpendicular_normalized.0 * 5.0) as i32,
+                (to_y - perpendicular_normalized.1 * 5.0) as i32,
+            ),
+            imageproc::point::Point::new(
+                (from_x - perpendicular_normalized.0 * 5.0) as i32,
+                (from_y - perpendicular_normalized.1 * 5.0) as i32,
+            ),
+        ];
+        imageproc::drawing::draw_antialiased_polygon_mut(
             self.image_mut(),
-            (from_x as i32, from_y as i32),
-            (to_x as i32, to_y as i32),
+            &points,
             image::Rgba([255u8, 0u8, 0u8, 255u8]),
             imageproc::pixelops::interpolate,
         );

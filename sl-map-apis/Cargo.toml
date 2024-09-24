@@ -6,7 +6,9 @@ license = "MIT OR Apache-2.0"
 version = "0.1.0"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2021"
-publish = false
+repository = "https://github.com/taladar/sl-map-tools"
+keywords = ["second life", "map", "route", "usb_notecard"]
+categories = ["apis"]
 
 exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 

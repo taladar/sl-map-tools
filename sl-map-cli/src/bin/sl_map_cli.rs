@@ -102,12 +102,25 @@ impl From<&FromGridRectangle> for GridRectangle {
     }
 }
 
+/// parse `image::Rgba` from a hex color string
+///
+/// # Errors
+///
+/// fails if the string could not be parsed as a hex color
+pub fn parse_color(s: &str) -> Result<image::Rgba<u8>, hex_color::ParseHexColorError> {
+    let hex_color = hex_color::HexColor::parse(s)?;
+    Ok(image::Rgba(hex_color.to_be_bytes()))
+}
+
 /// Generate a map from a USB notecard
 #[derive(clap::Parser, Debug, Clone)]
 pub struct FromUSBNotecard {
     /// the filename for the USB notecard file
     #[clap(long)]
     pub usb_notecard: PathBuf,
+    /// the color to use for the waypoints and route
+    #[clap(long, value_parser = parse_color, default_value = "#f00")]
+    pub color: image::Rgba<u8>,
     /// the maximum width of the output file in pixels
     #[clap(long)]
     pub max_width: u32,
@@ -204,10 +217,10 @@ async fn do_stuff() -> Result<(), crate::Error> {
                     )
                     .ok_or(crate::Error::MapCoordinateError)?;
                 tracing::debug!("Drawing waypoint at ({x}, {y})");
-                map.draw_waypoint(x, y);
+                map.draw_waypoint(x, y, from_usb_notecard.color);
                 if let Some((previous_x, previous_y)) = previous_waypoint {
                     tracing::debug!("Drawing line from ({previous_x}, {previous_y}) to ({x}, {y})");
-                    map.draw_line(previous_x, previous_y, x, y);
+                    map.draw_line(previous_x, previous_y, x, y, from_usb_notecard.color);
                 }
                 previous_waypoint = Some((x, y));
             }

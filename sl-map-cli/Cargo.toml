@@ -12,6 +12,7 @@ exclude = ["push-deploy-branches.sh", ".env", "tarpaulin-report.html", "tarpauli
 
 [dependencies]
 clap = { version = "4.5.3", features = ["derive", "cargo"] }
+hex_color = "3.0.0"
 image = "0.25.2"
 log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 ratelimit = "0.9.1"

@@ -107,16 +107,23 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
     }
 
     /// draw a waypoint at the given coordinates
-    fn draw_waypoint(&mut self, x: u32, y: u32) {
+    fn draw_waypoint(&mut self, x: u32, y: u32, color: image::Rgba<u8>) {
         imageproc::drawing::draw_filled_rect_mut(
             self.image_mut(),
             imageproc::rect::Rect::at((x - 10) as i32, (y - 10) as i32).of_size(20, 20),
-            image::Rgba([255u8, 0u8, 0u8, 255u8]),
+            color,
         );
     }
 
     /// draw a line from the given coordinates to the given coordinates
-    fn draw_line(&mut self, from_x: u32, from_y: u32, to_x: u32, to_y: u32) {
+    fn draw_line(
+        &mut self,
+        from_x: u32,
+        from_y: u32,
+        to_x: u32,
+        to_y: u32,
+        color: image::Rgba<u8>,
+    ) {
         let from_x = from_x as f32;
         let from_y = from_y as f32;
         let to_x = to_x as f32;
@@ -146,7 +153,7 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
         imageproc::drawing::draw_antialiased_polygon_mut(
             self.image_mut(),
             &points,
-            image::Rgba([255u8, 0u8, 0u8, 255u8]),
+            color,
             imageproc::pixelops::interpolate,
         );
     }

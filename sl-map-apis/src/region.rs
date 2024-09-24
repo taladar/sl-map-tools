@@ -7,9 +7,9 @@ pub enum RegionNameToGridCoordinatesError {
     /// HTTP error
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
-    /// Error in response, probably means the region does not exist
-    #[error("Error in response, probably means the region does not exist")]
-    ResponseError,
+    /// failed to clone request for creation of cache policy
+    #[error("failed to clone request for creation of cache policy")]
+    FailedToCloneRequest,
     /// Unexpected prefix in response body
     #[error("Unexpected prefix in response body: {0}")]
     UnexpectedPrefix(String),
@@ -36,11 +36,41 @@ pub enum RegionNameToGridCoordinatesError {
 pub async fn region_name_to_grid_coordinates(
     client: &reqwest::Client,
     region_name: &RegionName,
-) -> Result<GridCoordinates, RegionNameToGridCoordinatesError> {
+    cached_value_with_cache_policy: Option<(
+        Option<GridCoordinates>,
+        http_cache_semantics::CachePolicy,
+    )>,
+) -> Result<
+    (Option<GridCoordinates>, http_cache_semantics::CachePolicy),
+    RegionNameToGridCoordinatesError,
+> {
+    tracing::debug!(
+        "Looking up grid coordinates for region name {}",
+        region_name
+    );
     let url = format!("https://cap.secondlife.com/cap/0/d661249b-2b5a-4436-966a-3d3b8d7a574f?var=coords&sim_name={}", region_name.to_string().replace(" ", "%20"));
-    let response = client.get(&url).send().await?.text().await?;
+    let request = client.get(&url).build()?;
+    if let Some((cached_value, cache_policy)) = cached_value_with_cache_policy {
+        let now = std::time::SystemTime::now();
+        if let http_cache_semantics::BeforeRequest::Fresh(_) =
+            cache_policy.before_request(&request, now)
+        {
+            tracing::debug!("Using cached grid coordinates/absence");
+            return Ok((cached_value, cache_policy));
+        }
+    }
+    let response = client
+        .execute(
+            request
+                .try_clone()
+                .ok_or(RegionNameToGridCoordinatesError::FailedToCloneRequest)?,
+        )
+        .await?;
+    let cache_policy = http_cache_semantics::CachePolicy::new(&request, &response);
+    let response = response.text().await?;
     if response == "var coords = {'error' : true };" {
-        return Err(RegionNameToGridCoordinatesError::ResponseError);
+        tracing::debug!("Received negative response");
+        return Ok((None, cache_policy));
     }
     let Some(response) = response.strip_prefix("var coords = {'x' : ") else {
         return Err(RegionNameToGridCoordinatesError::UnexpectedPrefix(
@@ -64,7 +94,9 @@ pub async fn region_name_to_grid_coordinates(
     let y = parts[1]
         .parse::<u16>()
         .map_err(|err| RegionNameToGridCoordinatesError::Y(parts[1].to_owned(), err))?;
-    Ok(GridCoordinates::new(x, y))
+    let grid_coordinates = GridCoordinates::new(x, y);
+    tracing::debug!("Received response: {:?}", grid_coordinates);
+    Ok((Some(grid_coordinates), cache_policy))
 }
 
 /// Represents the possible errors that can occur when converting grid coordinates to a region name
@@ -73,9 +105,9 @@ pub enum GridCoordinatesToRegionNameError {
     /// HTTP error
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
-    /// Error in response, probably means the region does not exist
-    #[error("Error in response, probably means the region does not exist")]
-    ResponseError,
+    /// failed to clone request for creation of cache policy
+    #[error("failed to clone request for creation of cache policy")]
+    FailedToCloneRequest,
     /// Unexpected prefix in response body
     #[error("Unexpected prefix in response body: {0}")]
     UnexpectedPrefix(String),
@@ -96,11 +128,36 @@ pub enum GridCoordinatesToRegionNameError {
 pub async fn grid_coordinates_to_region_name(
     client: &reqwest::Client,
     grid_coordinates: &GridCoordinates,
-) -> Result<RegionName, GridCoordinatesToRegionNameError> {
+    cached_value_with_cache_policy: Option<(Option<RegionName>, http_cache_semantics::CachePolicy)>,
+) -> Result<(Option<RegionName>, http_cache_semantics::CachePolicy), GridCoordinatesToRegionNameError>
+{
+    tracing::debug!(
+        "Looking up region name for grid coordinates {:?}",
+        grid_coordinates
+    );
     let url = format!("https://cap.secondlife.com/cap/0/b713fe80-283b-4585-af4d-a3b7d9a32492?var=region&grid_x={}&grid_y={}", grid_coordinates.x(), grid_coordinates.y());
-    let response = client.get(&url).send().await?.text().await?;
+    let request = client.get(&url).build()?;
+    if let Some((cached_value, cache_policy)) = cached_value_with_cache_policy {
+        let now = std::time::SystemTime::now();
+        if let http_cache_semantics::BeforeRequest::Fresh(_) =
+            cache_policy.before_request(&request, now)
+        {
+            tracing::debug!("Returning cached region name/absence");
+            return Ok((cached_value, cache_policy));
+        }
+    }
+    let response = client
+        .execute(
+            request
+                .try_clone()
+                .ok_or(GridCoordinatesToRegionNameError::FailedToCloneRequest)?,
+        )
+        .await?;
+    let cache_policy = http_cache_semantics::CachePolicy::new(&request, &response);
+    let response = response.text().await?;
     if response == "var region = {'error' : true };" {
-        return Err(GridCoordinatesToRegionNameError::ResponseError);
+        tracing::debug!("Received negative response");
+        return Ok((None, cache_policy));
     }
     let Some(response) = response.strip_prefix("var region='") else {
         return Err(GridCoordinatesToRegionNameError::UnexpectedPrefix(
@@ -112,8 +169,10 @@ pub async fn grid_coordinates_to_region_name(
             response.to_string(),
         ));
     };
-    RegionName::try_new(response)
-        .map_err(|err| GridCoordinatesToRegionNameError::RegionName(response.to_owned(), err))
+    let region_name = RegionName::try_new(response)
+        .map_err(|err| GridCoordinatesToRegionNameError::RegionName(response.to_owned(), err))?;
+    tracing::debug!("Received region name: {region_name}");
+    Ok((Some(region_name), cache_policy))
 }
 
 /// a cache for region names to grid coordinates
@@ -124,13 +183,20 @@ pub struct RegionNameToGridCoordinatesCache {
     client: reqwest::Client,
     /// the cache database
     db: redb::Database,
-    /// the cache ttl, after this we recheck with the server if a value has changed
-    ttl: std::time::Duration,
+    /// the in memory cache of region names to grid coordinates
+    grid_coordinate_cache:
+        lru::LruCache<RegionName, (Option<GridCoordinates>, http_cache_semantics::CachePolicy)>,
+    /// the in memory cache of grid coordinates to region names
+    region_name_cache:
+        lru::LruCache<GridCoordinates, (Option<RegionName>, http_cache_semantics::CachePolicy)>,
 }
 
 /// describes an error that can occur as part of the cache operation for the `RegionNameToGridCoordinatesCache`
 #[derive(Debug, thiserror::Error)]
 pub enum CacheError {
+    /// error decoding the JSON serialized CachePolicy
+    #[error("error decoding the JSON serialized CachePolicy: {0}")]
+    CachePolicyJsonDecodeError(#[from] serde_json::Error),
     /// redb database error
     #[error("redb database error: {0}")]
     DatabaseError(#[from] redb::DatabaseError),
@@ -168,13 +234,15 @@ const GRID_COORDINATE_CACHE_TABLE: redb::TableDefinition<String, (u16, u16)> =
 const REGION_NAME_CACHE_TABLE: redb::TableDefinition<(u16, u16), String> =
     redb::TableDefinition::new("region_name");
 
-/// describes the redb table to store the last lookup of some grid coordinates
-const GRID_COORDINATES_LAST_LOOKUP_TABLE: redb::TableDefinition<(u16, u16), u64> =
-    redb::TableDefinition::new("last_grid_coordinate_lookup");
+/// describes the redb table to store the `http_cache_semantics::CachePolicy`
+/// serialized as JSON for a region name to grid coordinate lookup
+const GRID_COORDINATE_CACHE_POLICY_TABLE: redb::TableDefinition<String, String> =
+    redb::TableDefinition::new("grid_coordinate_cache_policy");
 
-/// describes the redb table to store the last lookup of a region name
-const REGION_NAME_LAST_LOOKUP_TABLE: redb::TableDefinition<String, u64> =
-    redb::TableDefinition::new("last_region_name_lookup");
+/// describes the redb table to store the `http_cache_semantics::CachePolicy`
+/// serialized as JSON for a grid coordinate to region name lookup
+const REGION_NAME_CACHE_POLICY_TABLE: redb::TableDefinition<(u16, u16), String> =
+    redb::TableDefinition::new("region_name_cache_policy");
 
 impl RegionNameToGridCoordinatesCache {
     /// create a new cache
@@ -182,13 +250,17 @@ impl RegionNameToGridCoordinatesCache {
     /// # Errors
     ///
     /// returns an error if the database could not be created or opened
-    pub fn new(
-        cache_directory: std::path::PathBuf,
-        ttl: std::time::Duration,
-    ) -> Result<Self, CacheError> {
+    pub fn new(cache_directory: std::path::PathBuf) -> Result<Self, CacheError> {
         let client = reqwest::Client::new();
         let db = redb::Database::create(cache_directory.join("region_name.redb"))?;
-        Ok(Self { client, db, ttl })
+        let grid_coordinate_cache = lru::LruCache::unbounded();
+        let region_name_cache = lru::LruCache::unbounded();
+        Ok(Self {
+            client,
+            db,
+            grid_coordinate_cache,
+            region_name_cache,
+        })
     }
 
     /// get the grid coordinates for a region name
@@ -197,80 +269,129 @@ impl RegionNameToGridCoordinatesCache {
     ///
     /// returns an error if either the local database operations or the HTTP requests fail
     pub async fn get_grid_coordinates(
-        &self,
+        &mut self,
         region_name: &RegionName,
     ) -> Result<Option<GridCoordinates>, CacheError> {
-        {
-            tracing::debug!("Retrieving grid coordinates for region {region_name:?}");
-            let mut use_cache = false;
-            let read_txn = self.db.begin_read()?;
-            if let Ok(table) = read_txn.open_table(REGION_NAME_LAST_LOOKUP_TABLE) {
-                if let Some(access_guard) = table.get(region_name.to_owned().into_inner())? {
-                    if let Some(last_lookup_time) = std::time::UNIX_EPOCH
-                        .checked_add(std::time::Duration::from_secs(access_guard.value()))
-                    {
-                        let now = std::time::SystemTime::now();
-                        if now.duration_since(last_lookup_time)? < self.ttl {
-                            use_cache = true;
+        tracing::debug!("Retrieving grid coordinates for region {region_name:?}");
+        let cached_value_with_cache_policy = {
+            if let Some(memory_cached_value) = self.grid_coordinate_cache.get(region_name) {
+                Some(memory_cached_value.to_owned())
+            } else {
+                let read_txn = self.db.begin_read()?;
+                let cache_policy = {
+                    if let Ok(table) = read_txn.open_table(GRID_COORDINATE_CACHE_POLICY_TABLE) {
+                        if let Some(access_guard) =
+                            table.get(region_name.to_owned().into_inner())?
+                        {
+                            let cache_policy: http_cache_semantics::CachePolicy =
+                                serde_json::from_str(&access_guard.value())?;
+                            Some(cache_policy)
+                        } else {
+                            None
                         }
+                    } else {
+                        None
                     }
+                };
+                if let Some(cache_policy) = cache_policy {
+                    let cached_value = {
+                        if let Ok(table) = read_txn.open_table(GRID_COORDINATE_CACHE_TABLE) {
+                            if let Some(access_guard) =
+                                table.get(region_name.to_owned().into_inner())?
+                            {
+                                let (x, y) = access_guard.value();
+                                Some(GridCoordinates::new(x, y))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    };
+                    Some((cached_value, cache_policy))
+                } else {
+                    None
                 }
             }
-            if use_cache {
-                if let Ok(table) = read_txn.open_table(GRID_COORDINATE_CACHE_TABLE) {
-                    if let Some(access_guard) = table.get(region_name.to_owned().into_inner())? {
-                        let (x, y) = access_guard.value();
-                        let grid_coordinates = GridCoordinates::new(x, y);
-                        tracing::debug!("Cached coordinates are {grid_coordinates:?}");
-                        return Ok(Some(grid_coordinates));
+        };
+        match region_name_to_grid_coordinates(
+            &self.client,
+            region_name,
+            cached_value_with_cache_policy,
+        )
+        .await
+        {
+            Ok((Some(grid_coordinates), cache_policy)) => {
+                if cache_policy.is_storable() {
+                    tracing::debug!("Storing grid coordinates in cache");
+                    let write_txn = self.db.begin_write()?;
+                    {
+                        let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_POLICY_TABLE)?;
+                        table.insert(
+                            region_name.to_owned().into_inner(),
+                            serde_json::to_string(&cache_policy)?,
+                        )?;
                     }
-                    tracing::debug!("Cache says there are no coordinates for this region name");
-                    return Ok(None);
+                    {
+                        let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
+                        table.insert(
+                            region_name.to_owned().into_inner(),
+                            (grid_coordinates.x(), grid_coordinates.y()),
+                        )?;
+                    }
+                    write_txn.commit()?;
+                    self.grid_coordinate_cache.put(
+                        region_name.to_owned(),
+                        (Some(grid_coordinates), cache_policy),
+                    );
+                } else {
+                    tracing::debug!("Grid coordinates are not storable");
+                    let write_txn = self.db.begin_write()?;
+                    {
+                        let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_POLICY_TABLE)?;
+                        table.remove(region_name.to_owned().into_inner())?;
+                    }
+                    {
+                        let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
+                        table.remove(region_name.to_owned().into_inner())?;
+                    }
+                    write_txn.commit()?;
+                    self.grid_coordinate_cache.pop(region_name);
                 }
-            }
-        }
-        match region_name_to_grid_coordinates(&self.client, region_name).await {
-            Ok(grid_coordinates) => {
-                let write_txn = self.db.begin_write()?;
-                let now = std::time::SystemTime::now();
-                {
-                    let mut table = write_txn.open_table(REGION_NAME_LAST_LOOKUP_TABLE)?;
-                    table.insert(
-                        region_name.to_owned().into_inner(),
-                        now.duration_since(std::time::UNIX_EPOCH)?.as_secs(),
-                    )?;
-                }
-                {
-                    let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
-                    table.insert(
-                        region_name.to_owned().into_inner(),
-                        (grid_coordinates.x(), grid_coordinates.y()),
-                    )?;
-                }
-                {
-                    let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
-                    table.insert(
-                        (grid_coordinates.x(), grid_coordinates.y()),
-                        region_name.to_owned().into_inner(),
-                    )?;
-                }
-                write_txn.commit()?;
                 tracing::debug!("Coordinates are {grid_coordinates:?}");
                 Ok(Some(grid_coordinates))
             }
-            Err(RegionNameToGridCoordinatesError::ResponseError) => {
-                let write_txn = self.db.begin_write()?;
-                let now = std::time::SystemTime::now();
-                {
-                    let mut table = write_txn.open_table(REGION_NAME_LAST_LOOKUP_TABLE)?;
-                    table.insert(
-                        region_name.to_owned().into_inner(),
-                        now.duration_since(std::time::UNIX_EPOCH)?.as_secs(),
-                    )?;
-                }
-                {
-                    let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
-                    table.remove(region_name.to_owned().into_inner())?;
+            Ok((None, cache_policy)) => {
+                if cache_policy.is_storable() {
+                    tracing::debug!("Storing negative response in cache");
+                    let write_txn = self.db.begin_write()?;
+                    {
+                        let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_POLICY_TABLE)?;
+                        table.insert(
+                            region_name.to_owned().into_inner(),
+                            serde_json::to_string(&cache_policy)?,
+                        )?;
+                    }
+                    {
+                        let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
+                        table.remove(region_name.to_owned().into_inner())?;
+                    }
+                    write_txn.commit()?;
+                    self.grid_coordinate_cache
+                        .put(region_name.to_owned(), (None, cache_policy));
+                } else {
+                    tracing::debug!("Negative response is not storable");
+                    let write_txn = self.db.begin_write()?;
+                    {
+                        let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_POLICY_TABLE)?;
+                        table.remove(region_name.to_owned().into_inner())?;
+                    }
+                    {
+                        let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
+                        table.remove(region_name.to_owned().into_inner())?;
+                    }
+                    write_txn.commit()?;
+                    self.grid_coordinate_cache.pop(region_name);
                 }
                 tracing::debug!("No coordinates exist for that name");
                 Ok(None)
@@ -285,85 +406,131 @@ impl RegionNameToGridCoordinatesCache {
     ///
     /// returns an error if either the local database operations or the HTTP requests fail
     pub async fn get_region_name(
-        &self,
+        &mut self,
         grid_coordinates: &GridCoordinates,
     ) -> Result<Option<RegionName>, CacheError> {
-        {
-            tracing::debug!("Retrieving region name for grid coordinates {grid_coordinates:?}");
-            let mut use_cache = false;
-            let read_txn = self.db.begin_read()?;
-            if let Ok(table) = read_txn.open_table(GRID_COORDINATES_LAST_LOOKUP_TABLE) {
-                if let Some(access_guard) =
-                    table.get((grid_coordinates.x(), grid_coordinates.y()))?
-                {
-                    if let Some(last_lookup_time) = std::time::UNIX_EPOCH
-                        .checked_add(std::time::Duration::from_secs(access_guard.value()))
-                    {
-                        let now = std::time::SystemTime::now();
-                        if now.duration_since(last_lookup_time)? < self.ttl {
-                            use_cache = true;
+        tracing::debug!("Retrieving region name for grid coordinates {grid_coordinates:?}");
+        let cached_value_with_cache_policy = {
+            if let Some(memory_cached_value) = self.region_name_cache.get(grid_coordinates) {
+                Some(memory_cached_value.to_owned())
+            } else {
+                let read_txn = self.db.begin_read()?;
+                let cache_policy = {
+                    if let Ok(table) = read_txn.open_table(REGION_NAME_CACHE_POLICY_TABLE) {
+                        if let Some(access_guard) =
+                            table.get((grid_coordinates.x(), grid_coordinates.y()))?
+                        {
+                            let cache_policy: http_cache_semantics::CachePolicy =
+                                serde_json::from_str(&access_guard.value())?;
+                            Some(cache_policy)
+                        } else {
+                            None
                         }
+                    } else {
+                        None
                     }
+                };
+                if let Some(cache_policy) = cache_policy {
+                    let cached_value = {
+                        if let Ok(table) = read_txn.open_table(REGION_NAME_CACHE_TABLE) {
+                            if let Some(access_guard) =
+                                table.get((grid_coordinates.x(), grid_coordinates.y()))?
+                            {
+                                let region_name = access_guard.value();
+                                Some(RegionName::try_new(region_name)?)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    };
+                    Some((cached_value, cache_policy))
+                } else {
+                    None
                 }
             }
-            if use_cache {
-                if let Ok(table) = read_txn.open_table(REGION_NAME_CACHE_TABLE) {
-                    if let Some(access_guard) =
-                        table.get((grid_coordinates.x(), grid_coordinates.y()))?
+        };
+        match grid_coordinates_to_region_name(
+            &self.client,
+            grid_coordinates,
+            cached_value_with_cache_policy,
+        )
+        .await
+        {
+            Ok((Some(region_name), cache_policy)) => {
+                if cache_policy.is_storable() {
+                    tracing::debug!("Storing region name in cache");
+                    let write_txn = self.db.begin_write()?;
                     {
-                        let region_name = access_guard.value();
-                        tracing::debug!("Cached region name is {region_name:?}");
-                        return Ok(Some(RegionName::try_new(region_name)?));
+                        let mut table = write_txn.open_table(REGION_NAME_CACHE_POLICY_TABLE)?;
+                        table.insert(
+                            (grid_coordinates.x(), grid_coordinates.y()),
+                            serde_json::to_string(&cache_policy)?,
+                        )?;
                     }
-                    tracing::debug!("Cache says there is no region name for these coordinates");
-                    return Ok(None);
+                    {
+                        let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
+                        table.insert(
+                            (grid_coordinates.x(), grid_coordinates.y()),
+                            region_name.to_owned().into_inner(),
+                        )?;
+                    }
+                    write_txn.commit()?;
+                    self.region_name_cache.put(
+                        grid_coordinates.to_owned(),
+                        (Some(region_name.to_owned()), cache_policy),
+                    );
+                } else {
+                    tracing::warn!("Region name response is not storable");
+                    let write_txn = self.db.begin_write()?;
+                    {
+                        let mut table = write_txn.open_table(REGION_NAME_CACHE_POLICY_TABLE)?;
+                        table.remove((grid_coordinates.x(), grid_coordinates.y()))?;
+                    }
+                    {
+                        let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
+                        table.remove((grid_coordinates.x(), grid_coordinates.y()))?;
+                    }
+                    write_txn.commit()?;
+                    self.region_name_cache.pop(grid_coordinates);
                 }
-            }
-        }
-        match grid_coordinates_to_region_name(&self.client, grid_coordinates).await {
-            Ok(region_name) => {
-                let write_txn = self.db.begin_write()?;
-                let now = std::time::SystemTime::now();
-                {
-                    let mut table = write_txn.open_table(GRID_COORDINATES_LAST_LOOKUP_TABLE)?;
-                    table.insert(
-                        (grid_coordinates.x(), grid_coordinates.y()),
-                        now.duration_since(std::time::UNIX_EPOCH)?.as_secs(),
-                    )?;
-                }
-                {
-                    let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
-                    table.insert(
-                        region_name.to_owned().into_inner(),
-                        (grid_coordinates.x(), grid_coordinates.y()),
-                    )?;
-                }
-                {
-                    let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
-                    table.insert(
-                        (grid_coordinates.x(), grid_coordinates.y()),
-                        region_name.to_owned().into_inner(),
-                    )?;
-                }
-                write_txn.commit()?;
-                tracing::debug!("Retrieved region name is {region_name:?}");
+                tracing::debug!("Region name is {region_name:?}");
                 Ok(Some(region_name))
             }
-            Err(GridCoordinatesToRegionNameError::ResponseError) => {
-                let write_txn = self.db.begin_write()?;
-                let now = std::time::SystemTime::now();
-                {
-                    let mut table = write_txn.open_table(GRID_COORDINATES_LAST_LOOKUP_TABLE)?;
-                    table.insert(
-                        (grid_coordinates.x(), grid_coordinates.y()),
-                        now.duration_since(std::time::UNIX_EPOCH)?.as_secs(),
-                    )?;
+            Ok((None, cache_policy)) => {
+                if cache_policy.is_storable() {
+                    tracing::debug!("Storing negative response in cache");
+                    let write_txn = self.db.begin_write()?;
+                    {
+                        let mut table = write_txn.open_table(REGION_NAME_CACHE_POLICY_TABLE)?;
+                        table.insert(
+                            (grid_coordinates.x(), grid_coordinates.y()),
+                            serde_json::to_string(&cache_policy)?,
+                        )?;
+                    }
+                    {
+                        let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
+                        table.remove((grid_coordinates.x(), grid_coordinates.y()))?;
+                    }
+                    write_txn.commit()?;
+                    self.region_name_cache
+                        .put(grid_coordinates.to_owned(), (None, cache_policy));
+                } else {
+                    tracing::debug!("Negative response is not storable");
+                    let write_txn = self.db.begin_write()?;
+                    {
+                        let mut table = write_txn.open_table(REGION_NAME_CACHE_POLICY_TABLE)?;
+                        table.remove((grid_coordinates.x(), grid_coordinates.y()))?;
+                    }
+                    {
+                        let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
+                        table.remove((grid_coordinates.x(), grid_coordinates.y()))?;
+                    }
+                    write_txn.commit()?;
+                    self.region_name_cache.pop(grid_coordinates);
                 }
-                {
-                    let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
-                    table.remove((grid_coordinates.x(), grid_coordinates.y()))?;
-                }
-                tracing::debug!("There is no region at these coordinates");
+                tracing::debug!("No region name exists for those grid coordinates");
                 Ok(None)
             }
             Err(err) => Err(CacheError::RegionNameHttpError(err)),
@@ -393,7 +560,7 @@ pub enum USBNotecardToGridRectangleError {
 ///
 /// returns an error if there were no waypoints or if conversions to grid coordinates failed
 pub async fn usb_notecard_to_grid_rectangle(
-    region_name_to_grid_coordinates_cache: &RegionNameToGridCoordinatesCache,
+    region_name_to_grid_coordinates_cache: &mut RegionNameToGridCoordinatesCache,
     usb_notecard: &USBNotecard,
 ) -> Result<GridRectangle, USBNotecardToGridRectangleError> {
     let mut lower_left_x = None;
@@ -458,8 +625,10 @@ mod tests {
     async fn test_region_name_to_grid_coordinates() -> Result<(), Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
         assert_eq!(
-            region_name_to_grid_coordinates(&client, &RegionName::try_new("Thorkell")?).await?,
-            GridCoordinates::new(1136, 1075)
+            region_name_to_grid_coordinates(&client, &RegionName::try_new("Thorkell")?, None)
+                .await?
+                .0,
+            Some(GridCoordinates::new(1136, 1075))
         );
         Ok(())
     }
@@ -468,8 +637,10 @@ mod tests {
     async fn test_grid_coordinates_to_region_name() -> Result<(), Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
         assert_eq!(
-            grid_coordinates_to_region_name(&client, &GridCoordinates::new(1136, 1075)).await?,
-            RegionName::try_new("Thorkell")?
+            grid_coordinates_to_region_name(&client, &GridCoordinates::new(1136, 1075), None)
+                .await?
+                .0,
+            Some(RegionName::try_new("Thorkell")?)
         );
         Ok(())
     }
@@ -478,10 +649,7 @@ mod tests {
     async fn test_cache_region_name_to_grid_coordinates() -> Result<(), Box<dyn std::error::Error>>
     {
         let tempdir = tempfile::tempdir()?;
-        let cache = RegionNameToGridCoordinatesCache::new(
-            tempdir.path().to_path_buf(),
-            std::time::Duration::from_secs(7 * 24 * 60 * 60),
-        )?;
+        let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
         assert_eq!(
             cache
                 .get_grid_coordinates(&RegionName::try_new("Thorkell")?)
@@ -495,10 +663,7 @@ mod tests {
     async fn test_cache_region_name_to_grid_coordinates_twice(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let tempdir = tempfile::tempdir()?;
-        let cache = RegionNameToGridCoordinatesCache::new(
-            tempdir.path().to_path_buf(),
-            std::time::Duration::from_secs(7 * 24 * 60 * 60),
-        )?;
+        let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
         assert_eq!(
             cache
                 .get_grid_coordinates(&RegionName::try_new("Thorkell")?)
@@ -515,13 +680,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_cache_region_name_to_grid_coordinates_negative_twice(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let tempdir = tempfile::tempdir()?;
+        let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
+        assert_eq!(
+            cache
+                .get_grid_coordinates(&RegionName::try_new("Thorkel")?)
+                .await?,
+            None,
+        );
+        assert_eq!(
+            cache
+                .get_grid_coordinates(&RegionName::try_new("Thorkel")?)
+                .await?,
+            None,
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_cache_grid_coordinates_to_region_name() -> Result<(), Box<dyn std::error::Error>>
     {
         let tempdir = tempfile::tempdir()?;
-        let cache = RegionNameToGridCoordinatesCache::new(
-            tempdir.path().to_path_buf(),
-            std::time::Duration::from_secs(7 * 24 * 60 * 60),
-        )?;
+        let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
         assert_eq!(
             cache
                 .get_region_name(&GridCoordinates::new(1136, 1075))
@@ -535,10 +717,7 @@ mod tests {
     async fn test_cache_grid_coordinates_to_region_name_twice(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let tempdir = tempfile::tempdir()?;
-        let cache = RegionNameToGridCoordinatesCache::new(
-            tempdir.path().to_path_buf(),
-            std::time::Duration::from_secs(7 * 24 * 60 * 60),
-        )?;
+        let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
         assert_eq!(
             cache
                 .get_region_name(&GridCoordinates::new(1136, 1075))
@@ -550,6 +729,26 @@ mod tests {
                 .get_region_name(&GridCoordinates::new(1136, 1075))
                 .await?,
             Some(RegionName::try_new("Thorkell")?)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cache_grid_coordinates_to_region_name_negative_twice(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let tempdir = tempfile::tempdir()?;
+        let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
+        assert_eq!(
+            cache
+                .get_region_name(&GridCoordinates::new(11136, 1075))
+                .await?,
+            None,
+        );
+        assert_eq!(
+            cache
+                .get_region_name(&GridCoordinates::new(11136, 1075))
+                .await?,
+            None,
         );
         Ok(())
     }

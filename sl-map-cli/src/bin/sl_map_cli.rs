@@ -180,12 +180,10 @@ async fn do_stuff() -> Result<(), crate::Error> {
         }
         Command::FromUSBNotecard(from_usb_notecard) => {
             let usb_notecard = USBNotecard::load_from_file(&from_usb_notecard.usb_notecard)?;
-            let region_name_to_grid_coordinates_cache = RegionNameToGridCoordinatesCache::new(
-                options.cache_dir.to_owned(),
-                std::time::Duration::from_secs(7 * 24 * 60 * 60),
-            )?;
+            let mut region_name_to_grid_coordinates_cache =
+                RegionNameToGridCoordinatesCache::new(options.cache_dir.to_owned())?;
             let grid_rectangle = usb_notecard_to_grid_rectangle(
-                &region_name_to_grid_coordinates_cache,
+                &mut region_name_to_grid_coordinates_cache,
                 &usb_notecard,
             )
             .await?;

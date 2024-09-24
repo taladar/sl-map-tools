@@ -13,6 +13,7 @@ exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 
 [dependencies]
 nutype = { version = "0.5.0", features = ["serde"] }
+ranges = "0.4.0"
 serde = { version = "1.0.210", features = ["derive"] }
 thiserror = "1.0.63"
 

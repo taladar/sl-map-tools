@@ -596,6 +596,9 @@ pub enum MapError {
     /// failed to calculate pixel coordinates where we want to place a map tile crop
     #[error("error when calculating pixel coordinates where we want to place a map tile crop")]
     MapCoordinateError,
+    /// no overlap between map tile we fetched and output map (should not happen)
+    #[error("no overlap between map tile we fetched and output map (should not happen)")]
+    NoOverlapError,
 }
 
 impl Map {
@@ -640,13 +643,20 @@ impl Map {
             for region_y in result.y_range() {
                 let grid_coordinates = GridCoordinates::new(region_x, region_y);
                 let map_tile_descriptor = MapTileDescriptor::new(zoom_level, grid_coordinates);
+                let Some(overlap) = result.intersect(&map_tile_descriptor) else {
+                    return Err(MapError::NoOverlapError);
+                };
+                if overlap.lower_left_corner().x() != region_x
+                    || overlap.lower_left_corner().y() != region_y
+                {
+                    // we should have already processed this map tile when
+                    // we encountered the lower left corner of the overlap
+                    continue;
+                }
                 tracing::debug!("Map tile for {grid_coordinates:?} is {map_tile_descriptor:?}");
                 if let Some(map_tile) = map_tile_cache.get_map_tile(&map_tile_descriptor).await? {
                     let crop = map_tile
-                        .crop_imm_grid_rectangle(&GridRectangle::new(
-                            grid_coordinates,
-                            grid_coordinates,
-                        ))
+                        .crop_imm_grid_rectangle(&overlap)
                         .ok_or(MapError::MapTileCropError)?;
                     tracing::debug!(
                         "Cropped map tile to ({}, {})+{}x{}",
@@ -659,7 +669,7 @@ impl Map {
                     // we need the upper left corner, not the lower left one of the region as an origin
                     let (replace_x, replace_y) = result
                         .pixel_coordinates_for_coordinates(
-                            &grid_coordinates,
+                            &overlap.upper_left_corner(),
                             &RegionCoordinates::new(0f32, 256f32, 0f32),
                         )
                         .ok_or(MapError::MapCoordinateError)?;

@@ -130,6 +130,24 @@ pub trait GridRectangleLike {
         self.grid_rectangle().lower_left_corner().to_owned()
     }
 
+    /// returns the lower right corner of the rectangle
+    #[must_use]
+    fn lower_right_corner(&self) -> GridCoordinates {
+        GridCoordinates::new(
+            self.grid_rectangle().upper_right_corner().x(),
+            self.grid_rectangle().lower_left_corner().y(),
+        )
+    }
+
+    /// returns the upper left corner of the rectangle
+    #[must_use]
+    fn upper_left_corner(&self) -> GridCoordinates {
+        GridCoordinates::new(
+            self.grid_rectangle().lower_left_corner().x(),
+            self.grid_rectangle().upper_right_corner().y(),
+        )
+    }
+
     /// returns the upper right corner of the rectangle
     #[must_use]
     fn upper_right_corner(&self) -> GridCoordinates {
@@ -167,6 +185,48 @@ pub trait GridRectangleLike {
             && grid_coordinates.x() <= self.upper_right_corner().x()
             && self.lower_left_corner().y() <= grid_coordinates.y()
             && grid_coordinates.y() <= self.upper_right_corner().y()
+    }
+
+    /// returns a new `GridRectangle` which is the area where this `GridRectangle`
+    /// and another intersect each other or None if there is no intersection
+    #[must_use]
+    fn intersect<O>(&self, other: &O) -> Option<GridRectangle>
+    where
+        O: GridRectangleLike,
+    {
+        let self_x_range: ranges::GenericRange<u16> = self.x_range().into();
+        let self_y_range: ranges::GenericRange<u16> = self.y_range().into();
+        let other_x_range: ranges::GenericRange<u16> = other.x_range().into();
+        let other_y_range: ranges::GenericRange<u16> = other.y_range().into();
+        let x_intersection = self_x_range.intersect(other_x_range);
+        let y_intersection = self_y_range.intersect(other_y_range);
+        match (x_intersection, y_intersection) {
+            (
+                ranges::OperationResult::Single(x_range),
+                ranges::OperationResult::Single(y_range),
+            ) => {
+                use std::ops::Bound;
+                use std::ops::RangeBounds;
+                match (
+                    x_range.start_bound(),
+                    x_range.end_bound(),
+                    y_range.start_bound(),
+                    y_range.end_bound(),
+                ) {
+                    (
+                        Bound::Included(start_x),
+                        Bound::Included(end_x),
+                        Bound::Included(start_y),
+                        Bound::Included(end_y),
+                    ) => Some(GridRectangle::new(
+                        GridCoordinates::new(*start_x, *start_y),
+                        GridCoordinates::new(*end_x, *end_y),
+                    )),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 }
 
@@ -868,6 +928,74 @@ mod test {
                 z: 24
             }),
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_grid_rectangle_intersection_upper_right_corner(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let rect1 = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
+        let rect2 = GridRectangle::new(GridCoordinates::new(15, 15), GridCoordinates::new(25, 25));
+        assert_eq!(
+            rect1.intersect(&rect2),
+            Some(GridRectangle::new(
+                GridCoordinates::new(15, 15),
+                GridCoordinates::new(20, 20),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_grid_rectangle_intersection_upper_left_corner() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let rect1 = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
+        let rect2 = GridRectangle::new(GridCoordinates::new(5, 15), GridCoordinates::new(15, 25));
+        assert_eq!(
+            rect1.intersect(&rect2),
+            Some(GridRectangle::new(
+                GridCoordinates::new(10, 15),
+                GridCoordinates::new(15, 20),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_grid_rectangle_intersection_lower_left_corner() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let rect1 = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
+        let rect2 = GridRectangle::new(GridCoordinates::new(5, 5), GridCoordinates::new(15, 15));
+        assert_eq!(
+            rect1.intersect(&rect2),
+            Some(GridRectangle::new(
+                GridCoordinates::new(10, 10),
+                GridCoordinates::new(15, 15),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_grid_rectangle_intersection_lower_right_corner(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let rect1 = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
+        let rect2 = GridRectangle::new(GridCoordinates::new(15, 5), GridCoordinates::new(25, 15));
+        assert_eq!(
+            rect1.intersect(&rect2),
+            Some(GridRectangle::new(
+                GridCoordinates::new(15, 10),
+                GridCoordinates::new(20, 15),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_grid_rectangle_intersection_no_overlap() -> Result<(), Box<dyn std::error::Error>> {
+        let rect1 = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
+        let rect2 = GridRectangle::new(GridCoordinates::new(30, 30), GridCoordinates::new(40, 40));
+        assert_eq!(rect1.intersect(&rect2), None);
         Ok(())
     }
 }

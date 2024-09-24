@@ -201,6 +201,7 @@ impl RegionNameToGridCoordinatesCache {
         region_name: &RegionName,
     ) -> Result<Option<GridCoordinates>, CacheError> {
         {
+            tracing::debug!("Retrieving grid coordinates for region {region_name:?}");
             let mut use_cache = false;
             let read_txn = self.db.begin_read()?;
             if let Ok(table) = read_txn.open_table(REGION_NAME_LAST_LOOKUP_TABLE) {
@@ -219,8 +220,11 @@ impl RegionNameToGridCoordinatesCache {
                 if let Ok(table) = read_txn.open_table(GRID_COORDINATE_CACHE_TABLE) {
                     if let Some(access_guard) = table.get(region_name.to_owned().into_inner())? {
                         let (x, y) = access_guard.value();
-                        return Ok(Some(GridCoordinates::new(x, y)));
+                        let grid_coordinates = GridCoordinates::new(x, y);
+                        tracing::debug!("Cached coordinates are {grid_coordinates:?}");
+                        return Ok(Some(grid_coordinates));
                     }
+                    tracing::debug!("Cache says there are no coordinates for this region name");
                     return Ok(None);
                 }
             }
@@ -251,6 +255,7 @@ impl RegionNameToGridCoordinatesCache {
                     )?;
                 }
                 write_txn.commit()?;
+                tracing::debug!("Coordinates are {grid_coordinates:?}");
                 Ok(Some(grid_coordinates))
             }
             Err(RegionNameToGridCoordinatesError::ResponseError) => {
@@ -267,6 +272,7 @@ impl RegionNameToGridCoordinatesCache {
                     let mut table = write_txn.open_table(GRID_COORDINATE_CACHE_TABLE)?;
                     table.remove(region_name.to_owned().into_inner())?;
                 }
+                tracing::debug!("No coordinates exist for that name");
                 Ok(None)
             }
             Err(err) => Err(CacheError::GridCoordinatesHttpError(err)),
@@ -283,6 +289,7 @@ impl RegionNameToGridCoordinatesCache {
         grid_coordinates: &GridCoordinates,
     ) -> Result<Option<RegionName>, CacheError> {
         {
+            tracing::debug!("Retrieving region name for grid coordinates {grid_coordinates:?}");
             let mut use_cache = false;
             let read_txn = self.db.begin_read()?;
             if let Ok(table) = read_txn.open_table(GRID_COORDINATES_LAST_LOOKUP_TABLE) {
@@ -305,8 +312,10 @@ impl RegionNameToGridCoordinatesCache {
                         table.get((grid_coordinates.x(), grid_coordinates.y()))?
                     {
                         let region_name = access_guard.value();
+                        tracing::debug!("Cached region name is {region_name:?}");
                         return Ok(Some(RegionName::try_new(region_name)?));
                     }
+                    tracing::debug!("Cache says there is no region name for these coordinates");
                     return Ok(None);
                 }
             }
@@ -337,6 +346,7 @@ impl RegionNameToGridCoordinatesCache {
                     )?;
                 }
                 write_txn.commit()?;
+                tracing::debug!("Retrieved region name is {region_name:?}");
                 Ok(Some(region_name))
             }
             Err(GridCoordinatesToRegionNameError::ResponseError) => {
@@ -353,6 +363,7 @@ impl RegionNameToGridCoordinatesCache {
                     let mut table = write_txn.open_table(REGION_NAME_CACHE_TABLE)?;
                     table.remove((grid_coordinates.x(), grid_coordinates.y()))?;
                 }
+                tracing::debug!("There is no region at these coordinates");
                 Ok(None)
             }
             Err(err) => Err(CacheError::RegionNameHttpError(err)),
@@ -410,7 +421,7 @@ pub async fn usb_notecard_to_grid_rectangle(
                 upper_right_x = Some(grid_coordinates.x());
             }
             if let Some(ury) = upper_right_y {
-                upper_right_y = Some(std::cmp::min(ury, grid_coordinates.y()));
+                upper_right_y = Some(std::cmp::max(ury, grid_coordinates.y()));
             } else {
                 upper_right_y = Some(grid_coordinates.y());
             }

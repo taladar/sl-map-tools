@@ -5,7 +5,11 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use sl_map_apis::map_tiles::{Map, MapError, MapTileCache, MapTileCacheError};
-use sl_types::map::{GridCoordinates, GridRectangle};
+use sl_map_apis::region::{
+    usb_notecard_to_grid_rectangle, RegionNameToGridCoordinatesCache,
+    USBNotecardToGridRectangleError,
+};
+use sl_types::map::{GridCoordinates, GridRectangle, USBNotecard, USBNotecardLoadError};
 use tracing::instrument;
 use tracing_subscriber::{
     filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer, Registry,
@@ -35,6 +39,15 @@ pub enum Error {
     /// error in image processing
     #[error("error in image processing: {0}")]
     ImageError(#[from] image::error::ImageError),
+    /// error loading USB notecard
+    #[error("error loading USB notecard: {0}")]
+    USBNotecardLoadError(#[from] USBNotecardLoadError),
+    /// region name/grid coordinate cache error
+    #[error("error in region name/grid coordinate cache: {0}")]
+    RegionNameCacheError(#[from] sl_map_apis::region::CacheError),
+    /// error converting a USB notecard to a grid rectangle
+    #[error("error converting a USB notecard to a grid rectangle: {0}")]
+    USBNotecardToGridRectangleError(#[from] USBNotecardToGridRectangleError),
 }
 
 /// Generate a map from a rectangle of grid coordinates
@@ -80,11 +93,30 @@ impl From<&FromGridRectangle> for GridRectangle {
     }
 }
 
+/// Generate a map from a USB notecard
+#[derive(clap::Parser, Debug, Clone)]
+pub struct FromUSBNotecard {
+    /// the filename for the USB notecard file
+    #[clap(long)]
+    pub usb_notecard: PathBuf,
+    /// the maximum width of the output file in pixels
+    #[clap(long)]
+    pub max_width: u32,
+    /// the maximum height of the output file in pixels
+    #[clap(long)]
+    pub max_height: u32,
+    /// the output file name for the generated map
+    #[clap(long)]
+    pub output_file: PathBuf,
+}
+
 /// which subcommand to call
 #[derive(clap::Parser, Debug)]
 pub enum Command {
     /// Generate a map from a rectangle of grid coordinates
     FromGridRectangle(FromGridRectangle),
+    /// Generate a map from a USB notecard
+    FromUSBNotecard(FromUSBNotecard),
 }
 
 /// The Clap type for all the commandline parameters
@@ -123,6 +155,31 @@ async fn do_stuff() -> Result<(), crate::Error> {
             )
             .await?;
             map.save(&from_grid_rectangle.output_file)?;
+        }
+        Command::FromUSBNotecard(from_usb_notecard) => {
+            let usb_notecard = USBNotecard::load_from_file(&from_usb_notecard.usb_notecard)?;
+            let region_name_to_grid_coordinates_cache = RegionNameToGridCoordinatesCache::new(
+                options.cache_dir.to_owned(),
+                std::time::Duration::from_secs(7 * 24 * 60 * 60),
+            )?;
+            let grid_rectangle = usb_notecard_to_grid_rectangle(
+                &region_name_to_grid_coordinates_cache,
+                &usb_notecard,
+            )
+            .await?;
+            let ratelimiter =
+                ratelimit::Ratelimiter::builder(1, std::time::Duration::from_millis(100))
+                    .build()?;
+            let mut map_tile_cache = MapTileCache::new(options.cache_dir, Some(ratelimiter));
+            let map = Map::new(
+                &mut map_tile_cache,
+                from_usb_notecard.max_width,
+                from_usb_notecard.max_height,
+                grid_rectangle,
+            )
+            .await?;
+            // TODO: draw arrows and potentially other information
+            map.save(&from_usb_notecard.output_file)?;
         }
     }
 

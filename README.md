@@ -29,10 +29,8 @@ these maximum dimensions.
 
 
 ```
-cargo run -- --cache-dir cache from-grid-rectangle --lower-left-x 380 --lower-left-y 380 --upper-right-x 1500 --upper-right-y 1500 --max-width 2048 --max-height 2048 --output-file test_map.jpg
+sl_map_cli --cache-dir cache from-grid-rectangle --lower-left-x 380 --lower-left-y 380 --upper-right-x 1500 --upper-right-y 1500 --max-width 2048 --max-height 2048 --output-file test_map.jpg
 ```
-
-Of course you can also build the binary and call it directly instead of using `cargo run --`.
 
 # Generate a map from a USB notecard
 
@@ -45,5 +43,5 @@ mode
 
 
 ```
-cargo run -- --cache-dir cache from-usb-notecard --usb-notecard usb_notecard.txt --color '#0f0' --max-width 2048 --max-height 2048 --output-file test_map.jpg
+sl_map_cli --cache-dir cache from-usb-notecard --usb-notecard usb_notecard.txt --color '#0f0' --max-width 2048 --max-height 2048 --output-file test_map.jpg
 ```

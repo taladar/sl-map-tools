@@ -4,8 +4,10 @@ use std::path::PathBuf;
 use image::GenericImageView as _;
 use sl_types::map::{
     GridCoordinateOffset, GridCoordinates, GridRectangle, GridRectangleLike, MapTileDescriptor,
-    RegionCoordinates, ZoomFitError, ZoomLevel,
+    RegionCoordinates, RegionName, USBNotecard, ZoomFitError, ZoomLevel,
 };
+
+use crate::region::RegionNameToGridCoordinatesCache;
 
 /// represents a map like image, e.g. a map tile or a map that covers
 /// some `GridRectangle` of regions
@@ -667,6 +669,13 @@ pub enum MapError {
     /// no overlap between map tile we fetched and output map (should not happen)
     #[error("no overlap between map tile we fetched and output map (should not happen)")]
     NoOverlapError,
+    /// no grid coordinates were returned for one of the region names in the
+    /// USB Notecard
+    #[error("No grid coordinates were returned for one of the regions in the USB notecard: {0}")]
+    NoGridCoordinatesForRegion(RegionName),
+    /// error in region name to grid coordinate cache
+    #[error("error in region name to grid coordinate cache: {0}")]
+    RegionNameToGridCoordinateCacheError(#[from] crate::region::CacheError),
 }
 
 impl Map {
@@ -754,6 +763,49 @@ impl Map {
             }
         }
         Ok(result)
+    }
+
+    /// draws a route from a `USBNotecard` onto the map
+    ///
+    /// # Errors
+    ///
+    /// fails if the region name to grid coordinate conversion fails
+    /// or the conversion of those into pixel coordinates
+    pub async fn draw_route(
+        &mut self,
+        region_name_to_grid_coordinates_cache: &mut RegionNameToGridCoordinatesCache,
+        usb_notecard: &USBNotecard,
+        color: image::Rgba<u8>,
+    ) -> Result<(), MapError> {
+        tracing::debug!("Drawing route:\n{:#?}", usb_notecard);
+        let mut previous_waypoint: Option<(u32, u32)> = None;
+        for waypoint in usb_notecard.waypoints() {
+            let Some(grid_coordinates) = region_name_to_grid_coordinates_cache
+                .get_grid_coordinates(waypoint.location().region_name())
+                .await?
+            else {
+                return Err(MapError::NoGridCoordinatesForRegion(
+                    waypoint.location().region_name().to_owned(),
+                ));
+            };
+            let (x, y) = self
+                .pixel_coordinates_for_coordinates(
+                    &grid_coordinates,
+                    &waypoint.region_coordinates(),
+                )
+                .ok_or(MapError::MapCoordinateError)?;
+            tracing::debug!(
+                "Drawing waypoint at ({x}, {y}) for location {:?}",
+                waypoint.location()
+            );
+            self.draw_waypoint(x, y, color);
+            if let Some((previous_x, previous_y)) = previous_waypoint {
+                tracing::debug!("Drawing line from ({previous_x}, {previous_y}) to ({x}, {y})");
+                self.draw_line(previous_x, previous_y, x, y, color);
+            }
+            previous_waypoint = Some((x, y));
+        }
+        Ok(())
     }
 
     /// saves the map to the specified path

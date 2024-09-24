@@ -60,7 +60,7 @@ jobs:
           bin: sl_map_cli
           # (optional) Comma-separated list of additional files to be included to archive.
           # Note that glob pattern is not supported yet.
-          include: README.md,CHANGELOG.md
+          include: README.md,sl-map-cli/CHANGELOG.md
           # (optional) Whether to create the leading directory in the archive or not. default to false.
           leading-dir: true
           # (optional) Create extra leading directory(s) for binary file(s) specified by `bin` option. default to empty.

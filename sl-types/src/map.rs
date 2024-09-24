@@ -772,6 +772,16 @@ impl USBWaypoint {
         &self.location
     }
 
+    /// get the region coordinates of the waypoint
+    #[must_use]
+    pub fn region_coordinates(&self) -> RegionCoordinates {
+        RegionCoordinates::new(
+            self.location.x() as f32,
+            self.location.y() as f32,
+            self.location.z() as f32,
+        )
+    }
+
     /// get the comment for the waypoint if any
     #[must_use]
     pub fn comment(&self) -> Option<&String> {

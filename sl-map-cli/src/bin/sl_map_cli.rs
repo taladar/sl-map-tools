@@ -4,12 +4,14 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use sl_map_apis::map_tiles::{Map, MapError, MapTileCache, MapTileCacheError};
+use sl_map_apis::map_tiles::{Map, MapError, MapLike, MapTileCache, MapTileCacheError};
 use sl_map_apis::region::{
     usb_notecard_to_grid_rectangle, RegionNameToGridCoordinatesCache,
     USBNotecardToGridRectangleError,
 };
-use sl_types::map::{GridCoordinates, GridRectangle, USBNotecard, USBNotecardLoadError};
+use sl_types::map::{
+    GridCoordinates, GridRectangle, RegionName, USBNotecard, USBNotecardLoadError,
+};
 use tracing::instrument;
 use tracing_subscriber::{
     filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer, Registry,
@@ -48,6 +50,13 @@ pub enum Error {
     /// error converting a USB notecard to a grid rectangle
     #[error("error converting a USB notecard to a grid rectangle: {0}")]
     USBNotecardToGridRectangleError(#[from] USBNotecardToGridRectangleError),
+    /// no grid coordinates were returned for one of the region names in the
+    /// USB Notecard
+    #[error("No grid coordinates were returned for one of the regions in the USB notecard: {0}")]
+    NoGridCoordinatesForRegion(RegionName),
+    /// error converting grid and region coordinates into pixel coordinates on a map
+    #[error("error converting grid and region coordinates into pixel coordinates on a map")]
+    MapCoordinateError,
 }
 
 /// Generate a map from a rectangle of grid coordinates
@@ -171,14 +180,37 @@ async fn do_stuff() -> Result<(), crate::Error> {
                 ratelimit::Ratelimiter::builder(1, std::time::Duration::from_millis(100))
                     .build()?;
             let mut map_tile_cache = MapTileCache::new(options.cache_dir, Some(ratelimiter));
-            let map = Map::new(
+            let mut map = Map::new(
                 &mut map_tile_cache,
                 from_usb_notecard.max_width,
                 from_usb_notecard.max_height,
                 grid_rectangle,
             )
             .await?;
-            // TODO: draw arrows and potentially other information
+            let mut previous_waypoint = None;
+            for waypoint in usb_notecard.waypoints() {
+                let Some(grid_coordinates) = region_name_to_grid_coordinates_cache
+                    .get_grid_coordinates(waypoint.location().region_name())
+                    .await?
+                else {
+                    return Err(crate::Error::NoGridCoordinatesForRegion(
+                        waypoint.location().region_name().to_owned(),
+                    ));
+                };
+                let (x, y) = map
+                    .pixel_coordinates_for_coordinates(
+                        &grid_coordinates,
+                        &waypoint.region_coordinates(),
+                    )
+                    .ok_or(crate::Error::MapCoordinateError)?;
+                tracing::debug!("Drawing waypoint at ({x}, {y})");
+                map.draw_waypoint(x, y);
+                if let Some((previous_x, previous_y)) = previous_waypoint {
+                    tracing::debug!("Drawing line from ({previous_x}, {previous_y}) to ({x}, {y})");
+                    map.draw_line(previous_x, previous_y, x, y);
+                }
+                previous_waypoint = Some((x, y));
+            }
             map.save(&from_usb_notecard.output_file)?;
         }
     }

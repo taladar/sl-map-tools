@@ -10,6 +10,14 @@ use sl_types::map::{
 /// represents a map like image, e.g. a map tile or a map that covers
 /// some `GridRectangle` of regions
 pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImageView {
+    /// the image of the map
+    #[must_use]
+    fn image(&self) -> &image::DynamicImage;
+
+    /// the mutable image of the map
+    #[must_use]
+    fn image_mut(&mut self) -> &mut image::DynamicImage;
+
     /// the zoom level of the map
     #[must_use]
     fn zoom_level(&self) -> ZoomLevel;
@@ -97,6 +105,26 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
             .abs_diff(upper_right_corner_pixels.1);
         Some(image::imageops::crop_imm(self, x, y, width, height))
     }
+
+    /// draw a waypoint at the given coordinates
+    fn draw_waypoint(&mut self, x: u32, y: u32) {
+        imageproc::drawing::draw_filled_rect_mut(
+            self.image_mut(),
+            imageproc::rect::Rect::at((x - 10) as i32, (y - 10) as i32).of_size(20, 20),
+            image::Rgba([255u8, 0u8, 0u8, 255u8]),
+        );
+    }
+
+    /// draw a line from the given coordinates to the given coordinates
+    fn draw_line(&mut self, from_x: u32, from_y: u32, to_x: u32, to_y: u32) {
+        imageproc::drawing::draw_antialiased_line_segment_mut(
+            self.image_mut(),
+            (from_x as i32, from_y as i32),
+            (to_x as i32, to_y as i32),
+            image::Rgba([255u8, 0u8, 0u8, 255u8]),
+            imageproc::pixelops::interpolate,
+        );
+    }
 }
 
 /// represents a map tile fetched from the server
@@ -154,6 +182,14 @@ impl image::GenericImage for MapTile {
 impl MapLike for MapTile {
     fn zoom_level(&self) -> ZoomLevel {
         self.descriptor.zoom_level().to_owned()
+    }
+
+    fn image(&self) -> &image::DynamicImage {
+        &self.image
+    }
+
+    fn image_mut(&mut self) -> &mut image::DynamicImage {
+        &mut self.image
     }
 }
 
@@ -736,6 +772,14 @@ impl image::GenericImage for Map {
 impl MapLike for Map {
     fn zoom_level(&self) -> ZoomLevel {
         self.zoom_level
+    }
+
+    fn image(&self) -> &image::DynamicImage {
+        &self.image
+    }
+
+    fn image_mut(&mut self) -> &mut image::DynamicImage {
+        &mut self.image
     }
 }
 

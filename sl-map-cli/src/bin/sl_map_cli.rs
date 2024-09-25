@@ -9,7 +9,9 @@ use sl_map_apis::region::{
     usb_notecard_to_grid_rectangle, RegionNameToGridCoordinatesCache,
     USBNotecardToGridRectangleError,
 };
-use sl_types::map::{GridCoordinates, GridRectangle, USBNotecard, USBNotecardLoadError};
+use sl_types::map::{
+    GridCoordinates, GridRectangle, GridRectangleLike as _, USBNotecard, USBNotecardLoadError,
+};
 use tracing::instrument;
 use tracing_subscriber::{
     filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer, Registry,
@@ -160,14 +162,16 @@ async fn do_stuff() -> Result<(), crate::Error> {
                 ratelimit::Ratelimiter::builder(1, std::time::Duration::from_millis(100))
                     .build()?;
             let mut map_tile_cache = MapTileCache::new(options.cache_dir, Some(ratelimiter));
+            let grid_rectangle: GridRectangle = (&from_grid_rectangle).into();
             let map = Map::new(
                 &mut map_tile_cache,
                 from_grid_rectangle.max_width,
                 from_grid_rectangle.max_height,
-                (&from_grid_rectangle).into(),
+                grid_rectangle.to_owned(),
             )
             .await?;
             map.save(&from_grid_rectangle.output_file)?;
+            println!("PPS HUD config: {}", grid_rectangle.pps_hud_config());
         }
         Command::FromUSBNotecard(from_usb_notecard) => {
             let usb_notecard = USBNotecard::load_from_file(&from_usb_notecard.usb_notecard)?;
@@ -186,7 +190,7 @@ async fn do_stuff() -> Result<(), crate::Error> {
                 &mut map_tile_cache,
                 from_usb_notecard.max_width,
                 from_usb_notecard.max_height,
-                grid_rectangle,
+                grid_rectangle.to_owned(),
             )
             .await?;
             map.draw_route(
@@ -196,6 +200,7 @@ async fn do_stuff() -> Result<(), crate::Error> {
             )
             .await?;
             map.save(&from_usb_notecard.output_file)?;
+            println!("PPS HUD config: {}", grid_rectangle.pps_hud_config());
         }
     }
 

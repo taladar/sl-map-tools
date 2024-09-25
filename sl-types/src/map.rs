@@ -228,6 +228,31 @@ pub trait GridRectangleLike {
             _ => None,
         }
     }
+
+    /// returns a PPS HUD description string for this `GridRectangle`
+    ///
+    /// The PPS HUD is a map HUD commonly used in the SL sailing community
+    /// and usually you need to configure it by clicking on the HUD while
+    /// you are at the matching location in-world to calibrate the coordinates
+    /// on the map texture.
+    ///
+    /// This string needs to be put in the description of the PPS HUD
+    /// dot prim with "Edit linked objects" to avoid the need for manual
+    /// calibration.
+    #[must_use]
+    fn pps_hud_config(&self) -> String {
+        let lower_left_corner_x = 256f32 * self.lower_left_corner().x() as f32;
+        let lower_left_corner_y = 256f32 * self.lower_left_corner().y() as f32;
+        // this is basically the lower left corner as an LSL vector of meters from the grid coordinate origin
+        // followed by the width and height of the map in regions
+        // and a 0/1 for the locked state of the HUD
+        // each of those is separated from the next by a slash character
+        format!(
+            "<{lower_left_corner_x},{lower_left_corner_y},0>/{}/{}/1",
+            self.size_x() as f32,
+            self.size_y() as f32
+        )
+    }
 }
 
 impl GridRectangleLike for GridRectangle {

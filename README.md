@@ -32,6 +32,11 @@ these maximum dimensions.
 sl_map_cli --cache-dir cache from-grid-rectangle --lower-left-x 380 --lower-left-y 380 --upper-right-x 1500 --upper-right-y 1500 --max-width 2048 --max-height 2048 --output-file test_map.jpg
 ```
 
+If you want to use the generated map with a PPS HUD you can use the string
+printed at the end as the description of the dot prim of your PPS HUD to avoid
+having the manually (and less accurately) calibrate the HUD to fit
+the map texture.
+
 # Generate a map from a USB notecard
 
 The USB notecard should be saved into a text file. A hex color code

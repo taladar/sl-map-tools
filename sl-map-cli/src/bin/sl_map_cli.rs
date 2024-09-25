@@ -172,6 +172,13 @@ async fn do_stuff() -> Result<(), crate::Error> {
             .await?;
             map.save(&from_grid_rectangle.output_file)?;
             println!("PPS HUD config: {}", grid_rectangle.pps_hud_config());
+            println!(
+                "The aspect ratio of the image is {}:{} ({})",
+                grid_rectangle.size_x(),
+                grid_rectangle.size_y(),
+                grid_rectangle.size_x() as f32 / grid_rectangle.size_y() as f32
+            );
+            println!("You can use this to edit e.g. the PPS HUD to have the correct ratio of width and height");
         }
         Command::FromUSBNotecard(from_usb_notecard) => {
             let usb_notecard = USBNotecard::load_from_file(&from_usb_notecard.usb_notecard)?;
@@ -201,6 +208,13 @@ async fn do_stuff() -> Result<(), crate::Error> {
             .await?;
             map.save(&from_usb_notecard.output_file)?;
             println!("PPS HUD config: {}", grid_rectangle.pps_hud_config());
+            println!(
+                "The aspect ratio of the image is {}:{} ({})",
+                grid_rectangle.size_x(),
+                grid_rectangle.size_y(),
+                grid_rectangle.size_x() as f32 / grid_rectangle.size_y() as f32
+            );
+            println!("You can use this to edit e.g. the PPS HUD to have the correct ratio of width and height");
         }
     }
 

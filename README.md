@@ -37,6 +37,11 @@ printed at the end as the description of the dot prim of your PPS HUD to avoid
 having the manually (and less accurately) calibrate the HUD to fit
 the map texture.
 
+You can then use a long click on the dot to reset the scripts.
+
+You can also use the aspect ratio printed to edit the PPS HUD to be the correct
+size.
+
 # Generate a map from a USB notecard
 
 The USB notecard should be saved into a text file. A hex color code

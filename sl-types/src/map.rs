@@ -708,7 +708,7 @@ impl ZoomLevel {
                 .try_into()
                 .expect("Logarithm of a u32 should always fit in a u8"),
         );
-        Ok(ZoomLevel::try_new(std::cmp::min(
+        Ok(ZoomLevel::try_new(std::cmp::max(
             max_zoom_level_x,
             max_zoom_level_y,
         ))?)

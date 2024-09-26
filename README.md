@@ -27,6 +27,18 @@ The tool automatically adjusts the resolution down to exactly match the number
 of regions in the grid rectangle at the most detailed zoom level that fits into
 these maximum dimensions.
 
+By default missing map tiles (as in map tiles where no regions exist in that
+area) will appear as black while missing regions inside lower detail map tiles
+are shown in a water-like color by Linden Lab.
+
+It is possible to change the fill color for missing map tiles with the
+--missing-map-tile-color option.
+
+It is also possible to fill the missing regions within map tiles though
+determining which regions exist there has some performance impact.
+
+To use this you can use the  --missing-region-color option.
+
 
 ```
 sl_map_cli --cache-dir cache from-grid-rectangle --lower-left-x 380 --lower-left-y 380 --upper-right-x 1500 --upper-right-y 1500 --max-width 2048 --max-height 2048 --output-file test_map.jpg
@@ -55,3 +67,5 @@ mode
 ```
 sl_map_cli --cache-dir cache from-usb-notecard --usb-notecard usb_notecard.txt --color '#0f0' --max-width 2048 --max-height 2048 --output-file test_map.jpg
 ```
+
+It is also possible to additionally save the map without the route to a separate file by specifying the --output-file-without-route option with another file name.

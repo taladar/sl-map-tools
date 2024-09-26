@@ -67,6 +67,16 @@ pub struct FromGridRectangle {
     /// the y coordinate of the upper right corner of the grid rectangle
     #[clap(long)]
     pub upper_right_y: u16,
+    /// the fill color for missing map tiles, default is not to
+    /// fill which results in black
+    #[clap(long, value_parser = parse_color)]
+    pub missing_map_tile_color: Option<image::Rgba<u8>>,
+    /// the fill color for missing regions inside higher zoom level map tiles
+    /// used, this has some performance impact since we need to determine
+    /// if the regions exist, the default if no filling is performed is a color
+    /// similar to the water color
+    #[clap(long, value_parser = parse_color)]
+    pub missing_region_color: Option<image::Rgba<u8>>,
     /// the maximum width of the output file in pixels
     #[clap(long)]
     pub max_width: u32,
@@ -114,12 +124,25 @@ pub struct FromUSBNotecard {
     /// the color to use for the waypoints and route
     #[clap(long, value_parser = parse_color, default_value = "#f00")]
     pub color: image::Rgba<u8>,
+    /// the fill color for missing map tiles, default is not to
+    /// fill which results in black
+    #[clap(long, value_parser = parse_color)]
+    pub missing_map_tile_color: Option<image::Rgba<u8>>,
+    /// the fill color for missing regions inside higher zoom level map tiles
+    /// used, this has some performance impact since we need to determine
+    /// if the regions exist, the default if no filling is performed is a color
+    /// similar to the water color
+    #[clap(long, value_parser = parse_color)]
+    pub missing_region_color: Option<image::Rgba<u8>>,
     /// the maximum width of the output file in pixels
     #[clap(long)]
     pub max_width: u32,
     /// the maximum height of the output file in pixels
     #[clap(long)]
     pub max_height: u32,
+    /// the output file name for the generated map without the route
+    #[clap(long)]
+    pub output_file_without_route: Option<PathBuf>,
     /// the output file name for the generated map
     #[clap(long)]
     pub output_file: PathBuf,
@@ -168,6 +191,8 @@ async fn do_stuff() -> Result<(), crate::Error> {
                 from_grid_rectangle.max_width,
                 from_grid_rectangle.max_height,
                 grid_rectangle.to_owned(),
+                from_grid_rectangle.missing_map_tile_color,
+                from_grid_rectangle.missing_region_color,
             )
             .await?;
             map.save(&from_grid_rectangle.output_file)?;
@@ -198,8 +223,13 @@ async fn do_stuff() -> Result<(), crate::Error> {
                 from_usb_notecard.max_width,
                 from_usb_notecard.max_height,
                 grid_rectangle.to_owned(),
+                from_usb_notecard.missing_map_tile_color,
+                from_usb_notecard.missing_region_color,
             )
             .await?;
+            if let Some(output_file_without_route) = &from_usb_notecard.output_file_without_route {
+                map.save(output_file_without_route)?;
+            }
             map.draw_route(
                 &mut region_name_to_grid_coordinates_cache,
                 &usb_notecard,

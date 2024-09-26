@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use image::GenericImageView as _;
 use sl_types::map::{
     GridCoordinateOffset, GridCoordinates, GridRectangle, GridRectangleLike, MapTileDescriptor,
-    RegionCoordinates, RegionName, USBNotecard, ZoomFitError, ZoomLevel,
+    RegionCoordinates, RegionName, USBNotecard, ZoomFitError, ZoomLevel, ZoomLevelError,
 };
 
 use crate::region::RegionNameToGridCoordinatesCache;
@@ -257,6 +257,13 @@ pub enum MapTileCacheError {
     /// error decoding the JSON serialized CachePolicy
     #[error("error decoding the JSON serialized CachePolicy: {0}")]
     CachePolicyJsonDecodeError(#[from] serde_json::Error),
+    /// error creating a zoom level
+    #[error("error creating a zoom level: {0}")]
+    ZoomLevelError(#[from] ZoomLevelError),
+    /// error when trying to load cache policy that we previously checked
+    /// existed on disk
+    #[error("error when trying to load cache policy that we previously checked existed on disk")]
+    CachePolicyError,
 }
 
 /// a cache for map tiles on the local filesystem
@@ -407,7 +414,6 @@ impl MapTileCache {
             return Ok(Some(cache_entry.to_owned()));
         }
         let cache_file = self.map_tile_cache_file_name(map_tile_descriptor);
-        let cache_policy_file = self.cache_policy_file_name(map_tile_descriptor);
         let cache_entry_status = self.cache_entry_status(map_tile_descriptor).await?;
         if cache_entry_status == MapTileCacheEntryStatus::Invalid {
             self.remove_cached_tile(map_tile_descriptor).await?;
@@ -416,9 +422,9 @@ impl MapTileCache {
         if cache_entry_status == MapTileCacheEntryStatus::Missing {
             return Ok(None);
         }
-        let cache_policy = std::fs::read_to_string(cache_policy_file)
-            .map_err(MapTileCacheError::CacheDirectoryFileError)?;
-        let cache_policy: http_cache_semantics::CachePolicy = serde_json::from_str(&cache_policy)?;
+        let Some(cache_policy) = self.load_cache_policy(map_tile_descriptor).await? else {
+            return Err(MapTileCacheError::CachePolicyError);
+        };
         if cache_file.exists() {
             let cached_map_tile = image::ImageReader::open(cache_file)
                 .map_err(MapTileCacheError::CacheDirectoryFileError)?
@@ -459,6 +465,25 @@ impl MapTileCache {
                 .map_err(MapTileCacheError::CacheDirectoryFileError)?;
         }
         Ok(())
+    }
+
+    /// loads the `http_cache_semantics::CachePolicy` for a cached map tile
+    /// or absence from disk cache
+    ///
+    /// # Errors
+    ///
+    /// returns an error if file operations or JSON deserialization fail
+    async fn load_cache_policy(
+        &self,
+        map_tile_descriptor: &MapTileDescriptor,
+    ) -> Result<Option<http_cache_semantics::CachePolicy>, MapTileCacheError> {
+        let cache_policy_file = self.cache_policy_file_name(map_tile_descriptor);
+        if !cache_policy_file.exists() {
+            return Ok(None);
+        }
+        let cache_policy = std::fs::read_to_string(cache_policy_file)
+            .map_err(MapTileCacheError::CacheDirectoryFileError)?;
+        Ok(serde_json::from_str(&cache_policy)?)
     }
 
     /// stores the cache policy in the disk cache
@@ -637,6 +662,75 @@ impl MapTileCache {
         tracing::debug!("Returning freshly fetched map tile");
         Ok(Some(map_tile))
     }
+
+    /// figures out if a map tile exist by checking the local in-memory and
+    /// disk caches or fetching the map tile from the server
+    ///
+    /// # Errors
+    ///
+    /// returns an error if fetching the map tile from cache or remotely fails
+    pub async fn does_map_tile_exist(
+        &mut self,
+        map_tile_descriptor: &MapTileDescriptor,
+    ) -> Result<bool, MapTileCacheError> {
+        let url = self.map_tile_url(map_tile_descriptor);
+        if let Some((map_tile, cache_policy)) = self.cache.get(map_tile_descriptor) {
+            let request = self.client.get(&url).build()?;
+            let now = std::time::SystemTime::now();
+            if let http_cache_semantics::BeforeRequest::Fresh(_) =
+                cache_policy.before_request(&request, now)
+            {
+                return Ok(map_tile.is_some());
+            }
+        }
+        if self.cache_entry_status(&map_tile_descriptor).await? == MapTileCacheEntryStatus::Valid {
+            if let Some(cache_policy) = self.load_cache_policy(&map_tile_descriptor).await? {
+                let request = self.client.get(&url).build()?;
+                let now = std::time::SystemTime::now();
+                if let http_cache_semantics::BeforeRequest::Fresh(_) =
+                    cache_policy.before_request(&request, now)
+                {
+                    if self
+                        .map_tile_cache_negative_response_file_name(map_tile_descriptor)
+                        .exists()
+                    {
+                        return Ok(false);
+                    }
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(self.get_map_tile(&map_tile_descriptor).await?.is_some())
+    }
+
+    /// figures out if a region exists based on the existence of map tiles for it, starting with the lowest zoom level
+    /// and potentially going up to the highest one if all the other zoom levels have a tile for that region
+    ///
+    /// # Errors
+    ///
+    /// returns an error if fetching map tiles from cache or remotely fails
+    pub async fn does_region_exist(
+        &mut self,
+        grid_coordinates: &GridCoordinates,
+    ) -> Result<bool, MapTileCacheError> {
+        for zoom_level in (1..=8).rev() {
+            tracing::debug!("Checking if zoom level {zoom_level} map tile exists for region {grid_coordinates:?}");
+            let map_tile_descriptor = MapTileDescriptor::new(
+                ZoomLevel::try_new(zoom_level)?,
+                grid_coordinates.to_owned(),
+            );
+            if !self.does_map_tile_exist(&map_tile_descriptor).await? {
+                tracing::debug!("No map tile found, region {grid_coordinates:?} does not exist");
+                return Ok(false);
+            }
+            let cache_entry_status = self.cache_entry_status(&map_tile_descriptor).await?;
+            if cache_entry_status == MapTileCacheEntryStatus::Valid {}
+        }
+        tracing::debug!(
+            "Map tiles exist for {grid_coordinates:?} on all zoom levels, region exists"
+        );
+        Ok(true)
+    }
 }
 
 /// represents a map assembled from map tiles
@@ -681,6 +775,13 @@ pub enum MapError {
 impl Map {
     /// creates a new `Map`
     ///
+    /// if we choose not to fill the missing map tiles they appear as black
+    ///
+    /// if we choose not to fill the missing regions they appear in a color
+    /// similar to water but filling them in has some performance impact since
+    /// we need to check if the region exists by fetching higher resolutio
+    /// map tiles for it.
+    ///
     /// # Errors
     ///
     /// returns an error if fetching the map tiles fails
@@ -696,6 +797,8 @@ impl Map {
         x: u32,
         y: u32,
         grid_rectangle: GridRectangle,
+        fill_missing_map_tiles: Option<image::Rgba<u8>>,
+        fill_missing_regions: Option<image::Rgba<u8>>,
     ) -> Result<Self, MapError> {
         let zoom_level = ZoomLevel::max_zoom_level_to_fit_regions_into_output_image(
             grid_rectangle.size_x(),
@@ -759,6 +862,61 @@ impl Map {
                         replace_x.into(),
                         replace_y.into(),
                     );
+                    if let Some(fill_color) = fill_missing_regions {
+                        for overlap_region_x in overlap.x_range() {
+                            for overlap_region_y in overlap.y_range() {
+                                let grid_coordinates =
+                                    GridCoordinates::new(overlap_region_x, overlap_region_y);
+                                if !map_tile_cache.does_region_exist(&grid_coordinates).await? {
+                                    let pixel_min = result.pixel_coordinates_for_coordinates(
+                                        &grid_coordinates,
+                                        &RegionCoordinates::new(0f32, 256f32, 0f32),
+                                    );
+                                    let pixel_max = result.pixel_coordinates_for_coordinates(
+                                        &grid_coordinates,
+                                        &RegionCoordinates::new(256f32, 0f32, 0f32),
+                                    );
+                                    if let (Some((min_x, min_y)), Some((max_x, max_y))) =
+                                        (pixel_min, pixel_max)
+                                    {
+                                        for x in min_x..max_x {
+                                            for y in min_y..max_y {
+                                                <Map as image::GenericImage>::put_pixel(
+                                                    &mut result,
+                                                    x,
+                                                    y,
+                                                    fill_color,
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if let Some(fill_color) = fill_missing_map_tiles {
+                        let (replace_x, replace_y) = result
+                            .pixel_coordinates_for_coordinates(
+                                &overlap.upper_left_corner(),
+                                &RegionCoordinates::new(0f32, 256f32, 0f32),
+                            )
+                            .ok_or(MapError::MapCoordinateError)?;
+                        let pixel_size_x =
+                            overlap.size_x() as u32 * zoom_level.pixels_per_region() as u32;
+                        let pixel_size_y =
+                            overlap.size_y() as u32 * zoom_level.pixels_per_region() as u32;
+                        for x in replace_x..replace_x + pixel_size_x {
+                            for y in replace_y..replace_y + pixel_size_y {
+                                <Map as image::GenericImage>::put_pixel(
+                                    &mut result,
+                                    x,
+                                    y,
+                                    fill_color,
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }

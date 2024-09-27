@@ -3,7 +3,7 @@ name = "sl-map-cli"
 description = "Makes the SL map functionality available on the CLI"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2021"
 repository = "https://github.com/taladar/sl-map-tools"
@@ -18,7 +18,7 @@ hex_color = "3.0.0"
 image = "0.25.2"
 log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 ratelimit = "0.9.1"
-sl-map-apis = "0.1.2"
+sl-map-apis = "0.1.3"
 sl-types = "0.1.1"
 thiserror = { version = "1.0.58" }
 tokio = { version = "1.36.0", features = [ "full" ] }

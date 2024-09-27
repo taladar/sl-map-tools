@@ -112,7 +112,7 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
     fn draw_waypoint(&mut self, x: u32, y: u32, color: image::Rgba<u8>) {
         imageproc::drawing::draw_filled_rect_mut(
             self.image_mut(),
-            imageproc::rect::Rect::at((x - 10) as i32, (y - 10) as i32).of_size(20, 20),
+            imageproc::rect::Rect::at(x as i32 - 5i32, y as i32 - 5i32).of_size(10, 10),
             color,
         );
     }
@@ -683,8 +683,8 @@ impl MapTileCache {
                 return Ok(map_tile.is_some());
             }
         }
-        if self.cache_entry_status(&map_tile_descriptor).await? == MapTileCacheEntryStatus::Valid {
-            if let Some(cache_policy) = self.load_cache_policy(&map_tile_descriptor).await? {
+        if self.cache_entry_status(map_tile_descriptor).await? == MapTileCacheEntryStatus::Valid {
+            if let Some(cache_policy) = self.load_cache_policy(map_tile_descriptor).await? {
                 let request = self.client.get(&url).build()?;
                 let now = std::time::SystemTime::now();
                 if let http_cache_semantics::BeforeRequest::Fresh(_) =
@@ -700,7 +700,7 @@ impl MapTileCache {
                 }
             }
         }
-        Ok(self.get_map_tile(&map_tile_descriptor).await?.is_some())
+        Ok(self.get_map_tile(map_tile_descriptor).await?.is_some())
     }
 
     /// figures out if a region exists based on the existence of map tiles for it, starting with the lowest zoom level
@@ -894,27 +894,20 @@ impl Map {
                             }
                         }
                     }
-                } else {
-                    if let Some(fill_color) = fill_missing_map_tiles {
-                        let (replace_x, replace_y) = result
-                            .pixel_coordinates_for_coordinates(
-                                &overlap.upper_left_corner(),
-                                &RegionCoordinates::new(0f32, 256f32, 0f32),
-                            )
-                            .ok_or(MapError::MapCoordinateError)?;
-                        let pixel_size_x =
-                            overlap.size_x() as u32 * zoom_level.pixels_per_region() as u32;
-                        let pixel_size_y =
-                            overlap.size_y() as u32 * zoom_level.pixels_per_region() as u32;
-                        for x in replace_x..replace_x + pixel_size_x {
-                            for y in replace_y..replace_y + pixel_size_y {
-                                <Map as image::GenericImage>::put_pixel(
-                                    &mut result,
-                                    x,
-                                    y,
-                                    fill_color,
-                                );
-                            }
+                } else if let Some(fill_color) = fill_missing_map_tiles {
+                    let (replace_x, replace_y) = result
+                        .pixel_coordinates_for_coordinates(
+                            &overlap.upper_left_corner(),
+                            &RegionCoordinates::new(0f32, 256f32, 0f32),
+                        )
+                        .ok_or(MapError::MapCoordinateError)?;
+                    let pixel_size_x =
+                        overlap.size_x() as u32 * zoom_level.pixels_per_region() as u32;
+                    let pixel_size_y =
+                        overlap.size_y() as u32 * zoom_level.pixels_per_region() as u32;
+                    for x in replace_x..replace_x + pixel_size_x {
+                        for y in replace_y..replace_y + pixel_size_y {
+                            <Map as image::GenericImage>::put_pixel(&mut result, x, y, fill_color);
                         }
                     }
                 }
@@ -936,7 +929,7 @@ impl Map {
         color: image::Rgba<u8>,
     ) -> Result<(), MapError> {
         tracing::debug!("Drawing route:\n{:#?}", usb_notecard);
-        let mut previous_waypoint: Option<(u32, u32)> = None;
+        let mut pixel_waypoints = Vec::new();
         for waypoint in usb_notecard.waypoints() {
             let Some(grid_coordinates) = region_name_to_grid_coordinates_cache
                 .get_grid_coordinates(waypoint.location().region_name())
@@ -957,11 +950,50 @@ impl Map {
                 waypoint.location()
             );
             self.draw_waypoint(x, y, color);
-            if let Some((previous_x, previous_y)) = previous_waypoint {
-                tracing::debug!("Drawing line from ({previous_x}, {previous_y}) to ({x}, {y})");
-                self.draw_line(previous_x, previous_y, x, y, color);
-            }
-            previous_waypoint = Some((x, y));
+            pixel_waypoints.push((x as f32, y as f32));
+        }
+        if pixel_waypoints.len() < 2 {
+            // no route if there is only one waypoint
+            return Ok(());
+        }
+        let first = pixel_waypoints[0];
+        let second = pixel_waypoints[1];
+        let extra_before_start = (
+            first.0 - (second.0 - first.0),
+            first.1 - (second.1 - first.1),
+        );
+        let last = pixel_waypoints[pixel_waypoints.len() - 1];
+        let second_to_last = pixel_waypoints[pixel_waypoints.len() - 2];
+        let extra_after_end = (
+            last.0 + (last.0 - second_to_last.0),
+            last.1 + (last.1 - second_to_last.1),
+        );
+        let mut new_pixel_waypoints = vec![extra_before_start];
+        new_pixel_waypoints.extend(pixel_waypoints);
+        new_pixel_waypoints.push(extra_after_end);
+        pixel_waypoints = new_pixel_waypoints;
+        let samples = pixel_waypoints.len() * 50;
+        let (points_x, points_y): (Vec<f32>, Vec<f32>) = pixel_waypoints.into_iter().unzip();
+        for v in 0..samples {
+            let v = v as f32 / (samples as f32);
+            let point_x =
+                uniform_cubic_splines::spline::<uniform_cubic_splines::basis::CatmullRom, _, _>(
+                    v, &points_x,
+                );
+            let point_y =
+                uniform_cubic_splines::spline::<uniform_cubic_splines::basis::CatmullRom, _, _>(
+                    v, &points_y,
+                );
+            tracing::debug!(
+                "Sampled Catmull Rom curve at point {v}: ({point_x}, {point_y}) for route"
+            );
+            let x = point_x as i32;
+            let y = point_y as i32;
+            imageproc::drawing::draw_filled_rect_mut(
+                self.image_mut(),
+                imageproc::rect::Rect::at(x - 2i32, y - 2i32).of_size(5, 5),
+                color,
+            );
         }
         Ok(())
     }

@@ -1,3 +1,9 @@
+## 0.1.3
+
+replace simple lines between waypoints with Catmull-Rom spline
+fix bug that could lead to an error if a waypoint was too close to 0
+(closer than the size of the rectangle drawn at waypoints)
+
 ## 0.1.2
 
 allow optionally filling in missing regions with a color

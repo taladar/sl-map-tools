@@ -1,3 +1,11 @@
+sl-map-cli (0.1.3-1) unstable; urgency=medium
+
+  * replace simple lines between waypoints with Catmull-Rom spline
+  * fix bug that could lead to an error if a waypoint was too close to 0
+    (closer than the size of the rectangle drawn at waypoints)
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Friday, 27 Sep 2024 21:22:42 +0000
+
 sl-map-cli (0.1.2-1) unstable; urgency=medium
 
   * allow optionally filling in missing regions with a color

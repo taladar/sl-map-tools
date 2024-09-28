@@ -159,6 +159,51 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
             imageproc::pixelops::interpolate,
         );
     }
+
+    /// draw an arrow from the direction of the first point with the
+    /// tip at the second point
+    fn draw_arrow(
+        &mut self,
+        from_x: f32,
+        from_y: f32,
+        tip_x: f32,
+        tip_y: f32,
+        color: image::Rgba<u8>,
+    ) {
+        let arrow_direction = (tip_x - from_x, tip_y - from_y);
+        let arrow_direction_magnitude =
+            (arrow_direction.0.powf(2f32) + arrow_direction.1.powf(2f32)).sqrt();
+        let arrow_direction = (
+            arrow_direction.0 / arrow_direction_magnitude,
+            arrow_direction.1 / arrow_direction_magnitude,
+        );
+        /// length of the arrow at each waypoint from tip to base
+        const ARROW_LENGTH: f32 = 15f32;
+        /// width of the arrow from the center line (double this to get the length of the base side of the triangle)
+        const ARROW_HALF_WIDTH: f32 = 5f32;
+        let arrow_base_middle = (
+            tip_x - (ARROW_LENGTH * arrow_direction.0),
+            tip_y - (ARROW_LENGTH * arrow_direction.1),
+        );
+        let arrow_base_side1 = (
+            arrow_base_middle.0 + (ARROW_HALF_WIDTH * arrow_direction.1),
+            arrow_base_middle.1 - (ARROW_HALF_WIDTH * arrow_direction.0),
+        );
+        let arrow_base_side2 = (
+            arrow_base_middle.0 - (ARROW_HALF_WIDTH * arrow_direction.1),
+            arrow_base_middle.1 + (ARROW_HALF_WIDTH * arrow_direction.0),
+        );
+        tracing::debug!("Painting arrow with arrow direction {:?}, arrow tip {:?}, arrow base middle {:?}, arrow_base_side1 {:?}, arrow_base_side2 {:?} ", arrow_direction, (tip_x, tip_y), arrow_base_middle, arrow_base_side1, arrow_base_side2);
+        imageproc::drawing::draw_polygon_mut(
+            self.image_mut(),
+            &[
+                imageproc::point::Point::new(arrow_base_side1.0 as i32, arrow_base_side1.1 as i32),
+                imageproc::point::Point::new(tip_x as i32, tip_y as i32),
+                imageproc::point::Point::new(arrow_base_side2.0 as i32, arrow_base_side2.1 as i32),
+            ],
+            color,
+        );
+    }
 }
 
 /// represents a map tile fetched from the server
@@ -1009,45 +1054,7 @@ impl Map {
                             pixel_waypoints[i / SAMPLES_PER_WAYPOINT]
                         );
                     }
-                    let arrow_direction = (point_x - last_point.0, point_y - last_point.1);
-                    let arrow_direction_magnitude =
-                        (arrow_direction.0.powf(2f32) + arrow_direction.1.powf(2f32)).sqrt();
-                    let arrow_direction = (
-                        arrow_direction.0 / arrow_direction_magnitude,
-                        arrow_direction.1 / arrow_direction_magnitude,
-                    );
-                    /// length of the arrow at each waypoint from tip to base
-                    const ARROW_LENGTH: f32 = 15f32;
-                    /// width of the arrow from the center line (double this to get the length of the base side of the triangle)
-                    const ARROW_HALF_WIDTH: f32 = 5f32;
-                    let arrow_base_middle = (
-                        point_x - (ARROW_LENGTH * arrow_direction.0),
-                        point_y - (ARROW_LENGTH * arrow_direction.1),
-                    );
-                    let arrow_base_side1 = (
-                        arrow_base_middle.0 + (ARROW_HALF_WIDTH * arrow_direction.1),
-                        arrow_base_middle.1 - (ARROW_HALF_WIDTH * arrow_direction.0),
-                    );
-                    let arrow_base_side2 = (
-                        arrow_base_middle.0 - (ARROW_HALF_WIDTH * arrow_direction.1),
-                        arrow_base_middle.1 + (ARROW_HALF_WIDTH * arrow_direction.0),
-                    );
-                    tracing::debug!("Painting arrow at {i} with arrow direction {:?}, arrow tip {:?}, arrow base middle {:?}, arrow_base_side1 {:?}, arrow_base_side2 {:?} ", arrow_direction, (point_x, point_y), arrow_base_middle, arrow_base_side1, arrow_base_side2);
-                    imageproc::drawing::draw_polygon_mut(
-                        self.image_mut(),
-                        &[
-                            imageproc::point::Point::new(
-                                arrow_base_side1.0 as i32,
-                                arrow_base_side1.1 as i32,
-                            ),
-                            imageproc::point::Point::new(x, y),
-                            imageproc::point::Point::new(
-                                arrow_base_side2.0 as i32,
-                                arrow_base_side2.1 as i32,
-                            ),
-                        ],
-                        color,
-                    );
+                    self.draw_arrow(last_point.0, last_point.1, point_x, point_y, color);
                 }
             }
             last_point = Some((point_x, point_y));

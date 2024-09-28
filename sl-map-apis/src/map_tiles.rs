@@ -162,15 +162,8 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
 
     /// draw an arrow from the direction of the first point with the
     /// tip at the second point
-    fn draw_arrow(
-        &mut self,
-        from_x: f32,
-        from_y: f32,
-        tip_x: f32,
-        tip_y: f32,
-        color: image::Rgba<u8>,
-    ) {
-        let arrow_direction = (tip_x - from_x, tip_y - from_y);
+    fn draw_arrow(&mut self, from: (f32, f32), tip: (f32, f32), color: image::Rgba<u8>) {
+        let arrow_direction = (tip.0 - from.0, tip.1 - from.1);
         let arrow_direction_magnitude =
             (arrow_direction.0.powf(2f32) + arrow_direction.1.powf(2f32)).sqrt();
         let arrow_direction = (
@@ -182,8 +175,8 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
         /// width of the arrow from the center line (double this to get the length of the base side of the triangle)
         const ARROW_HALF_WIDTH: f32 = 5f32;
         let arrow_base_middle = (
-            tip_x - (ARROW_LENGTH * arrow_direction.0),
-            tip_y - (ARROW_LENGTH * arrow_direction.1),
+            tip.0 - (ARROW_LENGTH * arrow_direction.0),
+            tip.1 - (ARROW_LENGTH * arrow_direction.1),
         );
         let arrow_base_side1 = (
             arrow_base_middle.0 + (ARROW_HALF_WIDTH * arrow_direction.1),
@@ -193,12 +186,12 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
             arrow_base_middle.0 - (ARROW_HALF_WIDTH * arrow_direction.1),
             arrow_base_middle.1 + (ARROW_HALF_WIDTH * arrow_direction.0),
         );
-        tracing::debug!("Painting arrow with arrow direction {:?}, arrow tip {:?}, arrow base middle {:?}, arrow_base_side1 {:?}, arrow_base_side2 {:?} ", arrow_direction, (tip_x, tip_y), arrow_base_middle, arrow_base_side1, arrow_base_side2);
+        tracing::debug!("Painting arrow with arrow direction {:?}, arrow tip {:?}, arrow base middle {:?}, arrow_base_side1 {:?}, arrow_base_side2 {:?} ", arrow_direction, tip, arrow_base_middle, arrow_base_side1, arrow_base_side2);
         imageproc::drawing::draw_polygon_mut(
             self.image_mut(),
             &[
                 imageproc::point::Point::new(arrow_base_side1.0 as i32, arrow_base_side1.1 as i32),
-                imageproc::point::Point::new(tip_x as i32, tip_y as i32),
+                imageproc::point::Point::new(tip.0 as i32, tip.1 as i32),
                 imageproc::point::Point::new(arrow_base_side2.0 as i32, arrow_base_side2.1 as i32),
             ],
             color,
@@ -1017,14 +1010,8 @@ impl Map {
         let mut knots = vec![extra_before_start];
         knots.extend(pixel_waypoints.to_owned());
         knots.push(extra_after_end);
-        /// number of samples of the spline per waypoint
-        const SAMPLES_PER_WAYPOINT: usize = 10;
-        // n-1 intervals between waypoints
-        let samples = (waypoint_count - 1) * SAMPLES_PER_WAYPOINT;
         let (points_x, points_y): (Vec<f32>, Vec<f32>) = knots.into_iter().unzip();
-        let mut last_point: Option<(f32, f32)> = None;
-        for i in 0..=samples {
-            let v = i as f32 / (samples as f32);
+        let sample = |v: f32| -> (f32, f32) {
             let point_x =
                 uniform_cubic_splines::spline::<uniform_cubic_splines::basis::CatmullRom, _, _>(
                     v, &points_x,
@@ -1033,36 +1020,52 @@ impl Map {
                 uniform_cubic_splines::spline::<uniform_cubic_splines::basis::CatmullRom, _, _>(
                     v, &points_y,
                 );
-            tracing::debug!(
-                "Sampled Catmull Rom curve {i} at point {v}: ({point_x}, {point_y}) for route"
-            );
-            let x = point_x as i32;
-            let y = point_y as i32;
+            (point_x, point_y)
+        };
+        let spline_value_for_waypoint =
+            |i: usize| -> f32 { i as f32 / (waypoint_count as f32 - 2f32) };
+        let spline_value_between_waypoints = spline_value_for_waypoint(1);
+        let distance_between_points = |(x1, y1): (f32, f32), (x2, y2): (f32, f32)| -> f32 {
+            ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt()
+        };
+        let mut last_point: Option<(f32, f32)> = None;
+        for (i, waypoint) in pixel_waypoints.iter().enumerate().take(waypoint_count - 1) {
+            tracing::debug!("Waypoint {}: {:?}", i, waypoint);
+            let v = spline_value_for_waypoint(i);
+            let point = sample(v);
+            tracing::debug!("Sampled Catmull Rom curve {i} at point {v}: {point:?} for route");
+            /// size of rectangles to use to draw the spline, should be odd
+            /// or it won't be centered properly
+            const SPLINE_RECT_SIZE: u32 = 3;
             if let Some(last_point) = last_point {
-                let distance_from_last_point = ((point_x - last_point.0).powf(2f32)
-                    + (point_y - last_point.1).powf(2f32))
-                .sqrt();
+                let distance_from_last_point = distance_between_points(point, last_point);
                 tracing::debug!(
-                    "Sample {i} is {:?} from last sample",
+                    "Waypoint {i} is {:?} from last waypoint",
                     distance_from_last_point
                 );
-                if i % SAMPLES_PER_WAYPOINT == 0 {
-                    if (i / SAMPLES_PER_WAYPOINT) < pixel_waypoints.len() {
-                        tracing::debug!(
-                            "Arrow for waypoint {}: {:?}",
-                            i / SAMPLES_PER_WAYPOINT,
-                            pixel_waypoints[i / SAMPLES_PER_WAYPOINT]
-                        );
-                    }
-                    self.draw_arrow(last_point.0, last_point.1, point_x, point_y, color);
+                let samples_between_last_waypoint_and_this_one =
+                    (0.5f32 * distance_from_last_point / SPLINE_RECT_SIZE as f32) as u32;
+                for j in (0..samples_between_last_waypoint_and_this_one).rev() {
+                    let v = v - spline_value_between_waypoints
+                        * (j as f32 / (samples_between_last_waypoint_and_this_one as f32 - 2f32));
+                    let sample_point = sample(v);
+                    imageproc::drawing::draw_filled_rect_mut(
+                        self.image_mut(),
+                        imageproc::rect::Rect::at(
+                            sample_point.0 as i32 - ((SPLINE_RECT_SIZE as i32 - 1) / 2),
+                            sample_point.1 as i32 - ((SPLINE_RECT_SIZE as i32 - 1) / 2),
+                        )
+                        .of_size(SPLINE_RECT_SIZE, SPLINE_RECT_SIZE),
+                        color,
+                    );
                 }
+                self.draw_arrow(
+                    sample(v - (0.1f32 * spline_value_between_waypoints)),
+                    point,
+                    color,
+                );
             }
-            last_point = Some((point_x, point_y));
-            imageproc::drawing::draw_filled_rect_mut(
-                self.image_mut(),
-                imageproc::rect::Rect::at(x - 1i32, y - 1i32).of_size(3, 3),
-                color,
-            );
+            last_point = Some(point);
         }
         Ok(())
     }

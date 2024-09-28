@@ -972,10 +972,12 @@ impl Map {
         new_pixel_waypoints.extend(pixel_waypoints);
         new_pixel_waypoints.push(extra_after_end);
         pixel_waypoints = new_pixel_waypoints;
-        let samples = pixel_waypoints.len() * 50;
+        const SAMPLES_PER_WAYPOINT: usize = 50;
+        let samples = pixel_waypoints.len() * SAMPLES_PER_WAYPOINT;
         let (points_x, points_y): (Vec<f32>, Vec<f32>) = pixel_waypoints.into_iter().unzip();
-        for v in 0..samples {
-            let v = v as f32 / (samples as f32);
+        let mut last_point: Option<(f32, f32)> = None;
+        for i in 0..samples {
+            let v = i as f32 / (samples as f32);
             let point_x =
                 uniform_cubic_splines::spline::<uniform_cubic_splines::basis::CatmullRom, _, _>(
                     v, &points_x,
@@ -989,9 +991,50 @@ impl Map {
             );
             let x = point_x as i32;
             let y = point_y as i32;
+            if let Some(last_point) = last_point {
+                if i % SAMPLES_PER_WAYPOINT == 0 {
+                    let arrow_direction = (point_x - last_point.0, point_y - last_point.1);
+                    let arrow_direction_magnitude =
+                        (arrow_direction.0.powf(2f32) + arrow_direction.1.powf(2f32)).sqrt();
+                    let arrow_direction = (
+                        arrow_direction.0 / arrow_direction_magnitude,
+                        arrow_direction.1 / arrow_direction_magnitude,
+                    );
+                    const ARROW_LENGTH: f32 = 15f32;
+                    const ARROW_HALF_WIDTH: f32 = 5f32;
+                    let arrow_base_middle = (
+                        point_x - (ARROW_LENGTH * arrow_direction.0),
+                        point_y - (ARROW_LENGTH * arrow_direction.1),
+                    );
+                    let arrow_base_side1 = (
+                        arrow_base_middle.0 + (ARROW_HALF_WIDTH * arrow_direction.1),
+                        arrow_base_middle.1 - (ARROW_HALF_WIDTH * arrow_direction.0),
+                    );
+                    let arrow_base_side2 = (
+                        arrow_base_middle.0 - (ARROW_HALF_WIDTH * arrow_direction.1),
+                        arrow_base_middle.1 + (ARROW_HALF_WIDTH * arrow_direction.0),
+                    );
+                    imageproc::drawing::draw_polygon_mut(
+                        self.image_mut(),
+                        &[
+                            imageproc::point::Point::new(
+                                arrow_base_side1.0 as i32,
+                                arrow_base_side1.1 as i32,
+                            ),
+                            imageproc::point::Point::new(x, y),
+                            imageproc::point::Point::new(
+                                arrow_base_side2.0 as i32,
+                                arrow_base_side2.1 as i32,
+                            ),
+                        ],
+                        color,
+                    );
+                }
+            }
+            last_point = Some((point_x, point_y));
             imageproc::drawing::draw_filled_rect_mut(
                 self.image_mut(),
-                imageproc::rect::Rect::at(x - 2i32, y - 2i32).of_size(5, 5),
+                imageproc::rect::Rect::at(x - 1i32, y - 1i32).of_size(3, 3),
                 color,
             );
         }

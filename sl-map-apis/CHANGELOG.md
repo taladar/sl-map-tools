@@ -1,3 +1,9 @@
+## 0.1.4
+
+add arrows before waypoints
+remove waypoint squares
+make spline between waypoints dotted
+
 ## 0.1.3
 
 replace simple lines between waypoints with Catmull-Rom spline

@@ -949,10 +949,11 @@ impl Map {
                 "Drawing waypoint at ({x}, {y}) for location {:?}",
                 waypoint.location()
             );
-            self.draw_waypoint(x, y, color);
+            //self.draw_waypoint(x, y, color);
             pixel_waypoints.push((x as f32, y as f32));
         }
-        if pixel_waypoints.len() < 2 {
+        let waypoint_count = pixel_waypoints.len();
+        if waypoint_count < 2 {
             // no route if there is only one waypoint
             return Ok(());
         }
@@ -968,15 +969,16 @@ impl Map {
             last.0 + (last.0 - second_to_last.0),
             last.1 + (last.1 - second_to_last.1),
         );
-        let mut new_pixel_waypoints = vec![extra_before_start];
-        new_pixel_waypoints.extend(pixel_waypoints);
-        new_pixel_waypoints.push(extra_after_end);
-        pixel_waypoints = new_pixel_waypoints;
-        const SAMPLES_PER_WAYPOINT: usize = 50;
-        let samples = pixel_waypoints.len() * SAMPLES_PER_WAYPOINT;
-        let (points_x, points_y): (Vec<f32>, Vec<f32>) = pixel_waypoints.into_iter().unzip();
+        let mut knots = vec![extra_before_start];
+        knots.extend(pixel_waypoints.to_owned());
+        knots.push(extra_after_end);
+        /// number of samples of the spline per waypoint
+        const SAMPLES_PER_WAYPOINT: usize = 10;
+        // n-1 intervals between waypoints
+        let samples = (waypoint_count - 1) * SAMPLES_PER_WAYPOINT;
+        let (points_x, points_y): (Vec<f32>, Vec<f32>) = knots.into_iter().unzip();
         let mut last_point: Option<(f32, f32)> = None;
-        for i in 0..samples {
+        for i in 0..=samples {
             let v = i as f32 / (samples as f32);
             let point_x =
                 uniform_cubic_splines::spline::<uniform_cubic_splines::basis::CatmullRom, _, _>(
@@ -987,12 +989,26 @@ impl Map {
                     v, &points_y,
                 );
             tracing::debug!(
-                "Sampled Catmull Rom curve at point {v}: ({point_x}, {point_y}) for route"
+                "Sampled Catmull Rom curve {i} at point {v}: ({point_x}, {point_y}) for route"
             );
             let x = point_x as i32;
             let y = point_y as i32;
             if let Some(last_point) = last_point {
+                let distance_from_last_point = ((point_x - last_point.0).powf(2f32)
+                    + (point_y - last_point.1).powf(2f32))
+                .sqrt();
+                tracing::debug!(
+                    "Sample {i} is {:?} from last sample",
+                    distance_from_last_point
+                );
                 if i % SAMPLES_PER_WAYPOINT == 0 {
+                    if (i / SAMPLES_PER_WAYPOINT) < pixel_waypoints.len() {
+                        tracing::debug!(
+                            "Arrow for waypoint {}: {:?}",
+                            i / SAMPLES_PER_WAYPOINT,
+                            pixel_waypoints[i / SAMPLES_PER_WAYPOINT]
+                        );
+                    }
                     let arrow_direction = (point_x - last_point.0, point_y - last_point.1);
                     let arrow_direction_magnitude =
                         (arrow_direction.0.powf(2f32) + arrow_direction.1.powf(2f32)).sqrt();
@@ -1000,7 +1016,9 @@ impl Map {
                         arrow_direction.0 / arrow_direction_magnitude,
                         arrow_direction.1 / arrow_direction_magnitude,
                     );
+                    /// length of the arrow at each waypoint from tip to base
                     const ARROW_LENGTH: f32 = 15f32;
+                    /// width of the arrow from the center line (double this to get the length of the base side of the triangle)
                     const ARROW_HALF_WIDTH: f32 = 5f32;
                     let arrow_base_middle = (
                         point_x - (ARROW_LENGTH * arrow_direction.0),
@@ -1014,6 +1032,7 @@ impl Map {
                         arrow_base_middle.0 - (ARROW_HALF_WIDTH * arrow_direction.1),
                         arrow_base_middle.1 + (ARROW_HALF_WIDTH * arrow_direction.0),
                     );
+                    tracing::debug!("Painting arrow at {i} with arrow direction {:?}, arrow tip {:?}, arrow base middle {:?}, arrow_base_side1 {:?}, arrow_base_side2 {:?} ", arrow_direction, (point_x, point_y), arrow_base_middle, arrow_base_side1, arrow_base_side2);
                     imageproc::drawing::draw_polygon_mut(
                         self.image_mut(),
                         &[
@@ -1169,6 +1188,8 @@ mod test {
                 GridCoordinates::new(1135, 1070),
                 GridCoordinates::new(1136, 1071),
             ),
+            None,
+            None,
         )
         .await?;
         map.save(std::path::Path::new("/tmp/test_map_zoom_level_1.jpg"))?;
@@ -1191,6 +1212,8 @@ mod test {
                 GridCoordinates::new(1136, 1074),
                 GridCoordinates::new(1137, 1075),
             ),
+            None,
+            None,
         )
         .await?;
         map.save(std::path::Path::new("/tmp/test_map_zoom_level_2.jpg"))?;
@@ -1213,6 +1236,8 @@ mod test {
                 GridCoordinates::new(1136, 1074),
                 GridCoordinates::new(1137, 1075),
             ),
+            None,
+            None,
         )
         .await?;
         map.save(std::path::Path::new("/tmp/test_map_zoom_level_3.jpg"))?;
@@ -1235,6 +1260,8 @@ mod test {
                 GridCoordinates::new(1131, 1068),
                 GridCoordinates::new(1139, 1075),
             ),
+            None,
+            None,
         )
         .await?;
         map.save(std::path::Path::new(
@@ -1292,6 +1319,8 @@ mod test {
                 GridCoordinates::new(1136, 1074),
                 GridCoordinates::new(1137, 1075),
             ),
+            None,
+            None,
         )
         .await?;
         for region_offset_x in 0..=1 {
@@ -1380,6 +1409,8 @@ mod test {
                 GridCoordinates::new(1136, 1074),
                 GridCoordinates::new(1137, 1075),
             ),
+            None,
+            None,
         )
         .await?;
         tracing::debug!("Dimensions of map are {:?}", map.dimensions());

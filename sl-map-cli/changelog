@@ -1,3 +1,9 @@
+sl-map-cli (0.1.5-1) unstable; urgency=medium
+
+  * update dependencies
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Monday, 04 Nov 2024 09:39:42 +0000
+
 sl-map-cli (0.1.4-1) unstable; urgency=medium
 
   * add arrows before waypoints

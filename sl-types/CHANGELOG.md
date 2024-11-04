@@ -1,3 +1,7 @@
+## 0.1.2
+
+update dependencies
+
 ## 0.1.1
 
 add function to `GridRectangleLike` that returns the PPS HUD config string

@@ -29,7 +29,8 @@ these maximum dimensions.
 
 By default missing map tiles (as in map tiles where no regions exist in that
 area) will appear as black while missing regions inside lower detail map tiles
-are shown in a water-like color by Linden Lab.
+are shown in a water-like color (#19485a and sometimes close ones due to
+JPEG compression) by Linden Lab.
 
 It is possible to change the fill color for missing map tiles with the
 --missing-map-tile-color option.

@@ -1,3 +1,7 @@
+## 0.1.5
+
+update dependencies
+
 ## 0.1.4
 
 add money module with LindenAmount type

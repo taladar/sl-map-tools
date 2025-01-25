@@ -3,7 +3,7 @@ name = "sl-types"
 description = "Some basic types for Second Life related tools"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2021"
 repository = "https://github.com/taladar/sl-map-tools"
@@ -14,10 +14,10 @@ exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nutype = { version = "0.5.0", features = ["serde"] }
+nutype = { version = "0.5.1", features = ["serde"] }
 ranges = "0.4.0"
-serde = { version = "1.0.214", features = ["derive"] }
-thiserror = "2.0.0"
+serde = { version = "1.0.217", features = ["derive"] }
+thiserror = "2.0.11"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

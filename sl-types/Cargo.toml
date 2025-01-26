@@ -13,7 +13,11 @@ categories = ["science::geo"]
 exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+chumsky = ["dep:chumsky"]
+
 [dependencies]
+chumsky = { version = "0.9.3", optional = true }
 nutype = { version = "0.5.1", features = ["serde"] }
 ranges = "0.4.0"
 serde = { version = "1.0.217", features = ["derive"] }

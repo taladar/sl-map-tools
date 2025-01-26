@@ -1,5 +1,211 @@
 //! Map-related data types
 
+#[cfg(feature = "chumsky")]
+use chumsky::{
+    prelude::{just, Simple},
+    text::digits,
+    Parser,
+};
+
+/// represents a Second Life distance in meters
+#[derive(Debug, Clone, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
+pub struct Distance(f64);
+
+impl std::fmt::Display for Distance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} m", self.0)
+    }
+}
+
+impl std::ops::Add for Distance {
+    type Output = Distance;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Distance(self.0 + rhs.0)
+    }
+}
+
+impl std::ops::Sub for Distance {
+    type Output = Distance;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Distance(self.0 - rhs.0)
+    }
+}
+
+impl std::ops::Mul<u8> for Distance {
+    type Output = Distance;
+
+    fn mul(self, rhs: u8) -> Self::Output {
+        Distance(self.0 * rhs as f64)
+    }
+}
+
+impl std::ops::Mul<u16> for Distance {
+    type Output = Distance;
+
+    fn mul(self, rhs: u16) -> Self::Output {
+        Distance(self.0 * rhs as f64)
+    }
+}
+
+impl std::ops::Mul<u32> for Distance {
+    type Output = Distance;
+
+    fn mul(self, rhs: u32) -> Self::Output {
+        Distance(self.0 * rhs as f64)
+    }
+}
+
+impl std::ops::Mul<u64> for Distance {
+    type Output = Distance;
+
+    fn mul(self, rhs: u64) -> Self::Output {
+        Distance(self.0 * rhs as f64)
+    }
+}
+
+impl std::ops::Mul<f32> for Distance {
+    type Output = Distance;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Distance(self.0 * rhs as f64)
+    }
+}
+
+impl std::ops::Mul<f64> for Distance {
+    type Output = Distance;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        Distance(self.0 * rhs)
+    }
+}
+
+impl std::ops::Div<u8> for Distance {
+    type Output = Distance;
+
+    fn div(self, rhs: u8) -> Self::Output {
+        Distance(self.0 / rhs as f64)
+    }
+}
+
+impl std::ops::Div<u16> for Distance {
+    type Output = Distance;
+
+    fn div(self, rhs: u16) -> Self::Output {
+        Distance(self.0 / rhs as f64)
+    }
+}
+
+impl std::ops::Div<u32> for Distance {
+    type Output = Distance;
+
+    fn div(self, rhs: u32) -> Self::Output {
+        Distance(self.0 / rhs as f64)
+    }
+}
+
+impl std::ops::Div<u64> for Distance {
+    type Output = Distance;
+
+    fn div(self, rhs: u64) -> Self::Output {
+        Distance(self.0 / rhs as f64)
+    }
+}
+
+impl std::ops::Div<f32> for Distance {
+    type Output = Distance;
+
+    fn div(self, rhs: f32) -> Self::Output {
+        Distance(self.0 / rhs as f64)
+    }
+}
+
+impl std::ops::Div<f64> for Distance {
+    type Output = Distance;
+
+    fn div(self, rhs: f64) -> Self::Output {
+        Distance(self.0 / rhs)
+    }
+}
+
+impl std::ops::Div for Distance {
+    type Output = f64;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        self.0 / rhs.0
+    }
+}
+
+impl std::ops::Rem<u8> for Distance {
+    type Output = Distance;
+
+    fn rem(self, rhs: u8) -> Self::Output {
+        Distance(self.0 % rhs as f64)
+    }
+}
+
+impl std::ops::Rem<u16> for Distance {
+    type Output = Distance;
+
+    fn rem(self, rhs: u16) -> Self::Output {
+        Distance(self.0 % rhs as f64)
+    }
+}
+
+impl std::ops::Rem<u32> for Distance {
+    type Output = Distance;
+
+    fn rem(self, rhs: u32) -> Self::Output {
+        Distance(self.0 % rhs as f64)
+    }
+}
+
+impl std::ops::Rem<u64> for Distance {
+    type Output = Distance;
+
+    fn rem(self, rhs: u64) -> Self::Output {
+        Distance(self.0 % rhs as f64)
+    }
+}
+
+impl std::ops::Rem<f32> for Distance {
+    type Output = Distance;
+
+    fn rem(self, rhs: f32) -> Self::Output {
+        Distance(self.0 % rhs as f64)
+    }
+}
+
+impl std::ops::Rem<f64> for Distance {
+    type Output = Distance;
+
+    fn rem(self, rhs: f64) -> Self::Output {
+        Distance(self.0 % rhs)
+    }
+}
+
+/// parse a distance
+///
+/// "235.23 m"
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn distance_parser() -> impl Parser<char, Distance, Error = Simple<char>> {
+    digits(10)
+        .then_ignore(just('.'))
+        .then(digits(10))
+        .then_ignore(just(" m"))
+        .try_map(|(full, decimal), span: std::ops::Range<usize>| {
+            Ok(Distance(format!("{}.{}", full, decimal).parse().map_err(
+                |e| Simple::custom(span.clone(), format!("{:?}", e)),
+            )?))
+        })
+}
+
 /// Grid coordinates for the position of a region on the map
 ///
 /// the first region, Da Boom is located at 1000, 1000
@@ -390,6 +596,22 @@ impl RegionCoordinates {
     )
 )]
 pub struct RegionName(String);
+
+/// parse a string into a RegionName
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn region_name_parser() -> impl Parser<char, RegionName, Error = Simple<char>> {
+    chumsky::text::ident()
+        .separated_by(just("%20"))
+        .collect::<Vec<String>>()
+        .try_map(|components, span| {
+            RegionName::try_new(components.join(" ")).map_err(|err| Simple::custom(span, err))
+        })
+}
 
 /// A location inside Second Life the way it is usually represented in
 /// SLURLs or map URLs, based on a Region Name and integer coordinates

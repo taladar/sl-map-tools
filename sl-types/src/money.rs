@@ -1,7 +1,16 @@
 //! Money related data types
 
+#[cfg(feature = "chumsky")]
+use chumsky::{
+    prelude::{just, Simple},
+    text::digits,
+    Parser,
+};
+
 /// represents a L$ amount
-#[derive(Debug, Clone, Hash)]
+#[derive(
+    Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct LindenAmount(pub u64);
 
 impl std::fmt::Display for LindenAmount {
@@ -137,4 +146,23 @@ impl std::ops::Rem<u64> for LindenAmount {
         let LindenAmount(lhs) = self;
         LindenAmount(lhs % rhs)
     }
+}
+
+/// parse a Linden amount
+///
+/// "L$1234"
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn linden_amount_parser() -> impl Parser<char, LindenAmount, Error = Simple<char>> {
+    just("L$")
+        .ignore_then(digits(10))
+        .try_map(|x: String, span: std::ops::Range<usize>| {
+            Ok(LindenAmount(x.parse().map_err(|e| {
+                Simple::custom(span.clone(), format!("{:?}", e))
+            })?))
+        })
 }

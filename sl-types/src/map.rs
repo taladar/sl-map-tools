@@ -592,7 +592,8 @@ impl RegionCoordinates {
         PartialOrd,
         Ord,
         Serialize,
-        Deserialize
+        Deserialize,
+        AsRef
     )
 )]
 pub struct RegionName(String);

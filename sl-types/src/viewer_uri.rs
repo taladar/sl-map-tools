@@ -2,6 +2,66 @@
 //!
 //! see https://wiki.secondlife.com/wiki/Viewer_URI_Name_Space
 
+/// represents the various script trigger modes for the script_trigger_lbutton
+/// key binding
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ScriptTriggerMode {
+    /// "first_person" or 0
+    FirstPerson,
+    /// "third_person" or 1
+    ThirdPerson,
+    /// "edit_avatar" or 2
+    EditAvatar,
+    /// "sitting" or 3
+    Sitting,
+}
+
+impl std::fmt::Display for ScriptTriggerMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScriptTriggerMode::FirstPerson => write!(f, "first_person"),
+            ScriptTriggerMode::ThirdPerson => write!(f, "third_person"),
+            ScriptTriggerMode::EditAvatar => write!(f, "edit_avatar"),
+            ScriptTriggerMode::Sitting => write!(f, "sitting"),
+        }
+    }
+}
+
+/// error when trying to parse a string as a ScriptTriggerMode
+#[derive(Debug, Clone)]
+pub struct ScriptTriggerModeParseError {
+    /// the value that could not be parsed
+    value: String,
+}
+
+impl std::fmt::Display for ScriptTriggerModeParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Could not parse as ScriptTriggerMode: {}", self.value)
+    }
+}
+
+impl std::error::Error for ScriptTriggerModeParseError {}
+
+impl std::str::FromStr for ScriptTriggerMode {
+    type Err = ScriptTriggerModeParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "first_person" => Ok(Self::FirstPerson),
+            "0" => Ok(Self::FirstPerson),
+            "third_person" => Ok(Self::ThirdPerson),
+            "1" => Ok(Self::ThirdPerson),
+            "edit_aatar" => Ok(Self::EditAvatar),
+            "2" => Ok(Self::EditAvatar),
+            "sitting" => Ok(Self::Sitting),
+            "3" => Ok(Self::Sitting),
+            _ => Err(ScriptTriggerModeParseError {
+                value: s.to_owned(),
+            }),
+        }
+    }
+}
+
 /// represents a Viewer URI
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ViewerUri {
@@ -63,7 +123,112 @@ pub enum ViewerUri {
     InventorySelect(crate::key::InventoryKey),
     /// show inventory
     InventoryShow,
-    // TODO: key bindings
+    /// key binding
+    KeyBindingMovementWalkTo,
+    /// key binding
+    KeyBindingMovementTeleportTo,
+    /// key binding
+    KeyBindingMovementPushForward,
+    /// key binding
+    KeyBindingMovementPushBackward,
+    /// key binding
+    KeyBindingMovementTurnLeft,
+    /// key binding
+    KeyBindingMovementTurnRight,
+    /// key binding
+    KeyBindingMovementSlideLeft,
+    /// key binding
+    KeyBindingMovementSlideRight,
+    /// key binding
+    KeyBindingMovementJump,
+    /// key binding
+    KeyBindingMovementPushDown,
+    /// key binding
+    KeyBindingMovementRunForward,
+    /// key binding
+    KeyBindingMovementRunBackward,
+    /// key binding
+    KeyBindingMovementRunLeft,
+    /// key binding
+    KeyBindingMovementRunRight,
+    /// key binding
+    KeyBindingMovementToggleRun,
+    /// key binding
+    KeyBindingMovementToggleFly,
+    /// key binding
+    KeyBindingMovementToggleSit,
+    /// key binding
+    KeyBindingMovementStopMoving,
+    /// key binding
+    KeyBindingCameraLookUp,
+    /// key binding
+    KeyBindingCameraLookDown,
+    /// key binding
+    KeyBindingCameraMoveForward,
+    /// key binding
+    KeyBindingCameraMoveBackward,
+    /// key binding
+    KeyBindingCameraMoveForwardFast,
+    /// key binding
+    KeyBindingCameraMoveBackwardFast,
+    /// key binding
+    KeyBindingCameraSpinOver,
+    /// key binding
+    KeyBindingCameraSpinUnder,
+    /// key binding
+    KeyBindingCameraPanUp,
+    /// key binding
+    KeyBindingCameraPanDown,
+    /// key binding
+    KeyBindingCameraPanLeft,
+    /// key binding
+    KeyBindingCameraPanRight,
+    /// key binding
+    KeyBindingCameraPanIn,
+    /// key binding
+    KeyBindingCameraPanOut,
+    /// key binding
+    KeyBindingCameraSpinAroundCounterClockwise,
+    /// key binding
+    KeyBindingCameraSpinAroundClockwise,
+    /// key binding
+    KeyBindingCameraMoveForwardSitting,
+    /// key binding
+    KeyBindingCameraMoveBackwardSitting,
+    /// key binding
+    KeyBindingCameraSpinOverSitting,
+    /// key binding
+    KeyBindingCameraSpinUnderSitting,
+    /// key binding
+    KeyBindingCameraSpinAroundCounterClockwiseSitting,
+    /// key binding
+    KeyBindingCameraSpinAroundClockwiseSitting,
+    /// key binding
+    KeyBindingEditingAvatarSpinCounterClockwise,
+    /// key binding
+    KeyBindingEditingAvatarSpinClockwise,
+    /// key binding
+    KeyBindingEditingAvatarSpinOver,
+    /// key binding
+    KeyBindingEditingAvatarSpinUnder,
+    /// key binding
+    KeyBindingEditingAvatarMoveForward,
+    /// key binding
+    KeyBindingEditingAvatarMoveBackward,
+    /// key binding
+    KeyBindingSoundAndMediaTogglePauseMedia,
+    /// key binding
+    KeyBindingSoundAndMediaToggleEnableMedia,
+    /// key binding
+    KeyBindingSoundAndMediaVoiceFollowKey,
+    /// key binding
+    KeyBindingSoundAndMediaToggleVoice,
+    /// key binding
+    KeyBindingStartChat,
+    /// key binding
+    KeyBindingStartGesture,
+    /// key binding
+    KeyBindingScriptTriggerLButton(ScriptTriggerMode),
     // TODO: login
     /// track a friend with the permission on the world map
     MapTrackAvatar(crate::key::FriendKey),
@@ -199,6 +364,169 @@ impl std::fmt::Display for ViewerUri {
             }
             ViewerUri::InventoryShow => {
                 write!(f, "secondlife:///app/inventory/show")
+            }
+            ViewerUri::KeyBindingMovementWalkTo => {
+                write!(f, "secondlife:///app/keybinding/walk_to")
+            }
+            ViewerUri::KeyBindingMovementTeleportTo => {
+                write!(f, "secondlife:///app/keybinding/teleport_to")
+            }
+            ViewerUri::KeyBindingMovementPushForward => {
+                write!(f, "secondlife:///app/keybinding/push_forward")
+            }
+            ViewerUri::KeyBindingMovementPushBackward => {
+                write!(f, "secondlife:///app/keybinding/push_backward")
+            }
+            ViewerUri::KeyBindingMovementTurnLeft => {
+                write!(f, "secondlife:///app/keybinding/turn_left")
+            }
+            ViewerUri::KeyBindingMovementTurnRight => {
+                write!(f, "secondlife:///app/keybinding/turn_right")
+            }
+            ViewerUri::KeyBindingMovementSlideLeft => {
+                write!(f, "secondlife:///app/keybinding/slide_left")
+            }
+            ViewerUri::KeyBindingMovementSlideRight => {
+                write!(f, "secondlife:///app/keybinding/slide_right")
+            }
+            ViewerUri::KeyBindingMovementJump => {
+                write!(f, "secondlife:///app/keybinding/jump")
+            }
+            ViewerUri::KeyBindingMovementPushDown => {
+                write!(f, "secondlife:///app/keybinding/push_down")
+            }
+            ViewerUri::KeyBindingMovementRunForward => {
+                write!(f, "secondlife:///app/keybinding/run_forward")
+            }
+            ViewerUri::KeyBindingMovementRunBackward => {
+                write!(f, "secondlife:///app/keybinding/run_backward")
+            }
+            ViewerUri::KeyBindingMovementRunLeft => {
+                write!(f, "secondlife:///app/keybinding/run_left")
+            }
+            ViewerUri::KeyBindingMovementRunRight => {
+                write!(f, "secondlife:///app/keybinding/run_right")
+            }
+            ViewerUri::KeyBindingMovementToggleRun => {
+                write!(f, "secondlife:///app/keybinding/toggle_run")
+            }
+            ViewerUri::KeyBindingMovementToggleFly => {
+                write!(f, "secondlife:///app/keybinding/toggle_fly")
+            }
+            ViewerUri::KeyBindingMovementToggleSit => {
+                write!(f, "secondlife:///app/keybinding/toggle_sit")
+            }
+            ViewerUri::KeyBindingMovementStopMoving => {
+                write!(f, "secondlife:///app/keybinding/stop_moving")
+            }
+            ViewerUri::KeyBindingCameraLookUp => {
+                write!(f, "secondlife:///app/keybinding/look_up")
+            }
+            ViewerUri::KeyBindingCameraLookDown => {
+                write!(f, "secondlife:///app/keybinding/look_down")
+            }
+            ViewerUri::KeyBindingCameraMoveForward => {
+                write!(f, "secondlife:///app/keybinding/move_forward")
+            }
+            ViewerUri::KeyBindingCameraMoveBackward => {
+                write!(f, "secondlife:///app/keybinding/move_backward")
+            }
+            ViewerUri::KeyBindingCameraMoveForwardFast => {
+                write!(f, "secondlife:///app/keybinding/move_forward_fast")
+            }
+            ViewerUri::KeyBindingCameraMoveBackwardFast => {
+                write!(f, "secondlife:///app/keybinding/move_backward_fast")
+            }
+            ViewerUri::KeyBindingCameraSpinOver => {
+                write!(f, "secondlife:///app/keybinding/spin_over")
+            }
+            ViewerUri::KeyBindingCameraSpinUnder => {
+                write!(f, "secondlife:///app/keybinding/spin_under")
+            }
+            ViewerUri::KeyBindingCameraPanUp => {
+                write!(f, "secondlife:///app/keybinding/pan_up")
+            }
+            ViewerUri::KeyBindingCameraPanDown => {
+                write!(f, "secondlife:///app/keybinding/pan_down")
+            }
+            ViewerUri::KeyBindingCameraPanLeft => {
+                write!(f, "secondlife:///app/keybinding/pan_left")
+            }
+            ViewerUri::KeyBindingCameraPanRight => {
+                write!(f, "secondlife:///app/keybinding/pan_right")
+            }
+            ViewerUri::KeyBindingCameraPanIn => {
+                write!(f, "secondlife:///app/keybinding/pan_in")
+            }
+            ViewerUri::KeyBindingCameraPanOut => {
+                write!(f, "secondlife:///app/keybinding/pan_out")
+            }
+            ViewerUri::KeyBindingCameraSpinAroundCounterClockwise => {
+                write!(f, "secondlife:///app/keybinding/spin_around_ccw")
+            }
+            ViewerUri::KeyBindingCameraSpinAroundClockwise => {
+                write!(f, "secondlife:///app/keybinding/spin_around_cw")
+            }
+            ViewerUri::KeyBindingCameraMoveForwardSitting => {
+                write!(f, "secondlife:///app/keybinding/move_forward_sitting")
+            }
+            ViewerUri::KeyBindingCameraMoveBackwardSitting => {
+                write!(f, "secondlife:///app/keybinding/move_backward_sitting")
+            }
+            ViewerUri::KeyBindingCameraSpinOverSitting => {
+                write!(f, "secondlife:///app/keybinding/spin_over_sitting")
+            }
+            ViewerUri::KeyBindingCameraSpinUnderSitting => {
+                write!(f, "secondlife:///app/keybinding/spin_under_sitting")
+            }
+            ViewerUri::KeyBindingCameraSpinAroundCounterClockwiseSitting => {
+                write!(f, "secondlife:///app/keybinding/spin_around_ccw_sitting")
+            }
+            ViewerUri::KeyBindingCameraSpinAroundClockwiseSitting => {
+                write!(f, "secondlife:///app/keybinding/spin_around_cw_sitting")
+            }
+            ViewerUri::KeyBindingEditingAvatarSpinCounterClockwise => {
+                write!(f, "secondlife:///app/keybinding/avatar_spin_ccw")
+            }
+            ViewerUri::KeyBindingEditingAvatarSpinClockwise => {
+                write!(f, "secondlife:///app/keybinding/avatar_spin_cw")
+            }
+            ViewerUri::KeyBindingEditingAvatarSpinOver => {
+                write!(f, "secondlife:///app/keybinding/avatar_spin_over")
+            }
+            ViewerUri::KeyBindingEditingAvatarSpinUnder => {
+                write!(f, "secondlife:///app/keybinding/avatar_spin_under")
+            }
+            ViewerUri::KeyBindingEditingAvatarMoveForward => {
+                write!(f, "secondlife:///app/keybinding/avatar_move_forward")
+            }
+            ViewerUri::KeyBindingEditingAvatarMoveBackward => {
+                write!(f, "secondlife:///app/keybinding/avatar_move_backward")
+            }
+            ViewerUri::KeyBindingSoundAndMediaTogglePauseMedia => {
+                write!(f, "secondlife:///app/keybinding/toggle_pause_media")
+            }
+            ViewerUri::KeyBindingSoundAndMediaToggleEnableMedia => {
+                write!(f, "secondlife:///app/keybinding/toggle_enable_media")
+            }
+            ViewerUri::KeyBindingSoundAndMediaVoiceFollowKey => {
+                write!(f, "secondlife:///app/keybinding/voice_follow_key")
+            }
+            ViewerUri::KeyBindingSoundAndMediaToggleVoice => {
+                write!(f, "secondlife:///app/keybinding/toggle_voice")
+            }
+            ViewerUri::KeyBindingStartChat => {
+                write!(f, "secondlife:///app/keybinding/start_chat")
+            }
+            ViewerUri::KeyBindingStartGesture => {
+                write!(f, "secondlife:///app/keybinding/start_gesture")
+            }
+            ViewerUri::KeyBindingScriptTriggerLButton(script_trigger_mode) => {
+                write!(
+                    f,
+                    "secondlife:///app/keybinding/script_trigger_lbutton?mode={}",
+                    script_trigger_mode
+                )
             }
             ViewerUri::MapTrackAvatar(friend_key) => {
                 write!(f, "secondlife:///app/maptrackavatar/{}", friend_key)

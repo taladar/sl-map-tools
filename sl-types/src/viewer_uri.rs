@@ -236,8 +236,15 @@ pub enum ViewerUri {
     // TODO: openfloater
     /// open a floater describing a parcel
     Parcel(crate::key::ParcelKey),
-    // TODO: search
-    // TODO: sharewithavatar
+    /// open a search floater with matching results
+    Search {
+        /// search category
+        category: crate::search::SearchCategory,
+        /// search term
+        search_term: String,
+    },
+    /// open an inventory share/IM window for agent
+    ShareWithAvatar(crate::key::AgentKey),
     /// teleport to this location
     Teleport(crate::map::Location),
     /// start a private voice session with this avatar
@@ -533,6 +540,23 @@ impl std::fmt::Display for ViewerUri {
             }
             ViewerUri::Parcel(parcel_key) => {
                 write!(f, "secondlife:///app/parcel/{}/about", parcel_key)
+            }
+            ViewerUri::Search {
+                category,
+                search_term,
+            } => {
+                write!(
+                    f,
+                    "secondlife:///app/search/{}/{}",
+                    category,
+                    percent_encoding::percent_encode(
+                        search_term.as_bytes(),
+                        percent_encoding::NON_ALPHANUMERIC
+                    )
+                )
+            }
+            ViewerUri::ShareWithAvatar(agent_key) => {
+                write!(f, "secondlife::///app/sharewithavatar/{}", agent_key)
             }
             ViewerUri::Teleport(location) => {
                 write!(

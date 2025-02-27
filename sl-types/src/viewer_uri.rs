@@ -258,7 +258,10 @@ pub enum ViewerUri {
     Teleport(crate::map::Location),
     /// start a private voice session with this avatar
     VoiceCallAvatar(crate::key::AgentKey),
-    // TODO: wear_folder
+    /// replace outfit with contents of folder specified by key (UUID)
+    WearFolderByInventoryFolderKey(crate::key::InventoryFolderKey),
+    /// replace outfit with contents of named library folder
+    WearFolderByLibraryFolderName(String),
     /// open the world map with this destination selected
     WorldMap(crate::map::Location),
 }
@@ -568,7 +571,7 @@ impl std::fmt::Display for ViewerUri {
                         }
                     },
                     percent_encoding::percent_encode(
-                        location.region_name.clone().into_inner().as_bytes(),
+                        location.region_name.as_ref().as_bytes(),
                         percent_encoding::NON_ALPHANUMERIC
                     ),
                     location.x,
@@ -621,6 +624,23 @@ impl std::fmt::Display for ViewerUri {
             }
             ViewerUri::VoiceCallAvatar(agent_key) => {
                 write!(f, "secondlife:///app/voicecallavatar/{}", agent_key)
+            }
+            ViewerUri::WearFolderByInventoryFolderKey(inventory_folder_key) => {
+                write!(
+                    f,
+                    "secondlife:///app/wear_folder?folder_id={}",
+                    inventory_folder_key
+                )
+            }
+            ViewerUri::WearFolderByLibraryFolderName(library_folder_name) => {
+                write!(
+                    f,
+                    "secondlife:///app/wear_folder?folder_name={}",
+                    percent_encoding::percent_encode(
+                        library_folder_name.as_bytes(),
+                        percent_encoding::NON_ALPHANUMERIC
+                    ),
+                )
             }
             ViewerUri::WorldMap(location) => {
                 write!(

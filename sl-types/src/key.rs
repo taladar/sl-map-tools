@@ -186,6 +186,22 @@ impl Into<Key> for TextureKey {
     }
 }
 
+/// represents a Second Life key for an inventory folder
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InventoryFolderKey(pub Key);
+
+impl std::fmt::Display for InventoryFolderKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Into<Key> for InventoryFolderKey {
+    fn into(self) -> Key {
+        self.0
+    }
+}
+
 /// represents s Second Life key for an owner (e.g. of an object)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnerKey {

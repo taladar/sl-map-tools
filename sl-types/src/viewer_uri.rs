@@ -229,7 +229,17 @@ pub enum ViewerUri {
     KeyBindingStartGesture,
     /// key binding
     KeyBindingScriptTriggerLButton(ScriptTriggerMode),
-    // TODO: login
+    /// login on launch
+    Login {
+        /// account first name
+        first_name: String,
+        /// account last name
+        last_name: String,
+        /// secure session id
+        session: String,
+        /// login location
+        login_location: Option<String>,
+    },
     /// track a friend with the permission on the world map
     MapTrackAvatar(crate::key::FriendKey),
     /// display an info disalog for the object sending this message
@@ -272,6 +282,7 @@ impl ViewerUri {
     pub fn internal_only(&self) -> bool {
         match self {
             ViewerUri::Location(_) => false,
+            ViewerUri::Login { .. } => false,
             _ => true,
         }
     }
@@ -545,6 +556,37 @@ impl std::fmt::Display for ViewerUri {
                     f,
                     "secondlife:///app/keybinding/script_trigger_lbutton?mode={}",
                     script_trigger_mode
+                )
+            }
+            ViewerUri::Login {
+                first_name,
+                last_name,
+                session,
+                login_location,
+            } => {
+                write!(
+                    f,
+                    "secondlife::///app/login?first={}&last={}&session={}{}",
+                    percent_encoding::percent_encode(
+                        first_name.as_bytes(),
+                        percent_encoding::NON_ALPHANUMERIC
+                    ),
+                    percent_encoding::percent_encode(
+                        last_name.as_bytes(),
+                        percent_encoding::NON_ALPHANUMERIC
+                    ),
+                    session,
+                    if let Some(login_location) = login_location {
+                        format!(
+                            "&location={}",
+                            percent_encoding::percent_encode(
+                                login_location.as_bytes(),
+                                percent_encoding::NON_ALPHANUMERIC
+                            ),
+                        )
+                    } else {
+                        "".to_string()
+                    },
                 )
             }
             ViewerUri::MapTrackAvatar(friend_key) => {

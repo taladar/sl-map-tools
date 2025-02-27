@@ -185,3 +185,72 @@ impl Into<Key> for TextureKey {
         self.0
     }
 }
+
+/// represents s Second Life key for an owner (e.g. of an object)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnerKey {
+    /// the owner is an agent
+    Agent(AgentKey),
+    /// the owner is a group
+    Group(GroupKey),
+}
+
+impl std::fmt::Display for OwnerKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OwnerKey::Agent(agent_key) => write!(f, "{}", agent_key),
+            OwnerKey::Group(group_key) => write!(f, "{}", group_key),
+        }
+    }
+}
+
+/// error when the owner is a group while trying to convert an OwnerKey to an AgentKey
+#[derive(Debug, Clone)]
+pub struct OwnerIsGroupError(GroupKey);
+
+impl std::fmt::Display for OwnerIsGroupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "The owner is not an agent but the group {}", self.0)
+    }
+}
+
+impl TryInto<AgentKey> for OwnerKey {
+    type Error = OwnerIsGroupError;
+
+    fn try_into(self) -> Result<AgentKey, Self::Error> {
+        match self {
+            OwnerKey::Agent(agent_key) => Ok(agent_key),
+            OwnerKey::Group(group_key) => Err(OwnerIsGroupError(group_key)),
+        }
+    }
+}
+
+/// error when the owner is an agent while trying to convert an OwnerKey to a GroupKey
+#[derive(Debug, Clone)]
+pub struct OwnerIsAgentError(AgentKey);
+
+impl std::fmt::Display for OwnerIsAgentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "The owner is not a group but the agent {}", self.0)
+    }
+}
+
+impl TryInto<GroupKey> for OwnerKey {
+    type Error = OwnerIsAgentError;
+
+    fn try_into(self) -> Result<GroupKey, Self::Error> {
+        match self {
+            OwnerKey::Agent(agent_key) => Err(OwnerIsAgentError(agent_key)),
+            OwnerKey::Group(group_key) => Ok(group_key),
+        }
+    }
+}
+
+impl Into<Key> for OwnerKey {
+    fn into(self) -> Key {
+        match self {
+            OwnerKey::Agent(agent_key) => agent_key.into(),
+            OwnerKey::Group(group_key) => group_key.into(),
+        }
+    }
+}

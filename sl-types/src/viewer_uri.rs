@@ -232,7 +232,15 @@ pub enum ViewerUri {
     // TODO: login
     /// track a friend with the permission on the world map
     MapTrackAvatar(crate::key::FriendKey),
-    // TODO: objectim
+    /// display an info disalog for the object sending this message
+    ObjectInstantMessage {
+        /// name of the object
+        object_name: String,
+        /// owner of the object
+        owner: crate::key::OwnerKey,
+        /// object location
+        location: crate::map::Location,
+    },
     /// open the named floater
     OpenFloater(String),
     /// open a floater describing a parcel
@@ -538,6 +546,35 @@ impl std::fmt::Display for ViewerUri {
             }
             ViewerUri::MapTrackAvatar(friend_key) => {
                 write!(f, "secondlife:///app/maptrackavatar/{}", friend_key)
+            }
+            ViewerUri::ObjectInstantMessage {
+                object_name,
+                owner,
+                location,
+            } => {
+                write!(
+                    f,
+                    "secondlife::///app/objectim?object_name={}&{}&slurl={}/{}/{}/{}",
+                    percent_encoding::percent_encode(
+                        object_name.as_bytes(),
+                        percent_encoding::NON_ALPHANUMERIC
+                    ),
+                    match owner {
+                        crate::key::OwnerKey::Agent(agent_key) => {
+                            format!("owner={}", agent_key)
+                        }
+                        crate::key::OwnerKey::Group(group_key) => {
+                            format!("owner={}?groupowned=true", group_key)
+                        }
+                    },
+                    percent_encoding::percent_encode(
+                        location.region_name.clone().into_inner().as_bytes(),
+                        percent_encoding::NON_ALPHANUMERIC
+                    ),
+                    location.x,
+                    location.y,
+                    location.z,
+                )
             }
             ViewerUri::OpenFloater(floater_name) => {
                 write!(

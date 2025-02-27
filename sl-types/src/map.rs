@@ -620,13 +620,13 @@ pub fn region_name_parser() -> impl Parser<char, RegionName, Error = Simple<char
 #[derive(Debug, Clone, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Location {
     /// the name of the region of the location
-    region_name: RegionName,
+    pub region_name: RegionName,
     /// the x coordinate inside the region
-    x: u8,
+    pub x: u8,
     /// the y coordinate inside the region
-    y: u8,
+    pub y: u8,
     /// the z coordinate inside the region
-    z: u16,
+    pub z: u16,
 }
 
 /// the possible errors that can occur when parsing a String to a `Location`

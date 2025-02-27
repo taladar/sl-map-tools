@@ -233,7 +233,8 @@ pub enum ViewerUri {
     /// track a friend with the permission on the world map
     MapTrackAvatar(crate::key::FriendKey),
     // TODO: objectim
-    // TODO: openfloater
+    /// open the named floater
+    OpenFloater(String),
     /// open a floater describing a parcel
     Parcel(crate::key::ParcelKey),
     /// open a search floater with matching results
@@ -537,6 +538,16 @@ impl std::fmt::Display for ViewerUri {
             }
             ViewerUri::MapTrackAvatar(friend_key) => {
                 write!(f, "secondlife:///app/maptrackavatar/{}", friend_key)
+            }
+            ViewerUri::OpenFloater(floater_name) => {
+                write!(
+                    f,
+                    "secondlife:///app/openfloater/{}",
+                    percent_encoding::percent_encode(
+                        floater_name.as_bytes(),
+                        percent_encoding::NON_ALPHANUMERIC
+                    )
+                )
             }
             ViewerUri::Parcel(parcel_key) => {
                 write!(f, "secondlife:///app/parcel/{}/about", parcel_key)

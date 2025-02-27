@@ -700,3 +700,6 @@ impl std::fmt::Display for ViewerUri {
         }
     }
 }
+
+// TODO: FromStr instance
+// TODO: parser

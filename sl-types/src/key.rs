@@ -2,6 +2,58 @@
 
 use uuid::{uuid, Uuid};
 
+#[cfg(feature = "chumsky")]
+use chumsky::{
+    prelude::{just, one_of, Simple},
+    Parser,
+};
+
+/// parse a UUID
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn uuid_parser() -> impl Parser<char, uuid::Uuid, Error = Simple<char>> {
+    one_of("0123456789abcdef")
+        .repeated()
+        .exactly(8)
+        .collect::<String>()
+        .then_ignore(just('-'))
+        .then(
+            one_of("0123456789abcdef")
+                .repeated()
+                .exactly(4)
+                .collect::<String>(),
+        )
+        .then_ignore(just('-'))
+        .then(
+            one_of("0123456789abcdef")
+                .repeated()
+                .exactly(4)
+                .collect::<String>(),
+        )
+        .then_ignore(just('-'))
+        .then(
+            one_of("0123456789abcdef")
+                .repeated()
+                .exactly(4)
+                .collect::<String>(),
+        )
+        .then_ignore(just('-'))
+        .then(
+            one_of("0123456789abcdef")
+                .repeated()
+                .exactly(12)
+                .collect::<String>(),
+        )
+        .try_map(|((((a, b), c), d), e), span: std::ops::Range<usize>| {
+            uuid::Uuid::parse_str(&format!("{}-{}-{}-{}-{}", a, b, c, d, e))
+                .map_err(|e| Simple::custom(span.clone(), format!("{:?}", e)))
+        })
+}
+
 /// represents a general Second Life key without any knowledge about the type
 /// of entity this represents
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,6 +63,17 @@ impl std::fmt::Display for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+/// parse a Key
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn key_parser() -> impl Parser<char, Key, Error = Simple<char>> {
+    uuid_parser().map(Key)
 }
 
 /// the null key used by Second Life in many places to represent the absence
@@ -36,6 +99,17 @@ impl Into<Key> for AgentKey {
     }
 }
 
+/// parse an AgentKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn agent_key_parser() -> impl Parser<char, AgentKey, Error = Simple<char>> {
+    key_parser().map(AgentKey)
+}
+
 /// represents a Second Life key for a classified ad
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassifiedKey(pub Key);
@@ -50,6 +124,17 @@ impl Into<Key> for ClassifiedKey {
     fn into(self) -> Key {
         self.0
     }
+}
+
+/// parse a ClassifiedKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn classified_key_parser() -> impl Parser<char, ClassifiedKey, Error = Simple<char>> {
+    key_parser().map(ClassifiedKey)
 }
 
 /// represents a Second Life key for an event
@@ -68,6 +153,17 @@ impl Into<Key> for EventKey {
     }
 }
 
+/// parse an EventKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn event_key_parser() -> impl Parser<char, EventKey, Error = Simple<char>> {
+    key_parser().map(EventKey)
+}
+
 /// represents a Second Life key for an experience
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExperienceKey(pub Key);
@@ -82,6 +178,17 @@ impl Into<Key> for ExperienceKey {
     fn into(self) -> Key {
         self.0
     }
+}
+
+/// parse an ExperienceKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn experience_key_parser() -> impl Parser<char, ExperienceKey, Error = Simple<char>> {
+    key_parser().map(ExperienceKey)
 }
 
 /// represents a Second Life key for an agent who is a friend
@@ -106,6 +213,17 @@ impl Into<AgentKey> for FriendKey {
     }
 }
 
+/// parse a FriendKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn friend_key_parser() -> impl Parser<char, FriendKey, Error = Simple<char>> {
+    key_parser().map(FriendKey)
+}
+
 /// represents a Second Life key for a group
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupKey(pub Key);
@@ -120,6 +238,17 @@ impl Into<Key> for GroupKey {
     fn into(self) -> Key {
         self.0
     }
+}
+
+/// parse a GroupKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn group_key_parser() -> impl Parser<char, GroupKey, Error = Simple<char>> {
+    key_parser().map(GroupKey)
 }
 
 /// represents a Second Life key for an inventory item
@@ -138,6 +267,17 @@ impl Into<Key> for InventoryKey {
     }
 }
 
+/// parse an InventoryKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn inventory_key_parser() -> impl Parser<char, InventoryKey, Error = Simple<char>> {
+    key_parser().map(InventoryKey)
+}
+
 /// represents a Second Life key for an object
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectKey(pub Key);
@@ -152,6 +292,17 @@ impl Into<Key> for ObjectKey {
     fn into(self) -> Key {
         self.0
     }
+}
+
+/// parse an ObjectKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn object_key_parser() -> impl Parser<char, ObjectKey, Error = Simple<char>> {
+    key_parser().map(ObjectKey)
 }
 
 /// represents a Second Life key for a parcel
@@ -170,6 +321,17 @@ impl Into<Key> for ParcelKey {
     }
 }
 
+/// parse a ParcelKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn parcel_key_parser() -> impl Parser<char, ParcelKey, Error = Simple<char>> {
+    key_parser().map(ParcelKey)
+}
+
 /// represents a Second Life key for a texture
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextureKey(pub Key);
@@ -186,6 +348,17 @@ impl Into<Key> for TextureKey {
     }
 }
 
+/// parse a TextureKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn texture_key_parser() -> impl Parser<char, TextureKey, Error = Simple<char>> {
+    key_parser().map(TextureKey)
+}
+
 /// represents a Second Life key for an inventory folder
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InventoryFolderKey(pub Key);
@@ -200,6 +373,18 @@ impl Into<Key> for InventoryFolderKey {
     fn into(self) -> Key {
         self.0
     }
+}
+
+/// parse an InventoryFolderKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn inventory_folder_key_parser() -> impl Parser<char, InventoryFolderKey, Error = Simple<char>>
+{
+    key_parser().map(InventoryFolderKey)
 }
 
 /// represents s Second Life key for an owner (e.g. of an object)

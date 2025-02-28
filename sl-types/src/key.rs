@@ -93,9 +93,9 @@ impl std::fmt::Display for AgentKey {
     }
 }
 
-impl Into<Key> for AgentKey {
-    fn into(self) -> Key {
-        self.0
+impl From<AgentKey> for Key {
+    fn from(val: AgentKey) -> Self {
+        val.0
     }
 }
 
@@ -120,9 +120,9 @@ impl std::fmt::Display for ClassifiedKey {
     }
 }
 
-impl Into<Key> for ClassifiedKey {
-    fn into(self) -> Key {
-        self.0
+impl From<ClassifiedKey> for Key {
+    fn from(val: ClassifiedKey) -> Self {
+        val.0
     }
 }
 
@@ -147,9 +147,9 @@ impl std::fmt::Display for EventKey {
     }
 }
 
-impl Into<Key> for EventKey {
-    fn into(self) -> Key {
-        self.0
+impl From<EventKey> for Key {
+    fn from(val: EventKey) -> Self {
+        val.0
     }
 }
 
@@ -174,9 +174,9 @@ impl std::fmt::Display for ExperienceKey {
     }
 }
 
-impl Into<Key> for ExperienceKey {
-    fn into(self) -> Key {
-        self.0
+impl From<ExperienceKey> for Key {
+    fn from(val: ExperienceKey) -> Self {
+        val.0
     }
 }
 
@@ -201,15 +201,15 @@ impl std::fmt::Display for FriendKey {
     }
 }
 
-impl Into<Key> for FriendKey {
-    fn into(self) -> Key {
-        self.0
+impl From<FriendKey> for Key {
+    fn from(val: FriendKey) -> Self {
+        val.0
     }
 }
 
-impl Into<AgentKey> for FriendKey {
-    fn into(self) -> AgentKey {
-        AgentKey(self.0)
+impl From<FriendKey> for AgentKey {
+    fn from(val: FriendKey) -> Self {
+        AgentKey(val.0)
     }
 }
 
@@ -234,9 +234,9 @@ impl std::fmt::Display for GroupKey {
     }
 }
 
-impl Into<Key> for GroupKey {
-    fn into(self) -> Key {
-        self.0
+impl From<GroupKey> for Key {
+    fn from(val: GroupKey) -> Self {
+        val.0
     }
 }
 
@@ -261,9 +261,9 @@ impl std::fmt::Display for InventoryKey {
     }
 }
 
-impl Into<Key> for InventoryKey {
-    fn into(self) -> Key {
-        self.0
+impl From<InventoryKey> for Key {
+    fn from(val: InventoryKey) -> Self {
+        val.0
     }
 }
 
@@ -288,9 +288,9 @@ impl std::fmt::Display for ObjectKey {
     }
 }
 
-impl Into<Key> for ObjectKey {
-    fn into(self) -> Key {
-        self.0
+impl From<ObjectKey> for Key {
+    fn from(val: ObjectKey) -> Self {
+        val.0
     }
 }
 
@@ -315,9 +315,9 @@ impl std::fmt::Display for ParcelKey {
     }
 }
 
-impl Into<Key> for ParcelKey {
-    fn into(self) -> Key {
-        self.0
+impl From<ParcelKey> for Key {
+    fn from(val: ParcelKey) -> Self {
+        val.0
     }
 }
 
@@ -342,9 +342,9 @@ impl std::fmt::Display for TextureKey {
     }
 }
 
-impl Into<Key> for TextureKey {
-    fn into(self) -> Key {
-        self.0
+impl From<TextureKey> for Key {
+    fn from(val: TextureKey) -> Self {
+        val.0
     }
 }
 
@@ -369,9 +369,9 @@ impl std::fmt::Display for InventoryFolderKey {
     }
 }
 
-impl Into<Key> for InventoryFolderKey {
-    fn into(self) -> Key {
-        self.0
+impl From<InventoryFolderKey> for Key {
+    fn from(val: InventoryFolderKey) -> Self {
+        val.0
     }
 }
 
@@ -447,9 +447,9 @@ impl TryInto<GroupKey> for OwnerKey {
     }
 }
 
-impl Into<Key> for OwnerKey {
-    fn into(self) -> Key {
-        match self {
+impl From<OwnerKey> for Key {
+    fn from(val: OwnerKey) -> Self {
+        match val {
             OwnerKey::Agent(agent_key) => agent_key.into(),
             OwnerKey::Group(group_key) => group_key.into(),
         }

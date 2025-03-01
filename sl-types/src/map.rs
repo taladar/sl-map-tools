@@ -629,6 +629,34 @@ pub struct Location {
     pub z: u16,
 }
 
+/// parse a string into a Location
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
+    region_name_parser()
+        .then(
+            digits(10)
+                .then_ignore(just('/'))
+                .then(digits(10).then_ignore(just('/')).then(digits(10))),
+        )
+        .try_map(|(region_name, (x, (y, z))), span| {
+            let x: u8 = x
+                .parse()
+                .map_err(|e| Simple::custom(span.clone(), format!("{:?}", e)))?;
+            let y: u8 = y
+                .parse()
+                .map_err(|e| Simple::custom(span.clone(), format!("{:?}", e)))?;
+            let z: u16 = z
+                .parse()
+                .map_err(|e| Simple::custom(span.clone(), format!("{:?}", e)))?;
+            Ok(Location::new(region_name, x, y, z))
+        })
+}
+
 /// the possible errors that can occur when parsing a String to a `Location`
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, strum::EnumIs)]
 pub enum LocationParseError {

@@ -2,6 +2,14 @@
 //!
 //! see https://wiki.secondlife.com/wiki/Viewer_URI_Name_Space
 
+#[cfg(feature = "chumsky")]
+use chumsky::{
+    prelude::{filter, just, Simple},
+    Parser,
+};
+#[cfg(feature = "chumsky")]
+use std::ops::Deref;
+
 /// represents the various script trigger modes for the script_trigger_lbutton
 /// key binding
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, strum::FromRepr, strum::EnumIs)]
@@ -14,6 +22,21 @@ pub enum ScriptTriggerMode {
     EditAvatar = 2,
     /// "sitting" or 3
     Sitting = 3,
+}
+
+/// parse script trigger mode
+///
+/// # Errors
+///
+/// returns and error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn script_trigger_mode_parser() -> impl Parser<char, ScriptTriggerMode, Error = Simple<char>> {
+    just("first_person")
+        .to(ScriptTriggerMode::FirstPerson)
+        .or(just("third_person").to(ScriptTriggerMode::ThirdPerson))
+        .or(just("edit_avatar").to(ScriptTriggerMode::EditAvatar))
+        .or(just("sitting").to(ScriptTriggerMode::Sitting))
 }
 
 impl std::fmt::Display for ScriptTriggerMode {
@@ -105,7 +128,7 @@ pub enum ViewerUri {
     /// open a floater describing the event
     EventAbout(crate::key::EventKey),
     /// open a floater describing the experience
-    ExperienceAbout(crate::key::ExperienceKey),
+    ExperienceProfile(crate::key::ExperienceKey),
     /// open the group profile
     GroupAbout(crate::key::GroupKey),
     /// displays the info dialog for the group
@@ -360,8 +383,8 @@ impl std::fmt::Display for ViewerUri {
             ViewerUri::EventAbout(event_key) => {
                 write!(f, "secondlife:///app/event/{}/about", event_key)
             }
-            ViewerUri::ExperienceAbout(experience_key) => {
-                write!(f, "secondlife:///app/experience/{}/about", experience_key)
+            ViewerUri::ExperienceProfile(experience_key) => {
+                write!(f, "secondlife:///app/experience/{}/profile", experience_key)
             }
             ViewerUri::GroupAbout(group_key) => {
                 write!(f, "secondlife:///app/group/{}/about", group_key)
@@ -687,7 +710,7 @@ impl std::fmt::Display for ViewerUri {
             ViewerUri::WorldMap(location) => {
                 write!(
                     f,
-                    "secondlife:///worldmap/{}/{}/{}/{}",
+                    "secondlife:///app/worldmap/{}/{}/{}/{}",
                     percent_encoding::percent_encode(
                         location.region_name().as_ref().as_bytes(),
                         percent_encoding::NON_ALPHANUMERIC
@@ -702,4 +725,351 @@ impl std::fmt::Display for ViewerUri {
 }
 
 // TODO: FromStr instance
-// TODO: parser
+
+/// parse some text in a URL component and URL decode it
+///
+/// # Errors
+///
+/// returns and error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn url_text_component_parser() -> impl Parser<char, String, Error = Simple<char>> {
+    filter::<char, _, Simple<char>>(|c| c.is_alphabetic() || c.is_numeric())
+        .repeated()
+        .try_map(|s, span| {
+            let s = s.into_iter().collect::<String>();
+            percent_encoding::percent_decode(s.as_bytes())
+                .decode_utf8()
+                .map(|s| s.into_owned())
+                .map_err(|e| Simple::custom(span, format!("{:?}", e)))
+        })
+}
+
+/// parse a viewer app agent URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_agent_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/agent/").ignore_then(
+        crate::key::agent_key_parser()
+            .then_ignore(just("/about"))
+            .map(ViewerUri::AgentAbout)
+            .or(crate::key::agent_key_parser()
+                .then_ignore(just("/inspect"))
+                .map(ViewerUri::AgentInspect))
+            .or(crate::key::agent_key_parser()
+                .then_ignore(just("/im"))
+                .map(ViewerUri::AgentInstantMessage))
+            .or(crate::key::agent_key_parser()
+                .then_ignore(just("/offerteleport"))
+                .map(ViewerUri::AgentOfferTeleport))
+            .or(crate::key::agent_key_parser()
+                .then_ignore(just("/pay"))
+                .map(ViewerUri::AgentPay))
+            .or(crate::key::agent_key_parser()
+                .then_ignore(just("/requestfriend"))
+                .map(ViewerUri::AgentRequestFriend))
+            .or(crate::key::agent_key_parser()
+                .then_ignore(just("/mute"))
+                .map(ViewerUri::AgentMute))
+            .or(crate::key::agent_key_parser()
+                .then_ignore(just("/unmute"))
+                .map(ViewerUri::AgentUnmute))
+            .or(crate::key::agent_key_parser()
+                .then_ignore(just("/completename"))
+                .map(ViewerUri::AgentCompleteName))
+            .or(crate::key::agent_key_parser()
+                .then_ignore(just("/displayname"))
+                .map(ViewerUri::AgentDisplayName))
+            .or(crate::key::agent_key_parser()
+                .then_ignore(just("/username"))
+                .map(ViewerUri::AgentUsername)),
+    )
+}
+
+/// parse a viewer app appearance URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_appearance_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/appearance/show").to(ViewerUri::AppearanceShow)
+}
+
+/// parse a viewer app balance URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_balance_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/balance/request").to(ViewerUri::BalanceRequest)
+}
+
+/// parse a viewer app chat URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_chat_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/chat/")
+        .ignore_then(
+            crate::chat::chat_channel_parser()
+                .then_ignore(just('/'))
+                .then(url_text_component_parser()),
+        )
+        .map(|(channel, text)| ViewerUri::Chat {
+            channel,
+            text: text.to_string(),
+        })
+}
+
+/// parse a viewer app classified URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_classified_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/classified/").ignore_then(
+        crate::key::classified_key_parser()
+            .then_ignore(just("/about"))
+            .map(ViewerUri::ClassifiedAbout),
+    )
+}
+
+/// parse a viewer app event URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_event_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/event/").ignore_then(
+        crate::key::event_key_parser()
+            .then_ignore(just("/about"))
+            .map(ViewerUri::EventAbout),
+    )
+}
+
+/// parse a viewer app experience URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_experience_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/experience/").ignore_then(
+        crate::key::experience_key_parser()
+            .then_ignore(just("/profile"))
+            .map(ViewerUri::ExperienceProfile),
+    )
+}
+
+/// parse a viewer app group URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_group_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/group/").ignore_then(
+        crate::key::group_key_parser()
+            .then_ignore(just("/about"))
+            .map(ViewerUri::GroupAbout)
+            .or(crate::key::group_key_parser()
+                .then_ignore(just("/inspect"))
+                .map(ViewerUri::GroupInspect))
+            .or(just("create").to(ViewerUri::GroupCreate))
+            .or(just("list/show").to(ViewerUri::GroupListShow)),
+    )
+}
+
+/// parse a viewer app help URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_help_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/help/")
+        .ignore_then(just('/').ignore_then(url_text_component_parser()).or_not())
+        .map(|help_query| ViewerUri::Help { help_query })
+}
+
+/// parse a viewer app inventory URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_inventory_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/inventory/").ignore_then(
+        crate::key::inventory_key_parser()
+            .then_ignore(just("/select"))
+            .map(ViewerUri::InventorySelect)
+            .or(just("/show").to(ViewerUri::InventoryShow)),
+    )
+}
+
+/// parse a viewer app keybinding URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_keybinding_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/keybinding/").ignore_then(
+        url_text_component_parser()
+            .try_map(|s, span| match s.deref() {
+                "walk_to" => Ok(ViewerUri::KeyBindingMovementWalkTo),
+                "teleport_to" => Ok(ViewerUri::KeyBindingMovementTeleportTo),
+                "push_forward" => Ok(ViewerUri::KeyBindingMovementPushForward),
+                "push_backward" => Ok(ViewerUri::KeyBindingMovementPushBackward),
+                "turn_left" => Ok(ViewerUri::KeyBindingMovementTurnLeft),
+                "turn_right" => Ok(ViewerUri::KeyBindingMovementTurnRight),
+                "slide_left" => Ok(ViewerUri::KeyBindingMovementSlideLeft),
+                "slide_right" => Ok(ViewerUri::KeyBindingMovementSlideRight),
+                "jump" => Ok(ViewerUri::KeyBindingMovementJump),
+                "push_down" => Ok(ViewerUri::KeyBindingMovementPushDown),
+                "run_forward" => Ok(ViewerUri::KeyBindingMovementRunForward),
+                "run_backward" => Ok(ViewerUri::KeyBindingMovementRunBackward),
+                "run_left" => Ok(ViewerUri::KeyBindingMovementRunLeft),
+                "run_right" => Ok(ViewerUri::KeyBindingMovementRunRight),
+                "toggle_run" => Ok(ViewerUri::KeyBindingMovementToggleRun),
+                "toggle_fly" => Ok(ViewerUri::KeyBindingMovementToggleFly),
+                "toggle_sit" => Ok(ViewerUri::KeyBindingMovementToggleSit),
+                "stop_moving" => Ok(ViewerUri::KeyBindingMovementStopMoving),
+                "look_up" => Ok(ViewerUri::KeyBindingCameraLookUp),
+                "look_down" => Ok(ViewerUri::KeyBindingCameraLookDown),
+                "move_forward_fast" => Ok(ViewerUri::KeyBindingCameraMoveForwardFast),
+                "move_backward_fast" => Ok(ViewerUri::KeyBindingCameraMoveBackwardFast),
+                "move_forward_sitting" => Ok(ViewerUri::KeyBindingCameraMoveForwardSitting),
+                "move_backward_sittingk" => Ok(ViewerUri::KeyBindingCameraMoveBackwardSitting),
+                "move_forward" => Ok(ViewerUri::KeyBindingCameraMoveForward),
+                "move_backward" => Ok(ViewerUri::KeyBindingCameraMoveBackward),
+                "spin_over_sitting" => Ok(ViewerUri::KeyBindingCameraSpinOverSitting),
+                "spin_under_sitting" => Ok(ViewerUri::KeyBindingCameraSpinUnderSitting),
+                "spin_over" => Ok(ViewerUri::KeyBindingCameraSpinOver),
+                "spin_under" => Ok(ViewerUri::KeyBindingCameraSpinUnder),
+                "pan_up" => Ok(ViewerUri::KeyBindingCameraPanUp),
+                "pan_down" => Ok(ViewerUri::KeyBindingCameraPanDown),
+                "pan_left" => Ok(ViewerUri::KeyBindingCameraPanLeft),
+                "pan_right" => Ok(ViewerUri::KeyBindingCameraPanRight),
+                "pan_in" => Ok(ViewerUri::KeyBindingCameraPanIn),
+                "pan_out" => Ok(ViewerUri::KeyBindingCameraPanOut),
+                "spin_around_ccw_sitting" => {
+                    Ok(ViewerUri::KeyBindingCameraSpinAroundCounterClockwiseSitting)
+                }
+                "spin_around_cw_sitting" => {
+                    Ok(ViewerUri::KeyBindingCameraSpinAroundClockwiseSitting)
+                }
+                "spin_around_ccw" => Ok(ViewerUri::KeyBindingCameraSpinAroundCounterClockwise),
+                "spin_around_cw" => Ok(ViewerUri::KeyBindingCameraSpinAroundClockwise),
+                "edit_avatar_spin_ccw" => {
+                    Ok(ViewerUri::KeyBindingEditingAvatarSpinCounterClockwise)
+                }
+                "edit_avatar_spin_cw" => Ok(ViewerUri::KeyBindingEditingAvatarSpinClockwise),
+                "edit_avatar_spin_over" => Ok(ViewerUri::KeyBindingEditingAvatarSpinOver),
+                "edit_avatar_spin_under" => Ok(ViewerUri::KeyBindingEditingAvatarSpinUnder),
+                "edit_avatar_move_forward" => Ok(ViewerUri::KeyBindingEditingAvatarMoveForward),
+                "edit_avatar_move_backward" => Ok(ViewerUri::KeyBindingEditingAvatarMoveBackward),
+                "toggle_pause_media" => Ok(ViewerUri::KeyBindingSoundAndMediaTogglePauseMedia),
+                "toggle_enable_media" => Ok(ViewerUri::KeyBindingSoundAndMediaToggleEnableMedia),
+                "voice_follow_key" => Ok(ViewerUri::KeyBindingSoundAndMediaVoiceFollowKey),
+                "toggle_voice" => Ok(ViewerUri::KeyBindingSoundAndMediaToggleVoice),
+                "start_chat" => Ok(ViewerUri::KeyBindingStartChat),
+                "start_gesture" => Ok(ViewerUri::KeyBindingStartGesture),
+                _ => Err(Simple::custom(
+                    span,
+                    format!("Not a valid keybinding: {}", s),
+                )),
+            })
+            .or(just("/script_trigger_lbutton")
+                .ignore_then(script_trigger_mode_parser())
+                .map(ViewerUri::KeyBindingScriptTriggerLButton)),
+    )
+}
+
+/// parse a viewer app worldmap URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_worldmap_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/worldmap/")
+        .ignore_then(crate::map::location_parser().map(ViewerUri::WorldMap))
+}
+
+/// parse a viewer app URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    viewer_app_agent_uri_parser()
+        .or(viewer_app_appearance_uri_parser())
+        .or(viewer_app_balance_uri_parser())
+        .or(viewer_app_chat_uri_parser())
+        .or(viewer_app_classified_uri_parser())
+        .or(viewer_app_event_uri_parser())
+        .or(viewer_app_experience_uri_parser())
+        .or(viewer_app_group_uri_parser())
+        .or(viewer_app_help_uri_parser())
+        .or(viewer_app_inventory_uri_parser())
+        .or(viewer_app_keybinding_uri_parser())
+        // TODO: login
+        // TODO: maptrackavatar
+        // TODO: objectim
+        // TODO: openfloater
+        // TODO: parcel
+        // TODO: search
+        // TODO: sharewithavatar
+        // TODO: teleport
+        // TODO: voicecallavatar
+        // TODO: wearfolder
+        .or(viewer_app_worldmap_uri_parser())
+}
+
+/// parse a viewer location URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_location_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///")
+        .ignore_then(crate::map::location_parser())
+        .map(ViewerUri::Location)
+}
+
+/// parse a viewer URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    viewer_app_uri_parser().or(viewer_location_uri_parser())
+}

@@ -1,8 +1,27 @@
 //! Types related to SL chat
 
+#[cfg(feature = "chumsky")]
+use chumsky::{prelude::Simple, text::digits, Parser};
+
 /// represents a Second Life chat channel
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChatChannel(pub i32);
+
+/// parse a chat channel
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn chat_channel_parser() -> impl Parser<char, ChatChannel, Error = Simple<char>> {
+    digits(10).try_map(|d: <char as chumsky::text::Character>::Collection, span| {
+        let d: i32 = d
+            .parse()
+            .map_err(|e| Simple::custom(span, format!("{:?}", e)))?;
+        Ok(ChatChannel(d))
+    })
+}
 
 impl std::fmt::Display for ChatChannel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

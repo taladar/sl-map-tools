@@ -388,7 +388,7 @@ pub fn inventory_folder_key_parser() -> impl Parser<char, InventoryFolderKey, Er
 }
 
 /// represents s Second Life key for an owner (e.g. of an object)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, strum::EnumIs)]
 pub enum OwnerKey {
     /// the owner is an agent
     Agent(AgentKey),

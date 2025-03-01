@@ -1,7 +1,7 @@
 //! Search related types
 
 /// Search categories
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, strum::EnumIs)]
 pub enum SearchCategory {
     /// search in all categories
     All,

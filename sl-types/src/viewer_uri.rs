@@ -4,16 +4,16 @@
 
 /// represents the various script trigger modes for the script_trigger_lbutton
 /// key binding
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, strum::FromRepr, strum::EnumIs)]
 pub enum ScriptTriggerMode {
     /// "first_person" or 0
-    FirstPerson,
+    FirstPerson = 0,
     /// "third_person" or 1
-    ThirdPerson,
+    ThirdPerson = 1,
     /// "edit_avatar" or 2
-    EditAvatar,
+    EditAvatar = 2,
     /// "sitting" or 3
-    Sitting,
+    Sitting = 3,
 }
 
 impl std::fmt::Display for ScriptTriggerMode {
@@ -63,7 +63,7 @@ impl std::str::FromStr for ScriptTriggerMode {
 }
 
 /// represents a Viewer URI
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, strum::EnumIs)]
 pub enum ViewerUri {
     /// a link to this location
     Location(crate::map::Location),

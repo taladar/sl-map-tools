@@ -20,7 +20,7 @@ pub const COMBAT_CHANNEL: ChatChannel = ChatChannel(0x7FFFFFFE);
 pub const DEBUG_CHANNEL: ChatChannel = ChatChannel(0x7FFFFFFF);
 
 /// represents a Second Life chat volume
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, strum::EnumIs)]
 pub enum ChatVolume {
     /// whisper (10m)
     Whisper,

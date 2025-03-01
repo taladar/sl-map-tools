@@ -630,7 +630,7 @@ pub struct Location {
 }
 
 /// the possible errors that can occur when parsing a String to a `Location`
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, strum::EnumIs)]
 pub enum LocationParseError {
     /// unexpected number of /-separated components in the location URL
     #[error("unexpected number of /-separated components in the location URL {0}, found {1} expected 4 (for a bare location) or 8 (for a URL)")]
@@ -805,7 +805,7 @@ pub struct ZoomLevel(u8);
 
 /// Errors that can occur when trying to find the correct zoom level to fit
 /// regions into an output image of a given size
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error, strum::EnumIs)]
 pub enum ZoomFitError {
     /// The region size in the x direction can not be zero
     #[error("region size in x direction can not be zero")]
@@ -1073,7 +1073,7 @@ pub struct USBNotecard {
 }
 
 /// Errors that can happen when an USB notecard is read from a file
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, strum::EnumIs)]
 pub enum USBNotecardLoadError {
     /// I/O errors opening or reading the file
     #[error("I/O error opening or reading the file: {0}")]

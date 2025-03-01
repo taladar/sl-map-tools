@@ -110,6 +110,22 @@ pub fn agent_key_parser() -> impl Parser<char, AgentKey, Error = Simple<char>> {
     key_parser().map(AgentKey)
 }
 
+/// parse a viewer URI that is either an /about or /inspect URL for an avatar
+/// and return the AgentKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn app_agent_uri_as_agent_key_parser() -> impl Parser<char, AgentKey, Error = Simple<char>> {
+    crate::viewer_uri::viewer_app_agent_uri_parser().try_map(|uri, span| match uri {
+        crate::viewer_uri::ViewerUri::AgentAbout(agent_key)
+        | crate::viewer_uri::ViewerUri::AgentInspect(agent_key) => Ok(agent_key),
+        _ => Err(Simple::custom(span, "Unexpected type of Agent viewer URI")),
+    })
+}
+
 /// represents a Second Life key for a classified ad
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassifiedKey(pub Key);

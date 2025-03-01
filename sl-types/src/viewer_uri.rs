@@ -740,6 +740,7 @@ impl std::fmt::Display for ViewerUri {
 pub fn url_text_component_parser() -> impl Parser<char, String, Error = Simple<char>> {
     filter::<char, _, Simple<char>>(|c| c.is_alphabetic() || c.is_numeric())
         .repeated()
+        .at_least(1)
         .try_map(|s, span| {
             let s = s.into_iter().collect::<String>();
             percent_encoding::percent_decode(s.as_bytes())

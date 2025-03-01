@@ -607,7 +607,7 @@ pub struct RegionName(String);
 #[must_use]
 pub fn region_name_parser() -> impl Parser<char, RegionName, Error = Simple<char>> {
     chumsky::text::ident()
-        .separated_by(just("%20"))
+        .separated_by(just("%20").to(" "))
         .collect::<Vec<String>>()
         .try_map(|components, span| {
             RegionName::try_new(components.join(" ")).map_err(|err| Simple::custom(span, err))
@@ -1282,6 +1282,60 @@ mod test {
         let rect1 = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
         let rect2 = GridRectangle::new(GridCoordinates::new(30, 30), GridCoordinates::new(40, 40));
         assert_eq!(rect1.intersect(&rect2), None);
+        Ok(())
+    }
+
+    #[cfg(feature = "chumsky")]
+    #[test]
+    fn test_region_name_parser_no_whitespace() -> Result<(), Box<dyn std::error::Error>> {
+        let region_name = "Viterbo";
+        assert_eq!(
+            region_name_parser().parse(region_name),
+            Ok(RegionName::try_new(region_name)?)
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "chumsky")]
+    #[test]
+    fn test_region_name_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
+        let region_name = "Da Boom";
+        assert_eq!(
+            region_name_parser().parse(region_name.replace(" ", "%20")),
+            Ok(RegionName::try_new(region_name)?)
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "chumsky")]
+    #[test]
+    fn test_location_parser_no_whitespace() -> Result<(), Box<dyn std::error::Error>> {
+        let region_name = "Viterbo";
+        assert_eq!(
+            location_parser().parse(format!("{}/1/2/300", region_name)),
+            Ok(Location {
+                region_name: RegionName::try_new(region_name)?,
+                x: 1,
+                y: 2,
+                z: 300
+            })
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "chumsky")]
+    #[test]
+    fn test_location_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
+        let region_name = "Da Boom";
+        assert_eq!(
+            location_parser().parse(format!("{}/1/2/300", region_name.replace(" ", "%20"))),
+            Ok(Location {
+                region_name: RegionName::try_new(region_name)?,
+                x: 1,
+                y: 2,
+                z: 300
+            })
+        );
         Ok(())
     }
 }

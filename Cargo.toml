@@ -1,11 +1,11 @@
-[workspace]
-resolver = "2"
-members = [
-  "sl-types",
-  "sl-map-apis",
-  "sl-map-cli",
-]
-
 [profile.release]
-# do not strip debug info from release builds, useful for debugging those, cargo-flamegraph profiling or similar use cases
-debug = true
+debug = 2
+
+[workspace]
+members = [
+    "sl-chat-log-parser",
+    "sl-map-apis",
+    "sl-map-cli",
+    "sl-types",
+]
+resolver = "2"

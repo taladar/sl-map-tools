@@ -58,3 +58,17 @@ pub enum ChatVolume {
     /// region say (the whole region)
     RegionSay,
 }
+
+impl ChatVolume {
+    /// identify the chat volume of a message and strip it off the message
+    #[must_use]
+    pub fn volume_and_message(s: String) -> (ChatVolume, String) {
+        if let Some(whisper_message) = s.strip_prefix("whispers: ") {
+            (ChatVolume::Whisper, whisper_message.to_string())
+        } else if let Some(shout_message) = s.strip_prefix("shouts: ") {
+            (ChatVolume::Shout, shout_message.to_string())
+        } else {
+            (ChatVolume::Say, s)
+        }
+    }
+}

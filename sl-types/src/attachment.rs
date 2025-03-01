@@ -1,102 +1,102 @@
 //! Types related to attachments
 
 /// avatar attachment points
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, strum::FromRepr, strum::EnumIs)]
 pub enum AvatarAttachmentPoint {
     /// Skull
-    Skull,
+    Skull = 2,
     /// Nose
-    Nose,
+    Nose = 17,
     /// Mouth
-    Mouth,
+    Mouth = 11,
     /// Tongue
-    Tongue,
+    Tongue = 52,
     /// Chin
-    Chin,
+    Chin = 12,
     /// Jaw
-    Jaw,
+    Jaw = 47,
     /// Left Ear
-    LeftEar,
+    LeftEar = 13,
     /// Right Ear
-    RightEar,
+    RightEar = 14,
     /// Alt Left Ear
-    AltLeftEar,
+    AltLeftEar = 48,
     /// Alt Right Ear
-    AltRightEar,
+    AltRightEar = 49,
     /// Left Eye
-    LeftEye,
+    LeftEye = 15,
     /// Right Eye
-    RightEye,
+    RightEye = 16,
     /// Alt Left Ear
-    AltLeftEye,
+    AltLeftEye = 50,
     /// Alt Right Ear
-    AltRightEye,
+    AltRightEye = 51,
     /// Neck
-    Neck,
+    Neck = 39,
     /// Left Shoulder
-    LeftShoulder,
+    LeftShoulder = 3,
     /// Right Shoulder
-    RightShoulder,
+    RightShoulder = 4,
     /// L Upper Arm
-    LeftUpperArm,
+    LeftUpperArm = 20,
     /// R Upper Arm
-    RightUpperArm,
+    RightUpperArm = 18,
     /// L Lower Arm
-    LeftLowerArm,
+    LeftLowerArm = 21,
     /// R Lower Arm
-    RightLowerArm,
+    RightLowerArm = 19,
     /// Left Hand
-    LeftHand,
+    LeftHand = 5,
     /// Right Hand
-    RightHand,
+    RightHand = 6,
     /// Left Ring Finger
-    LeftRingFinger,
+    LeftRingFinger = 41,
     /// Right Ring Finger
-    RightRingFinger,
+    RightRingFinger = 42,
     /// Left Wing
-    LeftWing,
+    LeftWing = 45,
     /// Right Wing
-    RightWing,
+    RightWing = 46,
     /// Chest
-    Chest,
+    Chest = 1,
     /// Left Pec
-    LeftPec,
+    LeftPec = 29,
     /// Right Pec
-    RightPec,
+    RightPec = 30,
     /// Stomach
-    Stomach,
+    Stomach = 28,
     /// Spine
-    Spine,
+    Spine = 9,
     /// Tail Base
-    TailBase,
+    TailBase = 43,
     /// Tail Tip
-    TailTip,
+    TailTip = 44,
     /// Avatar Center
-    AvatarCenter,
+    AvatarCenter = 40,
     /// Pelvis
-    Pelvis,
+    Pelvis = 10,
     /// Groin
-    Groin,
+    Groin = 53,
     /// Left Hip
-    LeftHip,
+    LeftHip = 25,
     /// Right Hip
-    RightHip,
+    RightHip = 22,
     /// L Upper Leg
-    LeftUpperLeg,
+    LeftUpperLeg = 26,
     /// R Upper Leg
-    RightUpperLeg,
+    RightUpperLeg = 23,
     /// L Lower Leg
-    LeftLowerLeg,
+    LeftLowerLeg = 24,
     /// R Lower Leg
-    RightLowerLeg,
+    RightLowerLeg = 27,
     /// Left Foot
-    LeftFoot,
+    LeftFoot = 7,
     /// Right Foot
-    RightFoot,
+    RightFoot = 8,
     /// Left Hind Foot
-    LeftHindFoot,
+    LeftHindFoot = 54,
     /// Right Hind Foot
-    RightHindFoot,
+    RightHindFoot = 55,
 }
 
 impl AvatarAttachmentPoint {
@@ -299,24 +299,24 @@ impl std::str::FromStr for AvatarAttachmentPoint {
 }
 
 /// HUD attachment point
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, strum::FromRepr, strum::EnumIs)]
 pub enum HudAttachmentPoint {
     /// HUD Center 2
-    Center2,
+    Center2 = 31,
     /// HUD Top Right
-    TopRight,
+    TopRight = 32,
     /// HUD Top
-    Top,
+    Top = 33,
     /// HUD Top Left
-    TopLeft,
+    TopLeft = 34,
     /// HUD Center
-    Center,
+    Center = 35,
     /// HUD Bottom Left
-    BottomLeft,
+    BottomLeft = 36,
     /// HUD Bottom
-    Bottom,
+    Bottom = 37,
     /// HUT Bottom Right
-    BottomRight,
+    BottomRight = 38,
 }
 
 impl std::fmt::Display for HudAttachmentPoint {
@@ -374,6 +374,23 @@ pub enum AttachmentPoint {
     Avatar(AvatarAttachmentPoint),
     /// HUD attachment point
     Hud(HudAttachmentPoint),
+}
+
+impl AttachmentPoint {
+    /// converts the numeric enum discriminant used in the LSL (and presumably
+    /// C++) code for the attachment point into the respective enum variant
+    ///
+    /// https://wiki.secondlife.com/wiki/Category:LSL_Attachment
+    ///
+    pub fn from_repr(repr: usize) -> Option<AttachmentPoint> {
+        if let Some(avatar_attachment_point) = AvatarAttachmentPoint::from_repr(repr) {
+            Some(Self::Avatar(avatar_attachment_point))
+        } else if let Some(hud_attachment_point) = HudAttachmentPoint::from_repr(repr) {
+            Some(Self::Hud(hud_attachment_point))
+        } else {
+            None
+        }
+    }
 }
 
 impl std::fmt::Display for AttachmentPoint {

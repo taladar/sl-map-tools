@@ -22,6 +22,7 @@ nutype = { version = "0.5.1", features = ["serde"] }
 percent-encoding = "2.3.1"
 ranges = "0.4.0"
 serde = { version = "1.0.217", features = ["derive"] }
+strum = { version = "0.27.1", features = ["derive"] }
 thiserror = "2.0.11"
 uuid = "1.13.1"
 

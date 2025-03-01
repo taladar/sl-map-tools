@@ -10,6 +10,14 @@ impl std::fmt::Display for ChatChannel {
     }
 }
 
+impl std::str::FromStr for ChatChannel {
+    type Err = <i32 as std::str::FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        <i32 as std::str::FromStr>::from_str(s).map(ChatChannel)
+    }
+}
+
 /// the public chat channel on Second Life
 pub const PUBLIC_CHANNEL: ChatChannel = ChatChannel(0);
 

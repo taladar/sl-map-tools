@@ -1,5 +1,11 @@
 //! Search related types
 
+#[cfg(feature = "chumsky")]
+use chumsky::{
+    prelude::{just, Simple},
+    Parser,
+};
+
 /// Search categories
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, strum::EnumIs)]
 pub enum SearchCategory {
@@ -19,6 +25,25 @@ pub enum SearchCategory {
     Destinations,
     /// search the classifieds
     Classifieds,
+}
+
+/// parse a search category
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn search_category_parser() -> impl Parser<char, SearchCategory, Error = Simple<char>> {
+    just("all")
+        .to(SearchCategory::All)
+        .or(just("people").to(SearchCategory::People))
+        .or(just("places").to(SearchCategory::Places))
+        .or(just("events").to(SearchCategory::Events))
+        .or(just("groups").to(SearchCategory::Groups))
+        .or(just("wiki").to(SearchCategory::Wiki))
+        .or(just("destinations").to(SearchCategory::Destinations))
+        .or(just("classifieds").to(SearchCategory::Classifieds))
 }
 
 impl std::fmt::Display for SearchCategory {

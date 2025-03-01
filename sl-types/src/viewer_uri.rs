@@ -267,6 +267,8 @@ pub enum ViewerUri {
     MapTrackAvatar(crate::key::FriendKey),
     /// display an info disalog for the object sending this message
     ObjectInstantMessage {
+        /// key of the object
+        object_key: crate::key::ObjectKey,
         /// name of the object
         object_name: String,
         /// owner of the object
@@ -616,13 +618,15 @@ impl std::fmt::Display for ViewerUri {
                 write!(f, "secondlife:///app/maptrackavatar/{}", friend_key)
             }
             ViewerUri::ObjectInstantMessage {
+                object_key,
                 object_name,
                 owner,
                 location,
             } => {
                 write!(
                     f,
-                    "secondlife::///app/objectim?object_name={}&{}&slurl={}/{}/{}/{}",
+                    "secondlife::///app/objectim/{}?object_name={}&{}&slurl={}/{}/{}/{}",
+                    object_key,
                     percent_encoding::percent_encode(
                         object_name.as_bytes(),
                         percent_encoding::NON_ALPHANUMERIC
@@ -1006,6 +1010,174 @@ pub fn viewer_app_keybinding_uri_parser() -> impl Parser<char, ViewerUri, Error 
     )
 }
 
+/// parse a viewer app login URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_login_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/login?first=")
+        .ignore_then(url_text_component_parser())
+        .then(just("?last=").ignore_then(url_text_component_parser()))
+        .then(just("?session=").ignore_then(url_text_component_parser()))
+        .then(
+            just("?location=")
+                .ignore_then(url_text_component_parser())
+                .or_not(),
+        )
+        .map(
+            |(((first_name, last_name), session), login_location)| ViewerUri::Login {
+                first_name,
+                last_name,
+                session,
+                login_location,
+            },
+        )
+}
+
+/// parse a viewer app maptrackavatar URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_maptrackavatar_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>>
+{
+    just("secondlife:///app/maptrackavatar/")
+        .ignore_then(crate::key::friend_key_parser().map(ViewerUri::MapTrackAvatar))
+}
+
+/// parse a viewer app objectim URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_objectim_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/objectim/")
+        .ignore_then(crate::key::object_key_parser())
+        .then(just("?name=").ignore_then(url_text_component_parser()))
+        .then(
+            just("?owner=")
+                .ignore_then(crate::key::group_key_parser())
+                .then_ignore(just("?groupowned=true"))
+                .map(crate::key::OwnerKey::Group)
+                .or(just("?owner=")
+                    .ignore_then(crate::key::agent_key_parser())
+                    .map(crate::key::OwnerKey::Agent)),
+        )
+        .then(just("&slurl=").ignore_then(crate::map::location_parser()))
+        .map(
+            |(((object_key, object_name), owner), location)| ViewerUri::ObjectInstantMessage {
+                object_key,
+                object_name,
+                owner,
+                location,
+            },
+        )
+}
+
+/// parse a viewer app openfloater URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_openfloater_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/openfloater/")
+        .ignore_then(url_text_component_parser().map(ViewerUri::OpenFloater))
+}
+
+/// parse a viewer app parcel URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_parcel_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/parcel/")
+        .ignore_then(crate::key::parcel_key_parser().map(ViewerUri::Parcel))
+}
+
+/// parse a viewer app search URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_search_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/search/")
+        .ignore_then(crate::search::search_category_parser())
+        .then_ignore(just('/'))
+        .then(url_text_component_parser())
+        .map(|(category, search_term)| ViewerUri::Search {
+            category,
+            search_term,
+        })
+}
+
+/// parse a viewer app sharewithavatar URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_sharewithavatar_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>>
+{
+    just("secondlife:///app/sharewithavatar/")
+        .ignore_then(crate::key::agent_key_parser().map(ViewerUri::ShareWithAvatar))
+}
+/// parse a viewer app teleport URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_teleport_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/teleport/")
+        .ignore_then(crate::map::location_parser().map(ViewerUri::Teleport))
+}
+
+/// parse a viewer app voicecallavatar URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_voicecallavatar_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>>
+{
+    just("secondlife:///app/voicecallavatar/")
+        .ignore_then(crate::key::agent_key_parser().map(ViewerUri::VoiceCallAvatar))
+}
+
+/// parse a viewer app wear_folder URI
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn viewer_app_wear_folder_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
+    just("secondlife:///app/wear_folder").ignore_then(
+        just("?folder_id=")
+            .ignore_then(crate::key::inventory_folder_key_parser())
+            .map(ViewerUri::WearFolderByInventoryFolderKey)
+            .or(just("?folder_name=")
+                .ignore_then(url_text_component_parser())
+                .map(ViewerUri::WearFolderByLibraryFolderName)),
+    )
+}
+
 /// parse a viewer app worldmap URI
 ///
 /// # Errors
@@ -1037,16 +1209,16 @@ pub fn viewer_app_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<ch
         .or(viewer_app_help_uri_parser())
         .or(viewer_app_inventory_uri_parser())
         .or(viewer_app_keybinding_uri_parser())
-        // TODO: login
-        // TODO: maptrackavatar
-        // TODO: objectim
-        // TODO: openfloater
-        // TODO: parcel
-        // TODO: search
-        // TODO: sharewithavatar
-        // TODO: teleport
-        // TODO: voicecallavatar
-        // TODO: wearfolder
+        .or(viewer_app_login_uri_parser())
+        .or(viewer_app_maptrackavatar_uri_parser())
+        .or(viewer_app_objectim_uri_parser())
+        .or(viewer_app_openfloater_uri_parser())
+        .or(viewer_app_parcel_uri_parser())
+        .or(viewer_app_search_uri_parser())
+        .or(viewer_app_sharewithavatar_uri_parser())
+        .or(viewer_app_teleport_uri_parser())
+        .or(viewer_app_voicecallavatar_uri_parser())
+        .or(viewer_app_wear_folder_uri_parser())
         .or(viewer_app_worldmap_uri_parser())
 }
 

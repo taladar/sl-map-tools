@@ -260,6 +260,48 @@ mod test {
                                         }
                                     }
                                 }
+                                if message.starts_with("Can't rez object") {
+                                    if let Err(e) =
+                                        system_messages::permission_to_rez_object_denied_message_parser()
+                                            .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!("Attempt to parse as permission to rez object denied line returned error:\n{}\n{:#?}", e, e);
+                                        }
+                                    }
+                                }
+                                if message.starts_with("is still being processed") {
+                                    if let Err(e) =
+                                        system_messages::group_chat_message_still_being_processed_message_parser()
+                                            .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!("Attempt to parse as group chat message still being processed line returned error:\n{}\n{:#?}", e, e);
+                                        }
+                                    }
+                                }
+                                if message.starts_with("Teleport completed from") {
+                                    if let Err(e) =
+                                        system_messages::teleport_completed_message_parser()
+                                            .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!("Attempt to parse as teleport completed line returned error:\n{}\n{:#?}", e, e);
+                                        }
+                                    }
+                                }
+                                if message.starts_with("[")
+                                    && message.contains("status.secondlifegrid.net")
+                                {
+                                    if let Err(e) =
+                                        system_messages::grid_status_event_message_parser()
+                                            .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!("Attempt to parse as grid status event line returned error:\n{}\n{:#?}", e, e);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

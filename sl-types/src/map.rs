@@ -552,6 +552,53 @@ pub struct RegionCoordinates {
     z: f32,
 }
 
+/// parse a float without a sign
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn unsigned_f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
+    digits(10).then_ignore(just('.')).then(digits(10)).try_map(
+        |(before_point, after_point), span| {
+            let raw_float = format!("{}.{}", before_point, after_point);
+            raw_float.parse().map_err(|err| {
+                Simple::custom(
+                    span,
+                    format!("Could not parse {} as float: {:?}", raw_float, err),
+                )
+            })
+        },
+    )
+}
+
+/// parse region coordinates
+///
+/// "{ 1.234, 2.345, 3.456 }"
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn region_coordinates_parser() -> impl Parser<char, RegionCoordinates, Error = Simple<char>> {
+    use chumsky::text::whitespace;
+
+    just('{')
+        .ignore_then(whitespace().or_not())
+        .ignore_then(unsigned_f32_parser())
+        .then_ignore(just(','))
+        .then_ignore(whitespace().or_not())
+        .then(unsigned_f32_parser())
+        .then_ignore(just(','))
+        .then_ignore(whitespace().or_not())
+        .then(unsigned_f32_parser())
+        .then_ignore(whitespace().or_not())
+        .then_ignore(just('}'))
+        .map(|((x, y), z)| RegionCoordinates::new(x, y, z))
+}
+
 impl RegionCoordinates {
     /// Create a new `RegionCoordinates`
     #[must_use]
@@ -1353,6 +1400,20 @@ mod test {
                 x: 1,
                 y: 2,
                 z: 300
+            })
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "chumsky")]
+    #[test]
+    fn test_region_coordinates_parser() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            region_coordinates_parser().parse("{ 63.0486, 45.2515, 1501.08 }"),
+            Ok(RegionCoordinates {
+                x: 63.0486,
+                y: 45.2515,
+                z: 1501.08,
             })
         );
         Ok(())

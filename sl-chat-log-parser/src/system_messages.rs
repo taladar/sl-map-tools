@@ -1,8 +1,8 @@
 //! Types and parsers for system messages in the chat log
 
 use chumsky::error::Simple;
-use chumsky::prelude::{any, just, take_until};
-use chumsky::text::whitespace;
+use chumsky::prelude::{any, just, none_of, one_of, take_until};
+use chumsky::text::{digits, newline, whitespace};
 use chumsky::Parser;
 
 /// represents a Second Life system message
@@ -12,6 +12,20 @@ pub enum SystemMessage {
     SavedSnapshotMessage {
         /// the snapshot filename
         filename: std::path::PathBuf,
+    },
+    /// message about a failure to save a snapshot due to missing destination folder
+    FailedToSaveSnapshotDueToMissingDestinationFolder {
+        /// the snapshot folder
+        folder: std::path::PathBuf,
+    },
+    /// message about a failure to save a snapshot due to disk space
+    FailedToSaveSnapshotDueToDiskSpace {
+        /// the snapshot folder
+        folder: std::path::PathBuf,
+        /// the amount of space required
+        required_disk_space: bytesize::ByteSize,
+        /// the amount of free space reported
+        free_disk_space: bytesize::ByteSize,
     },
     /// message about a saved attachment
     AttachmentSavedMessage,
@@ -32,6 +46,20 @@ pub enum SystemMessage {
         amount: sl_types::money::LindenAmount,
         /// an optional message
         message: Option<String>,
+    },
+    /// message about paying to join a group
+    YouPaidToJoinGroupMessage {
+        /// the group key for the joined group
+        joined_group: sl_types::key::GroupKey,
+        /// the amount paid to join
+        join_fee: sl_types::money::LindenAmount,
+    },
+    /// message that you have been added to a group
+    AddedToGroup,
+    /// message that you left a group
+    LeftGroup {
+        /// the name of the group left
+        group_name: String,
     },
     /// message about a song playing on stream
     NowPlayingMessage {
@@ -58,11 +86,24 @@ pub enum SystemMessage {
     },
     /// message about an avatar giving the current avatar an object
     AvatarGaveObjectMessage {
+        /// is the giving avatar a group member
+        is_group_member: bool,
         /// the giving avatar name
         giving_avatar_name: String,
         /// the name of the given object
         given_object_name: String,
     },
+    /// message about you declining an object given to you
+    DeclinedGivenObject {
+        /// the name of the declined object
+        object_name: String,
+        /// the location of the giver
+        giver_location: sl_types::map::Location,
+        /// the name of the giver
+        giver_name: String,
+    },
+    /// message asking to select residents to share with
+    SelectResidentsToShareWith,
     /// message about successfully shared items
     ItemsSuccessfullyShared,
     /// message about a modified search query
@@ -83,6 +124,99 @@ pub enum SystemMessage {
         old_name: String,
         /// the new name
         new_name: String,
+    },
+    /// message about enabling or disabling double-click teleports
+    DoubleClickTeleport {
+        /// whether this event enables or disables double-click teleports
+        enabled: bool,
+    },
+    /// message that the bridge creation started
+    CreatingBridge,
+    /// message that the bridge was created
+    BridgeCreated,
+    /// message that the bridge creation is still in progress and another one
+    /// can not be created simultaneously
+    BridgeCreationInProgress,
+    /// script count changed
+    ScriptCountChanged {
+        /// script count before
+        previous_script_count: u32,
+        /// script count now
+        current_script_count: u32,
+        /// change
+        change: i32,
+    },
+    /// the group chat message is still being processed
+    GroupChatMessageStillBeingProcessed {
+        /// the name of the group
+        group_name: String,
+    },
+    /// the object is not for sale
+    ObjectNotForSale,
+    /// permission to rez an object denied
+    PermissionToRezObjectDenied {
+        /// name of the object
+        object_name: String,
+        /// name of the parcel
+        parcel_name: String,
+        /// attempted rez location
+        attempted_rez_location: sl_types::map::RegionCoordinates,
+        /// name of the region where the rez failed
+        region_name: sl_types::map::RegionName,
+    },
+    /// permission to reposition an object denied
+    PermissionToRepositionDenied,
+    /// permission to enter parcel denied
+    PermissionToEnterParcelDenied,
+    /// ejected from parcel
+    EjectedFromParcel,
+    /// no longer allowed and ejected
+    EjectedFromParcelBecauseNoLongerAllowed,
+    /// banned indefinitely
+    BannedFromParcelIndefinitely,
+    /// only group members can visit this area
+    OnlyGroupMembersCanVisitThisArea,
+    /// unable to teleport due to RLV restriction
+    UnableToTeleportDueToRlv,
+    /// unable to open texture due to RLV restriction
+    UnableToOpenTextureDueToRlv,
+    /// unsupported SLurl
+    UnsupportedSlurl,
+    /// grid status error invalid message format
+    GridStatusErrorInvalidMessageFormat,
+    /// script info object is invalid or out of range
+    ScriptInfoObjectInvalidOrOutOfRange,
+    /// script info
+    ScriptInfo {
+        /// name of the object or avatar whose script info this is
+        name: String,
+        /// running scripts
+        running_scripts: usize,
+        /// total scripts
+        total_scripts: usize,
+        /// allowed memory size limit
+        allowed_memory_size_limit: bytesize::ByteSize,
+        /// CPU time consumed
+        cpu_time_consumed: time::Duration,
+    },
+    /// a message from the Firestorm developers
+    FirestormMessage {
+        /// the type of message, basically whatever follows the initial
+        /// Firestorm up until the exclamation mark (e.g. Tip, Help, Classes,...)
+        message_type: String,
+        /// the actual message, everything after the exclamation mark
+        message: String,
+    },
+    /// message about a grid status event
+    GridStatusEvent {
+        /// event title
+        title: String,
+        /// is this a scheduled event
+        scheduled: bool,
+        /// event body
+        body: String,
+        /// event URL
+        incident_url: String,
     },
     /// other system message
     OtherSystemMessage {
@@ -105,9 +239,37 @@ pub fn snapshot_saved_message_parser() -> impl Parser<char, SystemMessage, Error
                 .collect::<String>()
                 .map(std::path::PathBuf::from),
         )
-        .try_map(|filename, _span: std::ops::Range<usize>| {
-            Ok(SystemMessage::SavedSnapshotMessage { filename })
-        })
+        .map(|filename| SystemMessage::SavedSnapshotMessage { filename })
+        .or(
+            just("Second Life: Failed to save snapshot to ").ignore_then(
+                take_until(just(": Directory does not exist.").ignored()).map(|(folder, _)| {
+                    SystemMessage::FailedToSaveSnapshotDueToMissingDestinationFolder {
+                        folder: std::path::PathBuf::from(folder.into_iter().collect::<String>()),
+                    }
+                }),
+            ),
+        )
+        .or(
+            just("Second Life: Failed to save snapshot to ").ignore_then(
+                take_until(just(": Disk is full. ").ignored())
+                    .map(|(folder, _)| {
+                        std::path::PathBuf::from(folder.into_iter().collect::<String>())
+                    })
+                    .then(u64_parser())
+                    .then_ignore(just("KB is required but only "))
+                    .then(u64_parser())
+                    .then_ignore(just("KB is free."))
+                    .map(|((folder, required), free)| {
+                        let required_disk_space = bytesize::ByteSize::kib(required);
+                        let free_disk_space = bytesize::ByteSize::kib(free);
+                        SystemMessage::FailedToSaveSnapshotDueToDiskSpace {
+                            folder,
+                            required_disk_space,
+                            free_disk_space,
+                        }
+                    }),
+            ),
+        )
 }
 
 /// parse a system message about a saved attachment
@@ -173,6 +335,52 @@ pub fn received_payment_message_parser() -> impl Parser<char, SystemMessage, Err
                 })
             },
         )
+}
+
+/// parse a system message about paying to join a group
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn you_paid_to_join_group_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You paid ")
+        .ignore_then(sl_types::viewer_uri::viewer_app_group_uri_parser())
+        .then_ignore(whitespace())
+        .then(sl_types::money::linden_amount_parser())
+        .then_ignore(just(" to join a group."))
+        .try_map(|(group_uri, join_fee), span| match group_uri {
+            sl_types::viewer_uri::ViewerUri::GroupAbout(group_key)
+            | sl_types::viewer_uri::ViewerUri::GroupInspect(group_key) => {
+                Ok(SystemMessage::YouPaidToJoinGroupMessage {
+                    joined_group: group_key,
+                    join_fee,
+                })
+            }
+            other => Err(Simple::custom(
+                span,
+                format!(
+                    "Unexpected type of group URI in group join message: {:?}",
+                    other
+                ),
+            )),
+        })
+}
+
+/// parse a system message about being added or leaving a group
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn group_membership_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You have been added to the group.")
+        .to(SystemMessage::AddedToGroup)
+        .or(just("You have left the group '")
+            .ignore_then(none_of('\'').repeated().collect::<String>())
+            .then_ignore(just("'."))
+            .map(|group_name| SystemMessage::LeftGroup { group_name }))
 }
 
 /// parse a system message about a completed teleport
@@ -265,16 +473,62 @@ pub fn object_gave_object_message_parser() -> impl Parser<char, SystemMessage, E
 pub fn avatar_gave_object_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
 {
     just("A group member named ")
-        .ignore_then(take_until(just(" gave you ")))
+        .or_not()
+        .then(take_until(just(" gave you ")))
         .then(take_until(just(".")))
         .try_map(
-            |((giving_avatar_name, _), (given_object_name, _)), _span: std::ops::Range<usize>| {
+            |((group_member, (giving_avatar_name, _)), (given_object_name, _)),
+             _span: std::ops::Range<usize>| {
                 Ok(SystemMessage::AvatarGaveObjectMessage {
+                    is_group_member: group_member.is_some(),
                     giving_avatar_name: giving_avatar_name.into_iter().collect(),
                     given_object_name: given_object_name.into_iter().collect(),
                 })
             },
         )
+}
+
+/// parse a system message about declining an object given to you
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn declined_given_object_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You decline '")
+        .ignore_then(
+            take_until(just("'  ( http://slurl.com/secondlife/").ignored())
+                .map(|(vc, _)| vc.into_iter().collect::<String>()),
+        )
+        .then(sl_types::map::location_parser())
+        .then_ignore(just(" ) from "))
+        .then(
+            any()
+                .repeated()
+                .collect::<String>()
+                .map(|s| s.strip_suffix(".").map(|s| s.to_string()).unwrap_or(s)),
+        )
+        .map(
+            |((object_name, giver_location), giver_name)| SystemMessage::DeclinedGivenObject {
+                object_name,
+                giver_location,
+                giver_name,
+            },
+        )
+}
+
+/// You decline '<object name>' ( http://slurl.com/secondlife/<location> ) from <giving object name>.
+
+/// parse a system message asking to select residents to share with
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn select_residents_to_share_with_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Select residents to share with.").to(SystemMessage::SelectResidentsToShareWith)
 }
 
 /// parse a system message about items being successfully shared
@@ -285,8 +539,7 @@ pub fn avatar_gave_object_message_parser() -> impl Parser<char, SystemMessage, E
 #[must_use]
 pub fn items_successfully_shared_message_parser(
 ) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Items successfully shared.")
-        .try_map(|_, _span: std::ops::Range<usize>| Ok(SystemMessage::ItemsSuccessfullyShared))
+    just("Items successfully shared.").to(SystemMessage::ItemsSuccessfullyShared)
 }
 
 /// parse a system message about a modified search query
@@ -351,69 +604,492 @@ pub fn renamed_avatar_message_parser() -> impl Parser<char, SystemMessage, Error
         })
 }
 
+/// parse a system message about enabling or disabling of double-click teleports
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn doubleclick_teleport_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("DoubleClick Teleport enabled.")
+        .to(SystemMessage::DoubleClickTeleport { enabled: true })
+        .or(just("DoubleClick Teleport disabled.")
+            .to(SystemMessage::DoubleClickTeleport { enabled: false }))
+}
+
+/// parse a system message about the LSL viewer bridge
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn bridge_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Creating the bridge. This might take a moment, please wait.").to(SystemMessage::CreatingBridge)
+    .or(just("Bridge created.").to(SystemMessage::BridgeCreated))
+    .or(just("Bridge creation in process, cannot start another. Please wait a few minutes before trying again.").to(SystemMessage::BridgeCreationInProgress))
+}
+
+/// parse a system message about a changed script count in the current region
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn region_script_count_change_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Total scripts in region ")
+        .ignore_then(just("jumped from ").or(just("dropped from ")))
+        .ignore_then(
+            digits(10)
+                .then_ignore(just(" to "))
+                .then(digits(10))
+                .then_ignore(just(" ("))
+                .then(one_of("+-"))
+                .then(digits(10))
+                .then_ignore(just(")."))
+                .try_map(
+                    |(((previous_script_count, current_script_count), sign), diff): (
+                        ((String, String), char),
+                        String,
+                    ),
+                     span: std::ops::Range<usize>| {
+                        let previous_span = span.clone();
+                        let previous_script_count =
+                            previous_script_count.parse().map_err(|err| {
+                                Simple::custom(
+                                    previous_span,
+                                    format!(
+                                        "Could not parse previous script count ({}) as u32: {:?}",
+                                        previous_script_count, err
+                                    ),
+                                )
+                            })?;
+                        let current_span = span.clone();
+                        let current_script_count = current_script_count.parse().map_err(|err| {
+                            Simple::custom(
+                                current_span,
+                                format!(
+                                    "Could not parse current script count ({}) as u32: {:?}",
+                                    current_script_count, err
+                                ),
+                            )
+                        })?;
+                        let diff_span = span.clone();
+                        let diff: i32 = diff.parse().map_err(|err| {
+                            Simple::custom(
+                                diff_span,
+                                format!(
+                                    "Could not parse changed script count ({}) as i32: {:?}",
+                                    diff, err
+                                ),
+                            )
+                        })?;
+                        let change = match sign {
+                            '+' => diff,
+                            '-' => -diff,
+                            c => {
+                                return Err(Simple::custom(
+                                    span,
+                                    format!("Unexpected sign character for script change: {}", c),
+                                ))
+                            }
+                        };
+                        Ok(SystemMessage::ScriptCountChanged {
+                            previous_script_count,
+                            current_script_count,
+                            change,
+                        })
+                    },
+                ),
+        )
+}
+
+/// parse a system message about a group chat message still being processed
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn group_chat_message_still_being_processed_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("The message sent to ")
+        .ignore_then(take_until(just(" is still being processed.").ignored()).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .then_ignore(newline())
+        .then_ignore(just("If the message does not appear in the next few minutes, it may have been dropped by the server."))
+        .map(|group_name| {
+            SystemMessage::GroupChatMessageStillBeingProcessed {
+                group_name,
+            }
+        })
+}
+
+/// parse a system message about an object not being for sale
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn object_not_for_sale_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+{
+    just("This object is not for sale.").to(SystemMessage::ObjectNotForSale)
+}
+
+/// parse a system message about the denial of permission to rez an object
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_rez_object_denied_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Can't rez object '")
+        .ignore_then(
+            take_until(just("' at ").ignored()).map(|(vc, _)| vc.into_iter().collect::<String>())
+            .then(sl_types::map::region_coordinates_parser())
+            .then_ignore(just(" on parcel '"))
+            .then(take_until(just("' in region ").ignored()).map(|(vc, _)| vc.into_iter().collect::<String>()))
+            .then(take_until(just(" because the owner of this land does not allow it.  Use the land tool to see land ownership.").ignored()).map(|(vc, _)| vc.into_iter().collect::<String>()).try_map(|region_name, span| {
+                sl_types::map::RegionName::try_new(&region_name).map_err(|err| Simple::custom(span, format!("Could not turn parsed region name ({}) into RegionName: {:?}", region_name, err)))
+            }))
+            .map(|(((object_name, attempted_rez_location), parcel_name), region_name)| {
+                SystemMessage::PermissionToRezObjectDenied {
+                    object_name,
+                    attempted_rez_location,
+                    parcel_name,
+                    region_name,
+                }
+            })
+        )
+}
+
+/// parse a system message about the denial of permission to reposition an object
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_reposition_denied_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Can't reposition -- permission denied").to(SystemMessage::PermissionToRepositionDenied)
+}
+
+/// parse a system message about the denial of permission to enter a parcel
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_enter_parcel_denied_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Cannot enter parcel, you are not on the access list.")
+        .to(SystemMessage::PermissionToEnterParcelDenied)
+}
+
+/// parse a system message about being ejected from a parcel
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn ejected_from_parcel_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+{
+    just("You have been ejected from this land.")
+        .to(SystemMessage::EjectedFromParcel)
+        .or(
+            just("You are no longer allowed here and have been ejected.")
+                .to(SystemMessage::EjectedFromParcelBecauseNoLongerAllowed),
+        )
+}
+
+/// parse a system message about being banned from a parcel indefinitely
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn banned_from_parcel_indefinitely_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You have been banned indefinitely").to(SystemMessage::BannedFromParcelIndefinitely)
+}
+
+/// parse a system message about only group members being able to visit an area
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn only_group_members_can_visit_this_area_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Only members of a certain group can visit this area.")
+        .to(SystemMessage::OnlyGroupMembersCanVisitThisArea)
+}
+
+/// parse a system message about teleports being RLV restricted
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn unable_to_teleport_due_to_rlv_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Unable to initiate teleport due to RLV restrictions")
+        .to(SystemMessage::UnableToTeleportDueToRlv)
+}
+
+/// parse a system message about opening textures being RLV restricted
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn unable_to_open_texture_due_to_rlv_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Unable to open texture due to RLV restrictions")
+        .to(SystemMessage::UnableToOpenTextureDueToRlv)
+}
+
+/// parse a system message about unsupported SLurl
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn unsupported_slurl_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+{
+    just("The SLurl you clicked on is not supported.").to(SystemMessage::UnsupportedSlurl)
+}
+
+/// parse a system message about a grid status error about an invalid message format
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn grid_status_error_invalid_message_format_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("SL Grid Status error: Invalid message format. Try again later.")
+        .to(SystemMessage::GridStatusErrorInvalidMessageFormat)
+}
+
+/// parse a system message about a script info object being invalid or out of range
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn script_info_object_invalid_or_out_of_range_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Script info: Object to check is invalid or out of range.")
+        .to(SystemMessage::ScriptInfoObjectInvalidOrOutOfRange)
+}
+
+/// parse a usize
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn usize_parser() -> impl Parser<char, usize, Error = Simple<char>> {
+    digits(10).try_map(|c: String, span| {
+        c.parse().map_err(|err| {
+            Simple::custom(span, format!("failed to parse {} as usize: {:?}", c, err))
+        })
+    })
+}
+
+/// parse a u64
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn u64_parser() -> impl Parser<char, u64, Error = Simple<char>> {
+    digits(10).try_map(|c: String, span| {
+        c.parse().map_err(|err| {
+            Simple::custom(span, format!("failed to parse {} as usize: {:?}", c, err))
+        })
+    })
+}
+
+/// parse a system message about script info
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn script_info_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Script info: '").ignore_then(
+        take_until(just("': [").ignored())
+            .map(|(vc, _)| vc.into_iter().collect::<String>())
+            .then(usize_parser())
+            .then_ignore(just('/'))
+            .then(usize_parser())
+            .then_ignore(just("] running scripts, "))
+            .then(u64_parser().map(bytesize::ByteSize::kb))
+            .then_ignore(just(" KB allowed memory size limit, "))
+            .then(
+                sl_types::map::unsigned_f32_parser()
+                    .map(|ms| time::Duration::seconds_f32(ms / 1000f32)),
+            )
+            .then_ignore(just(" ms of CPU time consumed."))
+            .map(
+                |(
+                    (((name, running_scripts), total_scripts), allowed_memory_size_limit),
+                    cpu_time_consumed,
+                )| {
+                    SystemMessage::ScriptInfo {
+                        name,
+                        running_scripts,
+                        total_scripts,
+                        allowed_memory_size_limit,
+                        cpu_time_consumed,
+                    }
+                },
+            ),
+    )
+}
+
+/// Script info: 'icon': [3/3] running scripts, 192 KB allowed memory size limit, 0.012550 ms of CPU time consumed.
+
+/// parse a system message by the Firestorm developers
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn firestorm_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Firestorm ").ignore_then(
+        take_until(just("!").ignored())
+            .map(|(message_type, _)| message_type.into_iter().collect::<String>())
+            .then(any().repeated().collect::<String>())
+            .map(|(message_type, message)| SystemMessage::FirestormMessage {
+                message_type,
+                message,
+            }),
+    )
+}
+
+/// parse a system message about a grid status event
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+{
+    just("[ ").ignore_then(
+        take_until(just(" ] "))
+            .map(|(vc, _)| vc.into_iter().collect::<String>())
+            .then(
+                just("THIS IS A SCHEDULED EVENT ")
+                    .or_not()
+                    .map(|s| s.is_some()),
+            )
+            .then(
+                take_until(just(" [ https://status.secondlifegrid.net/incidents/").ignored())
+                    .map(|(vc, _)| vc.into_iter().collect::<String>()),
+            )
+            .then(take_until(just(' ').ignored()).map(|(vc, _)| vc.into_iter().collect::<String>()))
+            .then_ignore(just("]"))
+            .map(
+                |(((title, scheduled), body), url_fragment)| SystemMessage::GridStatusEvent {
+                    title,
+                    scheduled,
+                    body,
+                    incident_url: format!(
+                        "https://status.secondlifegird.net/incidents/{}",
+                        url_fragment
+                    ),
+                },
+            ),
+    )
+}
+
 /// parse a Second Life system message
 ///
 /// TODO:
-/// You decline '<object name>' ( http://slurl.com/secondlife/<location> ) from <giving object name>.
-/// Creating the bridge. This might take a moment, please wait.
-/// Bridge created.
-/// Bridge creation in process, cannot start another. Please wait a few minutes before trying again.
-/// DoubleClick Teleport enabled.
-/// DoubleClick Teleport disabled.
-/// Script info: Object to check is invalid or out of range.
-/// Script info: 'icon': [3/3] running scripts, 192 KB allowed memory size limit, 0.012550 ms of CPU time consumed.
 /// (extended script info on the line after regular script info:)
 /// ... gave you ... (no location URL, quotes,...)
-/// The message sent to <group name (no quotes or anything)> is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
-/// This object is not for sale.
-/// You have been added to the group.
-/// You have left the group '<group name>'.
-/// Unable to initiate teleport due to RLV restrictions
-/// Gave you messages without nolink tags
-/// Can't rez object '<name>' at { 1.234, 2.345, 3.456 } on parcel '<parcel name>' in region <region name (no URL encoded spaces)> because the owner of this land does not allow it.  Use the land tool to see land ownership.
-/// You have been ejected from this land.
-/// The SLurl you clicked on is not supported.
-/// SL Grid Status error: Invalid message format. Try again later.
-/// Select residents to share with.
-/// Only members of a certain group can visit this area.
-/// You paid secondlife:///app/group/<group key>/inspect L$100 to join a group.
-/// Some ... is online messages from 2014 are not parsed properly yet (appear as OtherSystemMessage)
-/// Total scripts in region jumped from 6091 to 6242 (+151).
-/// Total scripts in region dropped from 6482 to 6367 (-115).
-/// Can't reposition -- permission denied
-/// Cannot enter parcel, you are not on the access list.
-/// You are no longer allowed here and have been ejected.
-/// You have been banned indefinitely
-/// Second Life: Failed to save snapshot to <path>: Disk is full. 1814KB is required but only 120KB is free.
-/// Teleport completed from http://maps.secondlife.com/secondlife/<region name>/-1/253/3
+/// Gave you messages (without nolink tags)
+/// Some ... is online messages from 2014 are not parsed properly yet (appear as OtherSystemMessage, presumably that is when those messages lost its Second Life: prefix and so they never get to the avatar_message_parser)
+/// Teleport completed from http://maps.secondlife.com/secondlife/<region name>/-1/253/3 (underflow and overflow)
+/// overflow and underflow in region coordinates in Can't rez object messages
+/// BLOCK WARNING! Firestorm Version 6.4.13.63251 will be blocked from logging in on Monday, August 15th! Update before it's too late! See https://www.firestormviewer.org/firestorm-release-6-5-6-66221/
+/// Firestorm Release 6.6.8 (68380) will be blocked from logging in on Thursday, July 11th. Update before it's too late. See https://wiki.firestormviewer.org/fs_update_viewer
+/// Old Firestorm version blocks will begin starting Monday the 18th. Please update to 4.4.2 or our 4.5.1 beta. Read our blog for more info http://www.firestormviewer.org
+/// Unable to load the notecard.\n Please try again.
+/// Unable to invite user because you are not in that group.
+/// The message sent to Multi-person chat is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
+/// You have offered a calling card to <avatar name>.
+/// Bridge failed to attach. This is not the current bridge version. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.
+/// Bridge not created. The bridge couldn't be found in inventory. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.
+/// Bridge detached.
+/// You paid secondlife:///app/agent/<agent key>/inspect L$<amount>: <avatar name>
+/// secondlife:///app/agent/<agent key>/inspect paid you L$<amount>: <your avatar name>
+/// A SLurl was received from an untrusted browser and has been blocked for your security
+/// Cannot enter parcel, you have been banned.
+/// '<object name>', an object owned by '<avatar name>', located in (unknown region) at (unknown position), has been granted permission to: Take Linden dollars (L$) from you.
+/// Can't rescale -- permission denied
+/// Can't rotate -- permission denied
+/// Failed to unlink because you do not have permissions to build on all parcels
+/// Failed to save snapshot to /home/taladar/screenshots/second_life: Disk is full. 1882KB is required but only 120KB is free.
+/// Teleport completed from http://maps.secondlife.com/secondlife/Ahab%27s%20Haunt/118/142/23
+/// some other teleport completed lines
+/// Insufficient permissions to view the script.
+/// You do not have permission to view this notecard.
+/// Link failed -- Unable to link 12 of the 60 selected pieces - pieces are too far apart.
+/// The message sent to (IM Session Doesn't Exist) is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
+/// The message sent to Conference with <avatar name> is still being processed.
+/// Can't rez object '<object name>' at { 185.371, 226.573, 33.3066 } on parcel '<parcel name>' in region <region name> because the parcel is too full.
 ///
 /// # Errors
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
 pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    snapshot_saved_message_parser().or(attachment_saved_message_parser().or(
-        sent_payment_message_parser().or(received_payment_message_parser().or(
-            teleport_completed_message_parser().or(now_playing_message_parser().or(
-                region_restart_message_parser().or(object_gave_object_message_parser().or(
-                    items_successfully_shared_message_parser().or(
-                        modified_search_query_message_parser().or(
-                            avatar_gave_object_message_parser().or(
-                                simulator_version_message_parser().or(
-                                    renamed_avatar_message_parser().or(any()
-                                        .repeated()
-                                        .collect::<String>()
-                                        .try_map(|s, _span: std::ops::Range<usize>| {
-                                            Ok(SystemMessage::OtherSystemMessage { message: s })
-                                        })),
-                                ),
-                            ),
-                        ),
-                    ),
-                )),
-            )),
-        )),
-    ))
+    snapshot_saved_message_parser()
+        .or(attachment_saved_message_parser())
+        .or(sent_payment_message_parser())
+        .or(received_payment_message_parser())
+        .or(you_paid_to_join_group_message_parser())
+        .or(group_membership_message_parser())
+        .or(teleport_completed_message_parser())
+        .or(now_playing_message_parser())
+        .or(region_restart_message_parser())
+        .or(object_gave_object_message_parser())
+        .or(declined_given_object_message_parser())
+        .or(select_residents_to_share_with_message_parser())
+        .or(items_successfully_shared_message_parser())
+        .or(modified_search_query_message_parser())
+        .or(avatar_gave_object_message_parser())
+        .or(simulator_version_message_parser())
+        .or(renamed_avatar_message_parser())
+        .or(doubleclick_teleport_message_parser())
+        .or(bridge_message_parser())
+        .or(region_script_count_change_message_parser())
+        .or(group_chat_message_still_being_processed_message_parser())
+        .or(object_not_for_sale_message_parser())
+        .or(permission_to_rez_object_denied_message_parser())
+        .or(permission_to_reposition_denied_message_parser())
+        .or(permission_to_enter_parcel_denied_message_parser())
+        .or(ejected_from_parcel_message_parser())
+        .or(banned_from_parcel_indefinitely_message_parser())
+        .or(only_group_members_can_visit_this_area_message_parser())
+        .or(unable_to_teleport_due_to_rlv_message_parser())
+        .or(unable_to_open_texture_due_to_rlv_message_parser())
+        .or(unsupported_slurl_message_parser())
+        .or(grid_status_error_invalid_message_format_message_parser())
+        .or(script_info_object_invalid_or_out_of_range_message_parser())
+        .or(script_info_message_parser())
+        .or(firestorm_message_parser())
+        .or(grid_status_event_message_parser())
+        .or(any()
+            .repeated()
+            .collect::<String>()
+            .try_map(|s, _span: std::ops::Range<usize>| {
+                Ok(SystemMessage::OtherSystemMessage { message: s })
+            }))
 }
 
 #[cfg(test)]
@@ -452,6 +1128,21 @@ mod test {
             }),
             teleport_completed_message_parser()
                 .parse("Teleport completed from http://maps.secondlife.com/secondlife/AA/78/83/26")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_cant_rez_object() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            Ok(SystemMessage::PermissionToRezObjectDenied {
+                object_name: "Foo2".to_string(),
+                attempted_rez_location: sl_types::map::RegionCoordinates::new(63.0486, 45.2515, 1501.08),
+                parcel_name: "The Foo Bar".to_string(),
+                region_name: sl_types::map::RegionName::try_new("Fudo")?,
+            }),
+            permission_to_rez_object_denied_message_parser()
+                .parse("Can't rez object 'Foo2' at { 63.0486, 45.2515, 1501.08 } on parcel 'The Foo Bar' in region Fudo because the owner of this land does not allow it.  Use the land tool to see land ownership.")
         );
         Ok(())
     }

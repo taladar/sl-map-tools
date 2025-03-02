@@ -738,7 +738,7 @@ impl std::fmt::Display for ViewerUri {
 #[cfg(feature = "chumsky")]
 #[must_use]
 pub fn url_text_component_parser() -> impl Parser<char, String, Error = Simple<char>> {
-    filter::<char, _, Simple<char>>(|c| c.is_alphabetic() || c.is_numeric())
+    filter::<char, _, Simple<char>>(|c| c.is_alphabetic() || c.is_numeric() || *c == '-')
         .repeated()
         .at_least(1)
         .try_map(|s, span| {

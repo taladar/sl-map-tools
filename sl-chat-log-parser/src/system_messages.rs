@@ -362,7 +362,6 @@ pub fn renamed_avatar_message_parser() -> impl Parser<char, SystemMessage, Error
 /// DoubleClick Teleport disabled.
 /// Script info: Object to check is invalid or out of range.
 /// Script info: 'icon': [3/3] running scripts, 192 KB allowed memory size limit, 0.012550 ms of CPU time consumed.
-/// Script info: 'plane': [24/24] running scripts, 864 KB allowed memory size limit, 0.125490 ms of CPU time consumed." } } }
 /// (extended script info on the line after regular script info:)
 /// ... gave you ... (no location URL, quotes,...)
 /// The message sent to <group name (no quotes or anything)> is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.

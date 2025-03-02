@@ -581,7 +581,7 @@ impl RegionCoordinates {
 /// The name of a region
 #[nutype::nutype(
     sanitize(trim),
-    validate(len_char_min = 3, len_char_max = 35),
+    validate(len_char_min = 2, len_char_max = 35),
     derive(
         Debug,
         Clone,
@@ -606,7 +606,7 @@ pub struct RegionName(String);
 #[cfg(feature = "chumsky")]
 #[must_use]
 pub fn region_name_parser() -> impl Parser<char, RegionName, Error = Simple<char>> {
-    chumsky::text::ident()
+    crate::viewer_uri::url_text_component_parser()
         .separated_by(just("%20").to(" "))
         .collect::<Vec<String>>()
         .try_map(|components, span| {
@@ -639,9 +639,11 @@ pub struct Location {
 pub fn location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
     region_name_parser()
         .then(
-            digits(10)
-                .then_ignore(just('/'))
-                .then(digits(10).then_ignore(just('/')).then(digits(10))),
+            just('/').ignore_then(
+                digits(10)
+                    .then_ignore(just('/'))
+                    .then(digits(10).then_ignore(just('/')).then(digits(10))),
+            ),
         )
         .try_map(|(region_name, (x, (y, z))), span| {
             let x: u8 = x
@@ -1327,6 +1329,23 @@ mod test {
     #[test]
     fn test_location_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Da Boom";
+        assert_eq!(
+            location_parser().parse(format!("{}/1/2/300", region_name.replace(" ", "%20"))),
+            Ok(Location {
+                region_name: RegionName::try_new(region_name)?,
+                x: 1,
+                y: 2,
+                z: 300
+            })
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "chumsky")]
+    #[test]
+    fn test_location_parser_url_whitespace_single_digit_after_space(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let region_name = "Foo Bar 3";
         assert_eq!(
             location_parser().parse(format!("{}/1/2/300", region_name.replace(" ", "%20"))),
             Ok(Location {

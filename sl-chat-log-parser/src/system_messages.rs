@@ -354,12 +354,39 @@ pub fn renamed_avatar_message_parser() -> impl Parser<char, SystemMessage, Error
 /// parse a Second Life system message
 ///
 /// TODO:
-/// You decline...
-/// Creating bridge...
-/// Bridge created...
-/// Script info...
+/// You decline '<object name>' ( http://slurl.com/secondlife/<location> ) from <giving object name>.
+/// Creating the bridge. This might take a moment, please wait.
+/// Bridge created.
+/// Bridge creation in process, cannot start another. Please wait a few minutes before trying again.
+/// DoubleClick Teleport enabled.
+/// DoubleClick Teleport disabled.
+/// Script info: Object to check is invalid or out of range.
+/// Script info: 'icon': [3/3] running scripts, 192 KB allowed memory size limit, 0.012550 ms of CPU time consumed.
+/// Script info: 'plane': [24/24] running scripts, 864 KB allowed memory size limit, 0.125490 ms of CPU time consumed." } } }
+/// (extended script info on the line after regular script info:)
+/// ... gave you ... (no location URL, quotes,...)
+/// The message sent to <group name (no quotes or anything)> is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
+/// This object is not for sale.
+/// You have been added to the group.
+/// You have left the group '<group name>'.
 /// Unable to initiate teleport due to RLV restrictions
 /// Gave you messages without nolink tags
+/// Can't rez object '<name>' at { 1.234, 2.345, 3.456 } on parcel '<parcel name>' in region <region name (no URL encoded spaces)> because the owner of this land does not allow it.  Use the land tool to see land ownership.
+/// You have been ejected from this land.
+/// The SLurl you clicked on is not supported.
+/// SL Grid Status error: Invalid message format. Try again later.
+/// Select residents to share with.
+/// Only members of a certain group can visit this area.
+/// You paid secondlife:///app/group/<group key>/inspect L$100 to join a group.
+/// Some ... is online messages from 2014 are not parsed properly yet (appear as OtherSystemMessage)
+/// Total scripts in region jumped from 6091 to 6242 (+151).
+/// Total scripts in region dropped from 6482 to 6367 (-115).
+/// Can't reposition -- permission denied
+/// Cannot enter parcel, you are not on the access list.
+/// You are no longer allowed here and have been ejected.
+/// You have been banned indefinitely
+/// Second Life: Failed to save snapshot to <path>: Disk is full. 1814KB is required but only 120KB is free.
+/// Teleport completed from http://maps.secondlife.com/secondlife/<region name>/-1/253/3
 ///
 /// # Errors
 ///
@@ -398,8 +425,34 @@ mod test {
     #[test]
     fn test_teleport_completed() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
-            Ok(SystemMessage::TeleportCompletedMessage { origin: sl_types::map::Location { region_name: sl_types::map::RegionName::try_new("Girlywood")?, x: 30, y: 169, z: 912 } }),
-            teleport_completed_message_parser().parse("Teleport completed from http://maps.secondlife.com/secondlife/Girlywood/30/169/912")
+            Ok(SystemMessage::TeleportCompletedMessage {
+                origin: sl_types::map::Location {
+                    region_name: sl_types::map::RegionName::try_new("Fudo")?,
+                    x: 30,
+                    y: 169,
+                    z: 912
+                }
+            }),
+            teleport_completed_message_parser().parse(
+                "Teleport completed from http://maps.secondlife.com/secondlife/Fudo/30/169/912"
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_teleport_completed_extra_short() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            Ok(SystemMessage::TeleportCompletedMessage {
+                origin: sl_types::map::Location {
+                    region_name: sl_types::map::RegionName::try_new("AA")?,
+                    x: 78,
+                    y: 83,
+                    z: 26
+                }
+            }),
+            teleport_completed_message_parser()
+                .parse("Teleport completed from http://maps.secondlife.com/secondlife/AA/78/83/26")
         );
         Ok(())
     }

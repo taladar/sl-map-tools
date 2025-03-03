@@ -166,8 +166,18 @@ pub enum SystemMessage {
     },
     /// permission to reposition an object denied
     PermissionToRepositionDenied,
+    /// permission to rotate an object denied
+    PermissionToRotateDenied,
+    /// permission to rescale an object denied
+    PermissionToRescaleDenied,
+    /// permission to view script denied
+    PermissionToViewScriptDenied,
+    /// permission to view notecard denied
+    PermissionToViewNotecardDenied,
     /// permission to enter parcel denied
     PermissionToEnterParcelDenied,
+    /// permission to enter parcel denied due to ban
+    PermissionToEnterParcelDeniedDueToBan,
     /// ejected from parcel
     EjectedFromParcel,
     /// no longer allowed and ejected
@@ -774,6 +784,52 @@ pub fn permission_to_reposition_denied_message_parser(
     just("Can't reposition -- permission denied").to(SystemMessage::PermissionToRepositionDenied)
 }
 
+/// parse a system message about the denial of permission to rotate an object
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_rotate_denied_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Can't rotate -- permission denied").to(SystemMessage::PermissionToRotateDenied)
+}
+
+/// parse a system message about the denial of permission to rescale an object
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_rescale_denied_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Can't rescale -- permission denied").to(SystemMessage::PermissionToRescaleDenied)
+}
+
+/// parse a system message about the denial of permission to view a script
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_view_script_denied_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Insufficient permissions to view the script.")
+        .to(SystemMessage::PermissionToViewScriptDenied)
+}
+
+/// parse a system message about the denial of permission to view a notecard
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_view_notecard_denied_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You do not have permission to view this notecard.")
+        .to(SystemMessage::PermissionToViewNotecardDenied)
+}
+
 /// parse a system message about the denial of permission to enter a parcel
 ///
 /// # Errors
@@ -784,6 +840,18 @@ pub fn permission_to_enter_parcel_denied_message_parser(
 ) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
     just("Cannot enter parcel, you are not on the access list.")
         .to(SystemMessage::PermissionToEnterParcelDenied)
+}
+
+/// parse a system message about the denial of permission to enter a parcel due to ban
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_enter_parcel_denied_due_to_ban_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Cannot enter parcel, you have been banned.")
+        .to(SystemMessage::PermissionToEnterParcelDeniedDueToBan)
 }
 
 /// parse a system message about being ejected from a parcel
@@ -1028,16 +1096,10 @@ pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Er
 /// You paid secondlife:///app/agent/<agent key>/inspect L$<amount>: <avatar name>
 /// secondlife:///app/agent/<agent key>/inspect paid you L$<amount>: <your avatar name>
 /// A SLurl was received from an untrusted browser and has been blocked for your security
-/// Cannot enter parcel, you have been banned.
 /// '<object name>', an object owned by '<avatar name>', located in (unknown region) at (unknown position), has been granted permission to: Take Linden dollars (L$) from you.
-/// Can't rescale -- permission denied
-/// Can't rotate -- permission denied
 /// Failed to unlink because you do not have permissions to build on all parcels
 /// Failed to save snapshot to /home/taladar/screenshots/second_life: Disk is full. 1882KB is required but only 120KB is free.
 /// Teleport completed from http://maps.secondlife.com/secondlife/Ahab%27s%20Haunt/118/142/23
-/// some other teleport completed lines
-/// Insufficient permissions to view the script.
-/// You do not have permission to view this notecard.
 /// Link failed -- Unable to link 12 of the 60 selected pieces - pieces are too far apart.
 /// The message sent to (IM Session Doesn't Exist) is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
 /// The message sent to Conference with <avatar name> is still being processed.
@@ -1072,7 +1134,12 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         .or(object_not_for_sale_message_parser())
         .or(permission_to_rez_object_denied_message_parser())
         .or(permission_to_reposition_denied_message_parser())
+        .or(permission_to_rotate_denied_message_parser())
+        .or(permission_to_rescale_denied_message_parser())
+        .or(permission_to_view_script_denied_message_parser())
+        .or(permission_to_view_notecard_denied_message_parser())
         .or(permission_to_enter_parcel_denied_message_parser())
+        .or(permission_to_enter_parcel_denied_due_to_ban_message_parser())
         .or(ejected_from_parcel_message_parser())
         .or(banned_from_parcel_indefinitely_message_parser())
         .or(only_group_members_can_visit_this_area_message_parser())

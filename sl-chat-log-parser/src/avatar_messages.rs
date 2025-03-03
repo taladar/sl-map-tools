@@ -79,7 +79,8 @@ fn avatar_emote_message_parser() -> impl Parser<char, AvatarMessage, Error = Sim
 /// # Errors
 ///
 /// returns an error if the parser fails
-fn avatar_came_online_message_parser() -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+pub(crate) fn avatar_came_online_message_parser(
+) -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
     just("is online.").map(|_| AvatarMessage::CameOnline)
 }
 
@@ -88,7 +89,8 @@ fn avatar_came_online_message_parser() -> impl Parser<char, AvatarMessage, Error
 /// # Errors
 ///
 /// returns an error if the parser fails
-fn avatar_went_offline_message_parser() -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+pub(crate) fn avatar_went_offline_message_parser(
+) -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
     just("is offline.").map(|_| AvatarMessage::WentOffline)
 }
 
@@ -97,7 +99,8 @@ fn avatar_went_offline_message_parser() -> impl Parser<char, AvatarMessage, Erro
 /// # Errors
 ///
 /// returns an error if the parser fails
-fn avatar_entered_area_message_parser() -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+pub(crate) fn avatar_entered_area_message_parser(
+) -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
     just("entered ")
         .ignore_then(sl_types::radar::area_parser())
         .then(
@@ -117,7 +120,8 @@ fn avatar_entered_area_message_parser() -> impl Parser<char, AvatarMessage, Erro
 /// # Errors
 ///
 /// returns an error if the parser fails
-fn avatar_left_area_message_parser() -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+pub(crate) fn avatar_left_area_message_parser(
+) -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
     just("left ")
         .ignore_then(sl_types::radar::area_parser())
         .then_ignore(just("."))

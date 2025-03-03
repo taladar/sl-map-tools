@@ -61,6 +61,11 @@ pub enum SystemMessage {
         /// the name of the group left
         group_name: String,
     },
+    /// message that you are unable to invite a user to a group because you
+    /// are not in the group
+    UnableToInviteUserDueToMissingGroupMembership,
+    /// message that loading a notecard failed
+    UnableToLoadNotecard,
     /// message about a song playing on stream
     NowPlayingMessage {
         /// the song name
@@ -137,6 +142,12 @@ pub enum SystemMessage {
     /// message that the bridge creation is still in progress and another one
     /// can not be created simultaneously
     BridgeCreationInProgress,
+    /// message that the bridge failed to attach
+    BridgeFailedToAttach,
+    /// message that the bridge was not created
+    BridgeNotCreated,
+    /// message that the bridge was detached
+    BridgeDetached,
     /// script count changed
     ScriptCountChanged {
         /// script count before
@@ -153,6 +164,13 @@ pub enum SystemMessage {
     },
     /// the object is not for sale
     ObjectNotForSale,
+    /// link failed because pieces being too far apart
+    LinkFailedDueToPieceDistance {
+        /// link failed for this many pieces
+        link_failed_pieces: usize,
+        /// total selected pieces
+        total_selected_pieces: usize,
+    },
     /// permission to rez an object denied
     PermissionToRezObjectDenied {
         /// name of the object
@@ -170,6 +188,8 @@ pub enum SystemMessage {
     PermissionToRotateDenied,
     /// permission to rescale an object denied
     PermissionToRescaleDenied,
+    /// permission to unlink denied due to missing build permissions on at least one parcel
+    PermissionToUnlinkDeniedDueToMissingParcelBuildPermissions,
     /// permission to view script denied
     PermissionToViewScriptDenied,
     /// permission to view notecard denied
@@ -192,6 +212,8 @@ pub enum SystemMessage {
     UnableToOpenTextureDueToRlv,
     /// unsupported SLurl
     UnsupportedSlurl,
+    /// SLurl from untrusted browser blocked
+    BlockedUntrustedBrowserSlurl,
     /// grid status error invalid message format
     GridStatusErrorInvalidMessageFormat,
     /// script info object is invalid or out of range
@@ -250,36 +272,30 @@ pub fn snapshot_saved_message_parser() -> impl Parser<char, SystemMessage, Error
                 .map(std::path::PathBuf::from),
         )
         .map(|filename| SystemMessage::SavedSnapshotMessage { filename })
-        .or(
-            just("Second Life: Failed to save snapshot to ").ignore_then(
-                take_until(just(": Directory does not exist.").ignored()).map(|(folder, _)| {
-                    SystemMessage::FailedToSaveSnapshotDueToMissingDestinationFolder {
-                        folder: std::path::PathBuf::from(folder.into_iter().collect::<String>()),
+        .or(just("Failed to save snapshot to ").ignore_then(
+            take_until(just(": Directory does not exist.").ignored()).map(|(folder, _)| {
+                SystemMessage::FailedToSaveSnapshotDueToMissingDestinationFolder {
+                    folder: std::path::PathBuf::from(folder.into_iter().collect::<String>()),
+                }
+            }),
+        ))
+        .or(just("Failed to save snapshot to ").ignore_then(
+            take_until(just(": Disk is full. ").ignored())
+                .map(|(folder, _)| std::path::PathBuf::from(folder.into_iter().collect::<String>()))
+                .then(u64_parser())
+                .then_ignore(just("KB is required but only "))
+                .then(u64_parser())
+                .then_ignore(just("KB is free."))
+                .map(|((folder, required), free)| {
+                    let required_disk_space = bytesize::ByteSize::kib(required);
+                    let free_disk_space = bytesize::ByteSize::kib(free);
+                    SystemMessage::FailedToSaveSnapshotDueToDiskSpace {
+                        folder,
+                        required_disk_space,
+                        free_disk_space,
                     }
                 }),
-            ),
-        )
-        .or(
-            just("Second Life: Failed to save snapshot to ").ignore_then(
-                take_until(just(": Disk is full. ").ignored())
-                    .map(|(folder, _)| {
-                        std::path::PathBuf::from(folder.into_iter().collect::<String>())
-                    })
-                    .then(u64_parser())
-                    .then_ignore(just("KB is required but only "))
-                    .then(u64_parser())
-                    .then_ignore(just("KB is free."))
-                    .map(|((folder, required), free)| {
-                        let required_disk_space = bytesize::ByteSize::kib(required);
-                        let free_disk_space = bytesize::ByteSize::kib(free);
-                        SystemMessage::FailedToSaveSnapshotDueToDiskSpace {
-                            folder,
-                            required_disk_space,
-                            free_disk_space,
-                        }
-                    }),
-            ),
-        )
+        ))
 }
 
 /// parse a system message about a saved attachment
@@ -391,6 +407,34 @@ pub fn group_membership_message_parser() -> impl Parser<char, SystemMessage, Err
             .ignore_then(none_of('\'').repeated().collect::<String>())
             .then_ignore(just("'."))
             .map(|group_name| SystemMessage::LeftGroup { group_name }))
+}
+
+/// parse a system message about the inability to invite a user to a group
+/// you yourself are not a member of
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn unable_to_invite_user_due_to_missing_group_membership_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Unable to invite user because you are not in that group.")
+        .to(SystemMessage::UnableToInviteUserDueToMissingGroupMembership)
+}
+
+/// parse a system message about the inability to load a notecard
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn unable_to_load_notecard_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Unable to load the notecard.")
+        .then_ignore(newline())
+        .then_ignore(whitespace())
+        .then(just("Please try again."))
+        .to(SystemMessage::UnableToLoadNotecard)
 }
 
 /// parse a system message about a completed teleport
@@ -638,6 +682,9 @@ pub fn bridge_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
     just("Creating the bridge. This might take a moment, please wait.").to(SystemMessage::CreatingBridge)
     .or(just("Bridge created.").to(SystemMessage::BridgeCreated))
     .or(just("Bridge creation in process, cannot start another. Please wait a few minutes before trying again.").to(SystemMessage::BridgeCreationInProgress))
+    .or(just("Bridge failed to attach. This is not the current bridge version. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeFailedToAttach))
+    .or(just("Bridge not created. The bridge couldn't be found in inventory. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeNotCreated))
+    .or(just("Bridge detached.").to(SystemMessage::BridgeDetached))
 }
 
 /// parse a system message about a changed script count in the current region
@@ -726,6 +773,7 @@ pub fn group_chat_message_still_being_processed_message_parser(
     just("The message sent to ")
         .ignore_then(take_until(just(" is still being processed.").ignored()).map(|(vc, _)| vc.into_iter().collect::<String>()))
         .then_ignore(newline())
+        .then_ignore(whitespace())
         .then_ignore(just("If the message does not appear in the next few minutes, it may have been dropped by the server."))
         .map(|group_name| {
             SystemMessage::GroupChatMessageStillBeingProcessed {
@@ -743,6 +791,28 @@ pub fn group_chat_message_still_being_processed_message_parser(
 pub fn object_not_for_sale_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
 {
     just("This object is not for sale.").to(SystemMessage::ObjectNotForSale)
+}
+
+/// parse a system message about a failed link due to piece distance
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn link_failed_due_to_piece_distance_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Link failed -- Unable to link ").ignore_then(
+        usize_parser()
+            .then_ignore(just(" of the "))
+            .then(usize_parser())
+            .then_ignore(just(" selected pieces - pieces are too far apart."))
+            .map(|(link_failed_pieces, total_selected_pieces)| {
+                SystemMessage::LinkFailedDueToPieceDistance {
+                    link_failed_pieces,
+                    total_selected_pieces,
+                }
+            }),
+    )
 }
 
 /// parse a system message about the denial of permission to rez an object
@@ -804,6 +874,19 @@ pub fn permission_to_rotate_denied_message_parser(
 pub fn permission_to_rescale_denied_message_parser(
 ) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
     just("Can't rescale -- permission denied").to(SystemMessage::PermissionToRescaleDenied)
+}
+
+/// parse a system message about the denial of permission to unlink an object
+/// because build permissions are missing on at least one parcel
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_unlink_denied_due_to_missing_parcel_build_permissions_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Failed to unlink because you do not have permissions to build on all parcels")
+        .to(SystemMessage::PermissionToUnlinkDeniedDueToMissingParcelBuildPermissions)
 }
 
 /// parse a system message about the denial of permission to view a script
@@ -926,6 +1009,18 @@ pub fn unable_to_open_texture_due_to_rlv_message_parser(
 pub fn unsupported_slurl_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
 {
     just("The SLurl you clicked on is not supported.").to(SystemMessage::UnsupportedSlurl)
+}
+
+/// parse a system message about a SLurl from an untrusted browser being blocked
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn blocked_untrusted_browser_slurl_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("A SLurl was received from an untrusted browser and has been blocked for your security")
+        .to(SystemMessage::BlockedUntrustedBrowserSlurl)
 }
 
 /// parse a system message about a grid status error about an invalid message format
@@ -1077,33 +1172,60 @@ pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Er
 /// parse a Second Life system message
 ///
 /// TODO:
-/// (extended script info on the line after regular script info:)
+/// extended script info on the line after regular script info
 /// ... gave you ... (no location URL, quotes,...)
 /// Gave you messages (without nolink tags)
-/// Some ... is online messages from 2014 are not parsed properly yet (appear as OtherSystemMessage, presumably that is when those messages lost its Second Life: prefix and so they never get to the avatar_message_parser)
+/// Teleport completed from http://maps.secondlife.com/secondlife/Ahab%27s%20Haunt/118/142/23
 /// Teleport completed from http://maps.secondlife.com/secondlife/<region name>/-1/253/3 (underflow and overflow)
 /// overflow and underflow in region coordinates in Can't rez object messages
-/// BLOCK WARNING! Firestorm Version 6.4.13.63251 will be blocked from logging in on Monday, August 15th! Update before it's too late! See https://www.firestormviewer.org/firestorm-release-6-5-6-66221/
-/// Firestorm Release 6.6.8 (68380) will be blocked from logging in on Thursday, July 11th. Update before it's too late. See https://wiki.firestormviewer.org/fs_update_viewer
-/// Old Firestorm version blocks will begin starting Monday the 18th. Please update to 4.4.2 or our 4.5.1 beta. Read our blog for more info http://www.firestormviewer.org
-/// Unable to load the notecard.\n Please try again.
-/// Unable to invite user because you are not in that group.
-/// The message sent to Multi-person chat is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
 /// You have offered a calling card to <avatar name>.
-/// Bridge failed to attach. This is not the current bridge version. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.
-/// Bridge not created. The bridge couldn't be found in inventory. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.
-/// Bridge detached.
 /// You paid secondlife:///app/agent/<agent key>/inspect L$<amount>: <avatar name>
 /// secondlife:///app/agent/<agent key>/inspect paid you L$<amount>: <your avatar name>
-/// A SLurl was received from an untrusted browser and has been blocked for your security
 /// '<object name>', an object owned by '<avatar name>', located in (unknown region) at (unknown position), has been granted permission to: Take Linden dollars (L$) from you.
-/// Failed to unlink because you do not have permissions to build on all parcels
-/// Failed to save snapshot to /home/taladar/screenshots/second_life: Disk is full. 1882KB is required but only 120KB is free.
-/// Teleport completed from http://maps.secondlife.com/secondlife/Ahab%27s%20Haunt/118/142/23
-/// Link failed -- Unable to link 12 of the 60 selected pieces - pieces are too far apart.
+/// The message sent to Multi-person chat is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
 /// The message sent to (IM Session Doesn't Exist) is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
 /// The message sent to Conference with <avatar name> is still being processed.
 /// Can't rez object '<object name>' at { 185.371, 226.573, 33.3066 } on parcel '<parcel name>' in region <region name> because the parcel is too full.
+/// An object named [secondlife:///app/objectim/00000000-0000-0000-0000-000000000000/?name=Gift%20from%20Mithlumen&owner=99338959-f536-4719-b91b-21a8bd72a1b0&slurl=The%20Seventh%20Valley%2F129%2F116%2F2500 Gift from Mithlumen] gave you this folder: 'Gift from Mithlumen'
+/// Draw Distance set to <distance>m.
+/// You have been banned for 178 minutes
+/// Audio from the domain <domain (not url, just a bare domain)> will always be played.
+/// You cannot create objects here.  The owner of this land does not allow it.  Use the land tool to see land ownership.
+/// Always Run enabled.
+/// You are not allowed to change this shape.
+/// You must provide positive values for dice (max 100) and faces (max 1000).
+/// #5 1d6: 3.
+/// Total result for 5d6: 15.
+/// Avatar ejected.
+/// You failed to pay secondlife:///app/agent/<agent key>/inspect L$<amount>.
+/// Texture info for: <object name>
+/// 512x512 opaque on face 0
+/// 1024x1024 alpha on face 0
+/// You paid secondlife:///app/group/<group key>/inspect L$<amount> for a parcel of land.
+/// You have left the group '<group name (with ')>'.
+/// Land has been divided.
+/// Home position set.
+/// Cannot create requested inventory.
+/// Failed to place object at specified location.  Please try again.
+/// Bridge object not found. Can't proceed with creation, exiting.
+/// Bridge failed to attach. Something else was using the bridge attachment point. Please try to recreate the bridge.
+/// Creating the bridge. This might take a few moments, please wait
+/// Unable to create requested object. The region is full.
+/// Initializing World...
+/// Initializing multimedia...
+/// Loading fonts...
+/// Decoding images...
+/// Waiting for region handshake...
+/// Welcome to Advertisement-Free Firestorm
+/// Connecting to region...
+/// Loading world...
+/// Downloading clothing...
+/// Logging in...
+/// Logging in. Firestorm may appear frozen.  Please wait.
+/// This is a test version of Firestorm. If this were an actual release version, a real message of the day would be here. This is only a test.
+/// You have been added as an estate manager.
+///
+/// broken timestamps: [[year,datetime,slt]/[mthnum,datetime,slt]/[day,datetime,slt] [hour,datetime,slt]:[min,datetime,slt]]
 ///
 /// # Errors
 ///
@@ -1116,6 +1238,8 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         .or(received_payment_message_parser())
         .or(you_paid_to_join_group_message_parser())
         .or(group_membership_message_parser())
+        .or(unable_to_invite_user_due_to_missing_group_membership_message_parser())
+        .or(unable_to_load_notecard_message_parser())
         .or(teleport_completed_message_parser())
         .or(now_playing_message_parser())
         .or(region_restart_message_parser())
@@ -1132,10 +1256,12 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         .or(region_script_count_change_message_parser())
         .or(group_chat_message_still_being_processed_message_parser())
         .or(object_not_for_sale_message_parser())
+        .or(link_failed_due_to_piece_distance_message_parser())
         .or(permission_to_rez_object_denied_message_parser())
         .or(permission_to_reposition_denied_message_parser())
         .or(permission_to_rotate_denied_message_parser())
         .or(permission_to_rescale_denied_message_parser())
+        .or(permission_to_unlink_denied_due_to_missing_parcel_build_permissions_message_parser())
         .or(permission_to_view_script_denied_message_parser())
         .or(permission_to_view_notecard_denied_message_parser())
         .or(permission_to_enter_parcel_denied_message_parser())
@@ -1146,6 +1272,7 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         .or(unable_to_teleport_due_to_rlv_message_parser())
         .or(unable_to_open_texture_due_to_rlv_message_parser())
         .or(unsupported_slurl_message_parser())
+        .or(blocked_untrusted_browser_slurl_message_parser())
         .or(grid_status_error_invalid_message_format_message_parser())
         .or(script_info_object_invalid_or_out_of_range_message_parser())
         .or(script_info_message_parser())

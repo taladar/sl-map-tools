@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use chumsky::error::Simple;
-use chumsky::prelude::{any, just, none_of, one_of};
+use chumsky::prelude::{any, just, none_of, one_of, take_until};
 use chumsky::text::whitespace;
 use chumsky::Parser;
 
@@ -49,21 +49,32 @@ pub fn avatar_name_parser() -> impl Parser<char, String, Error = Simple<char>> {
 /// returns an error if the parser fails
 fn chat_log_event_parser() -> impl Parser<char, ChatLogEvent, Error = Simple<char>> {
     just("Second Life: ")
-        .ignore_then(crate::system_messages::system_message_parser().try_map(
-            |message, _span: std::ops::Range<usize>| Ok(ChatLogEvent::SystemMessage { message }),
+        .ignore_then(
+            take_until(
+                crate::avatar_messages::avatar_came_online_message_parser().or(
+                    crate::avatar_messages::avatar_went_offline_message_parser()
+                        .or(crate::avatar_messages::avatar_entered_area_message_parser())
+                        .or(crate::avatar_messages::avatar_left_area_message_parser()),
+                ),
+            )
+            .map(|(vc, msg)| (vc.into_iter().collect::<String>(), msg))
+            .map(|(name, message)| ChatLogEvent::AvatarLine {
+                name: name.strip_suffix(" ").unwrap_or(&name).to_owned(),
+                message,
+            }),
+        )
+        .or(just("Second Life: ").ignore_then(
+            crate::system_messages::system_message_parser()
+                .map(|message| ChatLogEvent::SystemMessage { message }),
         ))
         .or(avatar_name_parser()
             .then_ignore(just(":").then(whitespace()))
             .then(crate::avatar_messages::avatar_message_parser())
-            .try_map(|(name, message), _span: std::ops::Range<usize>| {
-                Ok(ChatLogEvent::AvatarLine { name, message })
-            }))
+            .map(|(name, message)| ChatLogEvent::AvatarLine { name, message }))
         .or(any()
             .repeated()
             .collect::<String>()
-            .try_map(|s, _span: std::ops::Range<usize>| {
-                Ok(ChatLogEvent::OtherMessage { message: s })
-            }))
+            .map(|s| ChatLogEvent::OtherMessage { message: s }))
 }
 
 /// represents a Second Life chat log line
@@ -250,6 +261,16 @@ mod test {
                             } = parsed_line
                             {
                                 tracing::info!("parsed line\n{}\n{:?}", ll, parsed_line);
+                                if message.starts_with("The message sent to") {
+                                    if let Err(e) =
+                                        system_messages::group_chat_message_still_being_processed_message_parser()
+                                            .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!("Attempt to parse as group chat message still being processed line returned error:\n{}\n{:#?}", e, e);
+                                        }
+                                    }
+                                }
                                 if message.contains("owned by") && message.contains("gave you") {
                                     if let Err(e) =
                                         system_messages::object_gave_object_message_parser()
@@ -260,7 +281,11 @@ mod test {
                                         }
                                     }
                                 }
-                                if message.starts_with("Can't rez object") {
+                                if message.starts_with("Can't rez object")
+                                    && message.contains(
+                                        "because the owner of this land does not allow it",
+                                    )
+                                {
                                     if let Err(e) =
                                         system_messages::permission_to_rez_object_denied_message_parser()
                                             .parse(message.to_string())

@@ -4,6 +4,7 @@ use chumsky::error::Simple;
 use chumsky::prelude::{any, just, none_of, one_of, take_until};
 use chumsky::text::{digits, newline, whitespace};
 use chumsky::Parser;
+use sl_types::utils::{u64_parser, unsigned_f32_parser, usize_parser};
 
 /// represents a Second Life system message
 #[derive(Debug, Clone, PartialEq)]
@@ -1047,34 +1048,6 @@ pub fn script_info_object_invalid_or_out_of_range_message_parser(
         .to(SystemMessage::ScriptInfoObjectInvalidOrOutOfRange)
 }
 
-/// parse a usize
-///
-/// # Errors
-///
-/// returns an error if the string could not be parsed
-#[must_use]
-pub fn usize_parser() -> impl Parser<char, usize, Error = Simple<char>> {
-    digits(10).try_map(|c: String, span| {
-        c.parse().map_err(|err| {
-            Simple::custom(span, format!("failed to parse {} as usize: {:?}", c, err))
-        })
-    })
-}
-
-/// parse a u64
-///
-/// # Errors
-///
-/// returns an error if the string could not be parsed
-#[must_use]
-pub fn u64_parser() -> impl Parser<char, u64, Error = Simple<char>> {
-    digits(10).try_map(|c: String, span| {
-        c.parse().map_err(|err| {
-            Simple::custom(span, format!("failed to parse {} as usize: {:?}", c, err))
-        })
-    })
-}
-
 /// parse a system message about script info
 ///
 /// # Errors
@@ -1091,10 +1064,7 @@ pub fn script_info_message_parser() -> impl Parser<char, SystemMessage, Error = 
             .then_ignore(just("] running scripts, "))
             .then(u64_parser().map(bytesize::ByteSize::kb))
             .then_ignore(just(" KB allowed memory size limit, "))
-            .then(
-                sl_types::map::unsigned_f32_parser()
-                    .map(|ms| time::Duration::seconds_f32(ms / 1000f32)),
-            )
+            .then(unsigned_f32_parser().map(|ms| time::Duration::seconds_f32(ms / 1000f32)))
             .then_ignore(just(" ms of CPU time consumed."))
             .map(
                 |(

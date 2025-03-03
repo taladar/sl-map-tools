@@ -2,10 +2,13 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    prelude::{just, Simple},
+    prelude::{filter, just, Simple},
     text::digits,
     Parser,
 };
+
+#[cfg(feature = "chumsky")]
+use crate::utils::{unsigned_f32_parser, url_text_component_parser};
 
 /// represents a Second Life distance in meters
 #[derive(Debug, Clone, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
@@ -552,27 +555,6 @@ pub struct RegionCoordinates {
     z: f32,
 }
 
-/// parse a float without a sign
-///
-/// # Errors
-///
-/// returns an error if the string could not be parsed
-#[cfg(feature = "chumsky")]
-#[must_use]
-pub fn unsigned_f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
-    digits(10).then_ignore(just('.')).then(digits(10)).try_map(
-        |(before_point, after_point), span| {
-            let raw_float = format!("{}.{}", before_point, after_point);
-            raw_float.parse().map_err(|err| {
-                Simple::custom(
-                    span,
-                    format!("Could not parse {} as float: {:?}", raw_float, err),
-                )
-            })
-        },
-    )
-}
-
 /// parse region coordinates
 ///
 /// "{ 1.234, 2.345, 3.456 }"
@@ -645,6 +627,19 @@ impl RegionCoordinates {
 )]
 pub struct RegionName(String);
 
+/// parse an url encoded string into a RegionName
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn url_region_name_parser() -> impl Parser<char, RegionName, Error = Simple<char>> {
+    url_text_component_parser().try_map(|region_name, span| {
+        RegionName::try_new(region_name).map_err(|err| Simple::custom(span, err))
+    })
+}
+
 /// parse a string into a RegionName
 ///
 /// # Errors
@@ -653,12 +648,15 @@ pub struct RegionName(String);
 #[cfg(feature = "chumsky")]
 #[must_use]
 pub fn region_name_parser() -> impl Parser<char, RegionName, Error = Simple<char>> {
-    crate::viewer_uri::url_text_component_parser()
-        .separated_by(just("%20").to(" "))
-        .collect::<Vec<String>>()
-        .try_map(|components, span| {
-            RegionName::try_new(components.join(" ")).map_err(|err| Simple::custom(span, err))
-        })
+    filter::<char, _, Simple<char>>(|c| {
+        c.is_alphabetic() || c.is_numeric() || *c == ' ' || *c == '\'' || *c == '-'
+    })
+    .repeated()
+    .at_least(2)
+    .collect::<String>()
+    .try_map(|region_name, span| {
+        RegionName::try_new(region_name).map_err(|err| Simple::custom(span, err))
+    })
 }
 
 /// A location inside Second Life the way it is usually represented in
@@ -684,7 +682,7 @@ pub struct Location {
 #[cfg(feature = "chumsky")]
 #[must_use]
 pub fn location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
-    region_name_parser()
+    url_region_name_parser()
         .then(
             just('/').ignore_then(
                 digits(10)

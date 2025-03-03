@@ -4,11 +4,14 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    prelude::{filter, just, Simple},
+    prelude::{just, Simple},
     Parser,
 };
 #[cfg(feature = "chumsky")]
 use std::ops::Deref;
+
+#[cfg(feature = "chumsky")]
+use crate::utils::url_text_component_parser;
 
 /// represents the various script trigger modes for the script_trigger_lbutton
 /// key binding
@@ -729,26 +732,6 @@ impl std::fmt::Display for ViewerUri {
 }
 
 // TODO: FromStr instance
-
-/// parse some text in a URL component and URL decode it
-///
-/// # Errors
-///
-/// returns and error if the string could not be parsed
-#[cfg(feature = "chumsky")]
-#[must_use]
-pub fn url_text_component_parser() -> impl Parser<char, String, Error = Simple<char>> {
-    filter::<char, _, Simple<char>>(|c| c.is_alphabetic() || c.is_numeric() || *c == '-')
-        .repeated()
-        .at_least(1)
-        .try_map(|s, span| {
-            let s = s.into_iter().collect::<String>();
-            percent_encoding::percent_decode(s.as_bytes())
-                .decode_utf8()
-                .map(|s| s.into_owned())
-                .map_err(|e| Simple::custom(span, format!("{:?}", e)))
-        })
-}
 
 /// parse a viewer app agent URI
 ///

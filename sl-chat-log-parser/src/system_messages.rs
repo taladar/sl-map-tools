@@ -1202,152 +1202,152 @@ pub fn script_info_message_parser() -> impl Parser<char, SystemMessage, Error = 
     )
 }
 
-/// parse a system message with extended script info
-/// usually this should follow a line with regular script info containing the
-/// object name
-///
-/// # Errors
-///
-/// returns an error if the string could not be parsed
-#[must_use]
-pub fn extended_script_info_message_parser(
-) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Object ID: ")
-        .ignore_then(sl_types::key::object_key_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Description: "))
-        .then(just("(No Description)").to(None).or(
-            take_until(newline().ignored()).map(|(vc, _)| Some(vc.into_iter().collect::<String>())),
-        ))
-        .then_ignore(newline())
-        .then_ignore(just("Root prim: "))
-        .then(sl_types::key::object_key_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Prim count: "))
-        .then(sl_types::utils::usize_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Land impact: "))
-        .then(sl_types::utils::usize_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Inventory items: "))
-        .then(sl_types::utils::usize_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Velocity: "))
-        .then(sl_types::lsl::vector_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Position: "))
-        .then(sl_types::lsl::vector_parser().map(sl_types::map::RegionCoordinates::from))
-        .then_ignore(whitespace())
-        .then(sl_types::map::distance_parser().delimited_by(just('('), just(')')))
-        .then_ignore(newline())
-        .then_ignore(just("Rotation: "))
-        .then(sl_types::lsl::rotation_parser())
-        .then_ignore(whitespace())
-        .then(sl_types::lsl::vector_parser().delimited_by(just('('), just(')')))
-        .then_ignore(newline())
-        .then_ignore(just("Angular velocity: "))
-        .then(sl_types::lsl::vector_parser())
-        .then_ignore(whitespace())
-        .then_ignore(just("(radians per second)"))
-        .then_ignore(newline())
-        .then_ignore(just("Creator: "))
-        .then(sl_types::key::app_agent_uri_as_agent_key_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Owner: "))
-        .then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Previous owner: "))
-        .then(
-            sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
-                .map(Some)
-                .or(just("---").to(None)),
-        )
-        .then_ignore(newline())
-        .then_ignore(just("Rezzed by: "))
-        .then(sl_types::key::agent_key_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Group: "))
-        .then(
-            sl_types::key::app_group_uri_as_group_key_parser()
-                .map(Some)
-                .or(just("---").to(None)),
-        )
-        .then_ignore(newline())
-        .then_ignore(just("Creation time: "))
-        .then(offset_datetime_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Rez time: "))
-        .then(offset_datetime_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Pathfinding type: "))
-        .then(sl_types::pathfinding::int_as_pathfinding_type_parser())
-        .then_ignore(newline())
-        .then_ignore(just("Attachment point: "))
-        .then(
-            sl_types::attachment::attachment_point_parser()
-                .map(Some)
-                .or(just("---").to(None)),
-        )
-        .then_ignore(newline())
-        .then_ignore(just("Temporarily attached: "))
-        .then(just("Yes").to(true).or(just("No").to(false)))
-        .then_ignore(newline())
-        .then_ignore(just("Your current position: "))
-        .then(sl_types::lsl::vector_parser())
-        .map(
-            |(
-                object_key,
-                description,
-                root_prim,
-                prim_count,
-                land_impact,
-                inventory_items,
-                velocity,
-                position,
-                position_distance,
-                rotation,
-                rotation_vector_degrees,
-                angular_velocity,
-                creator,
-                owner,
-                previous_owner,
-                rezzed_by,
-                group,
-                creation_time,
-                rez_time,
-                pathfinding_type,
-                attachment_point,
-                temporarily_attached,
-                inspecting_avatar_position,
-            )| {
-                SystemMessage::ExtendedScriptInfo {
-                    object_key,
-                    description,
-                    root_prim,
-                    prim_count,
-                    land_impact,
-                    inventory_items,
-                    velocity,
-                    position,
-                    position_distance,
-                    rotation,
-                    rotation_vector_degrees,
-                    angular_velocity,
-                    creator,
-                    owner,
-                    previous_owner,
-                    rezzed_by,
-                    group,
-                    creation_time,
-                    rez_time,
-                    pathfinding_type,
-                    attachment_point,
-                    temporarily_attached,
-                    inspecting_avatar_position,
-                }
-            },
-        )
-}
+///// parse a system message with extended script info
+///// usually this should follow a line with regular script info containing the
+///// object name
+/////
+///// # Errors
+/////
+///// returns an error if the string could not be parsed
+//#[must_use]
+//pub fn extended_script_info_message_parser(
+//) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+//    just("Object ID: ")
+//        .ignore_then(sl_types::key::object_key_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Description: "))
+//        .then(just("(No Description)").to(None).or(
+//            take_until(newline().ignored()).map(|(vc, _)| Some(vc.into_iter().collect::<String>())),
+//        ))
+//        .then_ignore(newline())
+//        .then_ignore(just("Root prim: "))
+//        .then(sl_types::key::object_key_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Prim count: "))
+//        .then(sl_types::utils::usize_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Land impact: "))
+//        .then(sl_types::utils::usize_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Inventory items: "))
+//        .then(sl_types::utils::usize_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Velocity: "))
+//        .then(sl_types::lsl::vector_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Position: "))
+//        .then(sl_types::lsl::vector_parser().map(sl_types::map::RegionCoordinates::from))
+//        .then_ignore(whitespace())
+//        .then(sl_types::map::distance_parser().delimited_by(just('('), just(')')))
+//        .then_ignore(newline())
+//        .then_ignore(just("Rotation: "))
+//        .then(sl_types::lsl::rotation_parser())
+//        .then_ignore(whitespace())
+//        .then(sl_types::lsl::vector_parser().delimited_by(just('('), just(')')))
+//        .then_ignore(newline())
+//        .then_ignore(just("Angular velocity: "))
+//        .then(sl_types::lsl::vector_parser())
+//        .then_ignore(whitespace())
+//        .then_ignore(just("(radians per second)"))
+//        .then_ignore(newline())
+//        .then_ignore(just("Creator: "))
+//        .then(sl_types::key::app_agent_uri_as_agent_key_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Owner: "))
+//        .then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Previous owner: "))
+//        .then(
+//            sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
+//                .map(Some)
+//                .or(just("---").to(None)),
+//        )
+//        .then_ignore(newline())
+//        .then_ignore(just("Rezzed by: "))
+//        .then(sl_types::key::agent_key_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Group: "))
+//        .then(
+//            sl_types::key::app_group_uri_as_group_key_parser()
+//                .map(Some)
+//                .or(just("---").to(None)),
+//        )
+//        .then_ignore(newline())
+//        .then_ignore(just("Creation time: "))
+//        .then(offset_datetime_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Rez time: "))
+//        .then(offset_datetime_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Pathfinding type: "))
+//        .then(sl_types::pathfinding::int_as_pathfinding_type_parser())
+//        .then_ignore(newline())
+//        .then_ignore(just("Attachment point: "))
+//        .then(
+//            sl_types::attachment::attachment_point_parser()
+//                .map(Some)
+//                .or(just("---").to(None)),
+//        )
+//        .then_ignore(newline())
+//        .then_ignore(just("Temporarily attached: "))
+//        .then(just("Yes").to(true).or(just("No").to(false)))
+//        .then_ignore(newline())
+//        .then_ignore(just("Your current position: "))
+//        .then(sl_types::lsl::vector_parser())
+//        .map(
+//            |(
+//                object_key,
+//                description,
+//                root_prim,
+//                prim_count,
+//                land_impact,
+//                inventory_items,
+//                velocity,
+//                position,
+//                position_distance,
+//                rotation,
+//                rotation_vector_degrees,
+//                angular_velocity,
+//                creator,
+//                owner,
+//                previous_owner,
+//                rezzed_by,
+//                group,
+//                creation_time,
+//                rez_time,
+//                pathfinding_type,
+//                attachment_point,
+//                temporarily_attached,
+//                inspecting_avatar_position,
+//            )| {
+//                SystemMessage::ExtendedScriptInfo {
+//                    object_key,
+//                    description,
+//                    root_prim,
+//                    prim_count,
+//                    land_impact,
+//                    inventory_items,
+//                    velocity,
+//                    position,
+//                    position_distance,
+//                    rotation,
+//                    rotation_vector_degrees,
+//                    angular_velocity,
+//                    creator,
+//                    owner,
+//                    previous_owner,
+//                    rezzed_by,
+//                    group,
+//                    creation_time,
+//                    rez_time,
+//                    pathfinding_type,
+//                    attachment_point,
+//                    temporarily_attached,
+//                    inspecting_avatar_position,
+//                }
+//            },
+//        )
+//}
 
 /// Script info: 'icon': [3/3] running scripts, 192 KB allowed memory size limit, 0.012550 ms of CPU time consumed.
 
@@ -1510,7 +1510,7 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         .or(grid_status_error_invalid_message_format_message_parser())
         .or(script_info_object_invalid_or_out_of_range_message_parser())
         .or(script_info_message_parser())
-        .or(extended_script_into_message_parser())
+        //.or(extended_script_into_message_parser())
         .or(firestorm_message_parser())
         .or(grid_status_event_message_parser())
         .or(any()

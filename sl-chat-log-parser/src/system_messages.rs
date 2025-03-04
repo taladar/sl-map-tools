@@ -1,7 +1,7 @@
 //! Types and parsers for system messages in the chat log
 
 use chumsky::error::Simple;
-use chumsky::prelude::{any, just, none_of, one_of, take_until};
+use chumsky::prelude::{any, choice, just, none_of, one_of, take_until};
 use chumsky::text::{digits, newline, whitespace};
 use chumsky::Parser;
 use sl_types::utils::{i64_parser, u64_parser, unsigned_f32_parser, usize_parser};
@@ -1202,152 +1202,152 @@ pub fn script_info_message_parser() -> impl Parser<char, SystemMessage, Error = 
     )
 }
 
-///// parse a system message with extended script info
-///// usually this should follow a line with regular script info containing the
-///// object name
-/////
-///// # Errors
-/////
-///// returns an error if the string could not be parsed
-//#[must_use]
-//pub fn extended_script_info_message_parser(
-//) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-//    just("Object ID: ")
-//        .ignore_then(sl_types::key::object_key_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Description: "))
-//        .then(just("(No Description)").to(None).or(
-//            take_until(newline().ignored()).map(|(vc, _)| Some(vc.into_iter().collect::<String>())),
-//        ))
-//        .then_ignore(newline())
-//        .then_ignore(just("Root prim: "))
-//        .then(sl_types::key::object_key_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Prim count: "))
-//        .then(sl_types::utils::usize_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Land impact: "))
-//        .then(sl_types::utils::usize_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Inventory items: "))
-//        .then(sl_types::utils::usize_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Velocity: "))
-//        .then(sl_types::lsl::vector_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Position: "))
-//        .then(sl_types::lsl::vector_parser().map(sl_types::map::RegionCoordinates::from))
-//        .then_ignore(whitespace())
-//        .then(sl_types::map::distance_parser().delimited_by(just('('), just(')')))
-//        .then_ignore(newline())
-//        .then_ignore(just("Rotation: "))
-//        .then(sl_types::lsl::rotation_parser())
-//        .then_ignore(whitespace())
-//        .then(sl_types::lsl::vector_parser().delimited_by(just('('), just(')')))
-//        .then_ignore(newline())
-//        .then_ignore(just("Angular velocity: "))
-//        .then(sl_types::lsl::vector_parser())
-//        .then_ignore(whitespace())
-//        .then_ignore(just("(radians per second)"))
-//        .then_ignore(newline())
-//        .then_ignore(just("Creator: "))
-//        .then(sl_types::key::app_agent_uri_as_agent_key_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Owner: "))
-//        .then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Previous owner: "))
-//        .then(
-//            sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
-//                .map(Some)
-//                .or(just("---").to(None)),
-//        )
-//        .then_ignore(newline())
-//        .then_ignore(just("Rezzed by: "))
-//        .then(sl_types::key::agent_key_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Group: "))
-//        .then(
-//            sl_types::key::app_group_uri_as_group_key_parser()
-//                .map(Some)
-//                .or(just("---").to(None)),
-//        )
-//        .then_ignore(newline())
-//        .then_ignore(just("Creation time: "))
-//        .then(offset_datetime_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Rez time: "))
-//        .then(offset_datetime_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Pathfinding type: "))
-//        .then(sl_types::pathfinding::int_as_pathfinding_type_parser())
-//        .then_ignore(newline())
-//        .then_ignore(just("Attachment point: "))
-//        .then(
-//            sl_types::attachment::attachment_point_parser()
-//                .map(Some)
-//                .or(just("---").to(None)),
-//        )
-//        .then_ignore(newline())
-//        .then_ignore(just("Temporarily attached: "))
-//        .then(just("Yes").to(true).or(just("No").to(false)))
-//        .then_ignore(newline())
-//        .then_ignore(just("Your current position: "))
-//        .then(sl_types::lsl::vector_parser())
-//        .map(
-//            |(
-//                object_key,
-//                description,
-//                root_prim,
-//                prim_count,
-//                land_impact,
-//                inventory_items,
-//                velocity,
-//                position,
-//                position_distance,
-//                rotation,
-//                rotation_vector_degrees,
-//                angular_velocity,
-//                creator,
-//                owner,
-//                previous_owner,
-//                rezzed_by,
-//                group,
-//                creation_time,
-//                rez_time,
-//                pathfinding_type,
-//                attachment_point,
-//                temporarily_attached,
-//                inspecting_avatar_position,
-//            )| {
-//                SystemMessage::ExtendedScriptInfo {
-//                    object_key,
-//                    description,
-//                    root_prim,
-//                    prim_count,
-//                    land_impact,
-//                    inventory_items,
-//                    velocity,
-//                    position,
-//                    position_distance,
-//                    rotation,
-//                    rotation_vector_degrees,
-//                    angular_velocity,
-//                    creator,
-//                    owner,
-//                    previous_owner,
-//                    rezzed_by,
-//                    group,
-//                    creation_time,
-//                    rez_time,
-//                    pathfinding_type,
-//                    attachment_point,
-//                    temporarily_attached,
-//                    inspecting_avatar_position,
-//                }
-//            },
-//        )
-//}
+/// parse a system message with extended script info
+/// usually this should follow a line with regular script info containing the
+/// object name
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn extended_script_info_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Object ID: ")
+        .ignore_then(sl_types::key::object_key_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Description: "))
+        .then(just("(No Description)").to(None).or(
+            take_until(newline().ignored()).map(|(vc, _)| Some(vc.into_iter().collect::<String>())),
+        ))
+        .then_ignore(newline())
+        .then_ignore(just(" Root prim: "))
+        .then(sl_types::key::object_key_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Prim count: "))
+        .then(sl_types::utils::usize_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Land impact: "))
+        .then(sl_types::utils::usize_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Inventory items: "))
+        .then(sl_types::utils::usize_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Velocity: "))
+        .then(sl_types::lsl::vector_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Position: "))
+        .then(sl_types::lsl::vector_parser().map(sl_types::map::RegionCoordinates::from))
+        .then_ignore(whitespace())
+        .then(sl_types::map::distance_parser().delimited_by(just('('), just(')')))
+        .then_ignore(newline())
+        .then_ignore(just(" Rotation: "))
+        .then(sl_types::lsl::rotation_parser())
+        .then_ignore(whitespace())
+        .then(sl_types::lsl::vector_parser().delimited_by(just('('), just(')')))
+        .then_ignore(newline())
+        .then_ignore(just(" Angular velocity: "))
+        .then(sl_types::lsl::vector_parser())
+        .then_ignore(whitespace())
+        .then_ignore(just("(radians per second)"))
+        .then_ignore(newline())
+        .then_ignore(just(" Creator: "))
+        .then(sl_types::key::app_agent_uri_as_agent_key_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Owner: "))
+        .then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Previous owner: "))
+        .then(
+            sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
+                .map(Some)
+                .or(just("---").to(None)),
+        )
+        .then_ignore(newline())
+        .then_ignore(just(" Rezzed by: "))
+        .then(sl_types::key::agent_key_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Group: "))
+        .then(
+            sl_types::key::app_group_uri_as_group_key_parser()
+                .map(Some)
+                .or(just("---").to(None)),
+        )
+        .then_ignore(newline())
+        .then_ignore(just(" Creation time: "))
+        .then(crate::utils::offset_datetime_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Rez time: "))
+        .then(crate::utils::offset_datetime_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Pathfinding type: "))
+        .then(sl_types::pathfinding::int_as_pathfinding_type_parser())
+        .then_ignore(newline())
+        .then_ignore(just(" Attachment point: "))
+        .then(
+            sl_types::attachment::attachment_point_parser()
+                .map(Some)
+                .or(just("---").to(None)),
+        )
+        .then_ignore(newline())
+        .then_ignore(just(" Temporarily attached: "))
+        .then(just("Yes").to(true).or(just("No").to(false)))
+        .then_ignore(newline())
+        .then_ignore(just(" Your current position: "))
+        .then(sl_types::lsl::vector_parser().map(sl_types::map::RegionCoordinates::from))
+        .map(
+            |((((((((((((((((((((((
+                object_key,
+                description),
+                root_prim),
+                prim_count),
+                land_impact),
+                inventory_items),
+                velocity),
+                position),
+                position_distance),
+                rotation),
+                rotation_vector_degrees),
+                angular_velocity),
+                creator),
+                owner),
+                previous_owner),
+                rezzed_by),
+                group),
+                creation_time),
+                rez_time),
+                pathfinding_type),
+                attachment_point),
+                temporarily_attached),
+                inspecting_avatar_position,
+            )| {
+                SystemMessage::ExtendedScriptInfo {
+                    object_key,
+                    description,
+                    root_prim,
+                    prim_count,
+                    land_impact,
+                    inventory_items,
+                    velocity,
+                    position,
+                    position_distance,
+                    rotation,
+                    rotation_vector_degrees,
+                    angular_velocity,
+                    creator,
+                    owner,
+                    previous_owner,
+                    rezzed_by,
+                    group,
+                    creation_time,
+                    rez_time,
+                    pathfinding_type,
+                    attachment_point,
+                    temporarily_attached,
+                    inspecting_avatar_position,
+                }
+            },
+        )
+}
 
 /// Script info: 'icon': [3/3] running scripts, 192 KB allowed memory size limit, 0.012550 ms of CPU time consumed.
 
@@ -1465,60 +1465,64 @@ pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Er
 /// returns an error if the string could not be parsed
 #[must_use]
 pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    snapshot_saved_message_parser()
-        .or(attachment_saved_message_parser())
-        .or(sent_payment_message_parser())
-        .or(received_payment_message_parser())
-        .or(you_paid_to_join_group_message_parser())
-        .or(group_membership_message_parser())
-        .or(unable_to_invite_user_due_to_missing_group_membership_message_parser())
-        .or(unable_to_load_notecard_message_parser())
-        .or(teleport_completed_message_parser())
-        .or(now_playing_message_parser())
-        .or(region_restart_message_parser())
-        .or(object_gave_object_message_parser())
-        .or(declined_given_object_message_parser())
-        .or(select_residents_to_share_with_message_parser())
-        .or(items_successfully_shared_message_parser())
-        .or(modified_search_query_message_parser())
-        .or(avatar_gave_object_message_parser())
-        .or(simulator_version_message_parser())
-        .or(renamed_avatar_message_parser())
-        .or(doubleclick_teleport_message_parser())
-        .or(bridge_message_parser())
-        .or(region_script_count_change_message_parser())
-        .or(group_chat_message_still_being_processed_message_parser())
-        .or(object_not_for_sale_message_parser())
-        .or(link_failed_due_to_piece_distance_message_parser())
-        .or(rezzing_object_failed_due_to_full_parcel_message_parser())
-        .or(permission_to_rez_object_denied_message_parser())
-        .or(permission_to_reposition_denied_message_parser())
-        .or(permission_to_rotate_denied_message_parser())
-        .or(permission_to_rescale_denied_message_parser())
-        .or(permission_to_unlink_denied_due_to_missing_parcel_build_permissions_message_parser())
-        .or(permission_to_view_script_denied_message_parser())
-        .or(permission_to_view_notecard_denied_message_parser())
-        .or(permission_to_enter_parcel_denied_message_parser())
-        .or(permission_to_enter_parcel_denied_due_to_ban_message_parser())
-        .or(ejected_from_parcel_message_parser())
-        .or(banned_from_parcel_message_parser())
-        .or(only_group_members_can_visit_this_area_message_parser())
-        .or(unable_to_teleport_due_to_rlv_message_parser())
-        .or(unable_to_open_texture_due_to_rlv_message_parser())
-        .or(unsupported_slurl_message_parser())
-        .or(blocked_untrusted_browser_slurl_message_parser())
-        .or(grid_status_error_invalid_message_format_message_parser())
-        .or(script_info_object_invalid_or_out_of_range_message_parser())
-        .or(script_info_message_parser())
-        //.or(extended_script_into_message_parser())
-        .or(firestorm_message_parser())
-        .or(grid_status_event_message_parser())
-        .or(any()
+    choice([
+        snapshot_saved_message_parser().boxed(),
+        attachment_saved_message_parser().boxed(),
+        sent_payment_message_parser().boxed(),
+        received_payment_message_parser().boxed(),
+        you_paid_to_join_group_message_parser().boxed(),
+        group_membership_message_parser().boxed(),
+        unable_to_invite_user_due_to_missing_group_membership_message_parser().boxed(),
+        unable_to_load_notecard_message_parser().boxed(),
+        teleport_completed_message_parser().boxed(),
+        now_playing_message_parser().boxed(),
+        region_restart_message_parser().boxed(),
+        object_gave_object_message_parser().boxed(),
+        declined_given_object_message_parser().boxed(),
+        select_residents_to_share_with_message_parser().boxed(),
+        items_successfully_shared_message_parser().boxed(),
+        modified_search_query_message_parser().boxed(),
+        avatar_gave_object_message_parser().boxed(),
+        simulator_version_message_parser().boxed(),
+        renamed_avatar_message_parser().boxed(),
+        doubleclick_teleport_message_parser().boxed(),
+        bridge_message_parser().boxed(),
+        region_script_count_change_message_parser().boxed(),
+        group_chat_message_still_being_processed_message_parser().boxed(),
+        object_not_for_sale_message_parser().boxed(),
+        link_failed_due_to_piece_distance_message_parser().boxed(),
+        rezzing_object_failed_due_to_full_parcel_message_parser().boxed(),
+        permission_to_rez_object_denied_message_parser().boxed(),
+        permission_to_reposition_denied_message_parser().boxed(),
+        permission_to_rotate_denied_message_parser().boxed(),
+        permission_to_rescale_denied_message_parser().boxed(),
+        permission_to_unlink_denied_due_to_missing_parcel_build_permissions_message_parser()
+            .boxed(),
+        permission_to_view_script_denied_message_parser().boxed(),
+        permission_to_view_notecard_denied_message_parser().boxed(),
+        permission_to_enter_parcel_denied_message_parser().boxed(),
+        permission_to_enter_parcel_denied_due_to_ban_message_parser().boxed(),
+        ejected_from_parcel_message_parser().boxed(),
+        banned_from_parcel_message_parser().boxed(),
+        only_group_members_can_visit_this_area_message_parser().boxed(),
+        unable_to_teleport_due_to_rlv_message_parser().boxed(),
+        unable_to_open_texture_due_to_rlv_message_parser().boxed(),
+        unsupported_slurl_message_parser().boxed(),
+        blocked_untrusted_browser_slurl_message_parser().boxed(),
+        grid_status_error_invalid_message_format_message_parser().boxed(),
+        script_info_object_invalid_or_out_of_range_message_parser().boxed(),
+        script_info_message_parser().boxed(),
+        extended_script_info_message_parser().boxed(),
+        firestorm_message_parser().boxed(),
+        grid_status_event_message_parser().boxed(),
+        any()
             .repeated()
             .collect::<String>()
             .try_map(|s, _span: std::ops::Range<usize>| {
                 Ok(SystemMessage::OtherSystemMessage { message: s })
-            }))
+            })
+            .boxed(),
+    ])
 }
 
 #[cfg(test)]

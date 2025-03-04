@@ -7,6 +7,7 @@ use chumsky::Parser;
 
 pub mod avatar_messages;
 pub mod system_messages;
+pub mod utils;
 
 /// represents an event commemorated in the Second Life chat log
 #[derive(Debug, Clone, PartialEq)]
@@ -324,6 +325,16 @@ mod test {
                                     {
                                         for e in e {
                                             tracing::debug!("Attempt to parse as grid status event line returned error:\n{}\n{:#?}", e, e);
+                                        }
+                                    }
+                                }
+                                if message.starts_with("Object ID:") {
+                                    if let Err(e) =
+                                        system_messages::extended_script_info_message_parser()
+                                            .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!("Attempt to parse as extended script info line returned error:\n{}\n{:#?}", e, e);
                                         }
                                     }
                                 }

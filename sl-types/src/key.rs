@@ -267,6 +267,22 @@ pub fn group_key_parser() -> impl Parser<char, GroupKey, Error = Simple<char>> {
     key_parser().map(GroupKey)
 }
 
+/// parse a viewer URI that is either an /about or /inspect URL for a group
+/// and return the GroupKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn app_group_uri_as_group_key_parser() -> impl Parser<char, GroupKey, Error = Simple<char>> {
+    crate::viewer_uri::viewer_app_group_uri_parser().try_map(|uri, span| match uri {
+        crate::viewer_uri::ViewerUri::GroupAbout(group_key)
+        | crate::viewer_uri::ViewerUri::GroupInspect(group_key) => Ok(group_key),
+        _ => Err(Simple::custom(span, "Unexpected type of group viewer URI")),
+    })
+}
+
 /// represents a Second Life key for an inventory item
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InventoryKey(pub Key);
@@ -470,4 +486,19 @@ impl From<OwnerKey> for Key {
             OwnerKey::Group(group_key) => group_key.into(),
         }
     }
+}
+
+/// parse a viewer URI that is either an /about or /inspect URL for an agent group
+/// or for a group and return the OwnerKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn app_agent_or_group_uri_as_owner_key_parser(
+) -> impl Parser<char, OwnerKey, Error = Simple<char>> {
+    app_agent_uri_as_agent_key_parser()
+        .map(OwnerKey::Agent)
+        .or(app_group_uri_as_group_key_parser().map(OwnerKey::Group))
 }

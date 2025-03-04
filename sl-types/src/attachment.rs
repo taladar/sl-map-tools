@@ -1,5 +1,11 @@
 //! Types related to attachments
 
+#[cfg(feature = "chumsky")]
+use chumsky::{
+    prelude::{just, Simple},
+    Parser,
+};
+
 /// avatar attachment points
 #[derive(Debug, Clone, Hash, PartialEq, Eq, strum::FromRepr, strum::EnumIs)]
 pub enum AvatarAttachmentPoint {
@@ -298,6 +304,210 @@ impl std::str::FromStr for AvatarAttachmentPoint {
     }
 }
 
+/// parse an avatar attachment point
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn avatar_attachment_point_parser(
+) -> impl Parser<char, AvatarAttachmentPoint, Error = Simple<char>> {
+    (just("ATTACH_HEAD").or(just("Skull")).or(just("head")))
+        .to(AvatarAttachmentPoint::Skull)
+        .or((just("ATTACH_NOSE"))
+            .or(just("Nose"))
+            .or(just("nose"))
+            .to(AvatarAttachmentPoint::Nose))
+        .or((just("ATTACH_MOUTH"))
+            .or(just("Mouth"))
+            .or(just("mouth"))
+            .to(AvatarAttachmentPoint::Mouth))
+        .or((just("ATTACH_FACE_TONGUE"))
+            .or(just("Tongue"))
+            .or(just("tongue"))
+            .to(AvatarAttachmentPoint::Tongue))
+        .or((just("ATTACH_CHIN"))
+            .or(just("Chin"))
+            .or(just("chin"))
+            .to(AvatarAttachmentPoint::Chin))
+        .or((just("ATTACH_FACE_JAW"))
+            .or(just("Jaw"))
+            .or(just("jaw"))
+            .to(AvatarAttachmentPoint::Jaw))
+        .or((just("ATTACH_LEAR"))
+            .or(just("Left Ear"))
+            .or(just("left ear"))
+            .to(AvatarAttachmentPoint::LeftEar))
+        .or((just("ATTACH_REAR"))
+            .or(just("Right Ear"))
+            .or(just("right ear"))
+            .to(AvatarAttachmentPoint::RightEar))
+        .or((just("ATTACH_FACE_LEAR"))
+            .or(just("Alt Left Ear"))
+            .or(just("left ear (extended)"))
+            .to(AvatarAttachmentPoint::AltLeftEar))
+        .or((just("ATTACH_FACE_REAR"))
+            .or(just("Alt Right Ear"))
+            .or(just("right ear (extended)"))
+            .to(AvatarAttachmentPoint::AltRightEar))
+        .or((just("ATTACH_LEYE"))
+            .or(just("Left Eye"))
+            .or(just("left eye"))
+            .to(AvatarAttachmentPoint::LeftEye))
+        .or((just("ATTACH_REYE"))
+            .or(just("Right Eye"))
+            .or(just("right eye"))
+            .to(AvatarAttachmentPoint::RightEye))
+        .or((just("ATTACH_FACE_LEYE"))
+            .or(just("Alt Left Eye"))
+            .or(just("left eye (extended)"))
+            .to(AvatarAttachmentPoint::AltLeftEye))
+        .or((just("ATTACH_FACE_REYE"))
+            .or(just("Alt Right Eye"))
+            .or(just("right eye (extended)"))
+            .to(AvatarAttachmentPoint::AltRightEye))
+        .or((just("ATTACH_NECK"))
+            .or(just("Neck"))
+            .or(just("neck"))
+            .to(AvatarAttachmentPoint::Neck))
+        .or((just("ATTACH_LSHOULDER"))
+            .or(just("Left Shoulder"))
+            .or(just("left shoulder"))
+            .to(AvatarAttachmentPoint::LeftShoulder))
+        .or((just("ATTACH_RSHOULDER"))
+            .or(just("Right Shoulder"))
+            .or(just("right shoulder"))
+            .to(AvatarAttachmentPoint::RightShoulder))
+        .or((just("ATTACH_LUARM"))
+            .or(just("L Upper Arm"))
+            .or(just("left upper arm"))
+            .to(AvatarAttachmentPoint::LeftUpperArm))
+        .or((just("ATTACH_RUARM"))
+            .or(just("R Upper Arm"))
+            .or(just("right upper arm"))
+            .to(AvatarAttachmentPoint::RightUpperArm))
+        .or((just("ATTACH_LLARM"))
+            .or(just("L Lower Arm"))
+            .or(just("left lower arm"))
+            .to(AvatarAttachmentPoint::LeftLowerArm))
+        .or((just("ATTACH_RLARM"))
+            .or(just("R Lower Arm"))
+            .or(just("right lower arm"))
+            .to(AvatarAttachmentPoint::RightLowerArm))
+        .or((just("ATTACH_LHAND"))
+            .or(just("Left Hand"))
+            .or(just("left hand"))
+            .to(AvatarAttachmentPoint::LeftHand))
+        .or((just("ATTACH_RHAND"))
+            .or(just("Right Hand"))
+            .or(just("right hand"))
+            .to(AvatarAttachmentPoint::RightHand))
+        .or((just("ATTACH_LHAND_RING1"))
+            .or(just("Left Ring Finger"))
+            .or(just("left ring finger"))
+            .to(AvatarAttachmentPoint::LeftRingFinger))
+        .or((just("ATTACH_RHAND_RING1"))
+            .or(just("Right Ring Finger"))
+            .or(just("right ring finger"))
+            .to(AvatarAttachmentPoint::RightRingFinger))
+        .or((just("ATTACH_LWING"))
+            .or(just("Left Wing"))
+            .or(just("left wing"))
+            .to(AvatarAttachmentPoint::LeftWing))
+        .or((just("ATTACH_RWING"))
+            .or(just("Right Wing"))
+            .or(just("right wing"))
+            .to(AvatarAttachmentPoint::RightWing))
+        .or((just("ATTACH_CHEST"))
+            .or(just("Chest"))
+            .or(just("chest/sternum"))
+            .or(just("chest"))
+            .or(just("sternum"))
+            .to(AvatarAttachmentPoint::Chest))
+        .or((just("ATTACH_LEFT_PEC"))
+            .or(just("Left Pec"))
+            .or(just("left pectoral"))
+            .to(AvatarAttachmentPoint::LeftPec))
+        .or((just("ATTACH_RIGHT_PEC"))
+            .or(just("Right Pec"))
+            .or(just("right pectoral"))
+            .to(AvatarAttachmentPoint::RightPec))
+        .or((just("ATTACH_BELLY"))
+            .or(just("Stomach"))
+            .or(just("belly/stomach/tummy"))
+            .or(just("belly"))
+            .or(just("stomach"))
+            .or(just("tummy"))
+            .to(AvatarAttachmentPoint::Stomach))
+        .or((just("ATTACH_BACK"))
+            .or(just("Spine"))
+            .or(just("back"))
+            .to(AvatarAttachmentPoint::Spine))
+        .or((just("ATTACH_TAIL_BASE"))
+            .or(just("Tail Base"))
+            .or(just("tail base"))
+            .to(AvatarAttachmentPoint::TailBase))
+        .or((just("ATTACH_TAIL_TIP"))
+            .or(just("Tail Tip"))
+            .or(just("tail tip"))
+            .to(AvatarAttachmentPoint::TailTip))
+        .or((just("ATTACH_AVATAR_CENTER"))
+            .or(just("Avatar Center"))
+            .or(just("avatar center/root"))
+            .or(just("avatar center"))
+            .or(just("root"))
+            .to(AvatarAttachmentPoint::AvatarCenter))
+        .or((just("ATTACH_PELVIS"))
+            .or(just("Pelvis"))
+            .or(just("pelvis"))
+            .to(AvatarAttachmentPoint::Pelvis))
+        .or((just("ATTACH_GROIN"))
+            .or(just("Groin"))
+            .or(just("groin"))
+            .to(AvatarAttachmentPoint::Groin))
+        .or((just("ATTACH_LHIP"))
+            .or(just("Left Hip"))
+            .or(just("left hip"))
+            .to(AvatarAttachmentPoint::LeftHip))
+        .or((just("ATTACH_RHIP"))
+            .or(just("Right Hip"))
+            .or(just("right hip"))
+            .to(AvatarAttachmentPoint::RightHip))
+        .or((just("ATTACH_LULEG"))
+            .or(just("L Upper Leg"))
+            .or(just("left upper leg"))
+            .to(AvatarAttachmentPoint::LeftUpperLeg))
+        .or((just("ATTACH_RULEG"))
+            .or(just("R Upper Leg"))
+            .or(just("right upper leg"))
+            .to(AvatarAttachmentPoint::RightUpperLeg))
+        .or((just("ATTACH_RLLEG"))
+            .or(just("R Lower Leg"))
+            .or(just("right lower leg"))
+            .to(AvatarAttachmentPoint::LeftLowerLeg))
+        .or((just("ATTACH_LLLEG"))
+            .or(just("L Lower Leg"))
+            .or(just("left lower leg"))
+            .to(AvatarAttachmentPoint::RightLowerLeg))
+        .or((just("ATTACH_LFOOT"))
+            .or(just("Left Foot"))
+            .or(just("left foot"))
+            .to(AvatarAttachmentPoint::LeftFoot))
+        .or((just("ATTACH_RFOOT"))
+            .or(just("Right Foot"))
+            .or(just("right foot"))
+            .to(AvatarAttachmentPoint::RightFoot))
+        .or((just("ATTACH_HIND_LFOOT"))
+            .or(just("Left Hind Foot"))
+            .or(just("left hind foot"))
+            .to(AvatarAttachmentPoint::LeftHindFoot))
+        .or((just("ATTACH_HIND_RFOOT"))
+            .or(just("Right Hind Foot"))
+            .or("right hind foot")
+            .to(AvatarAttachmentPoint::RightHindFoot))
+}
+
 /// HUD attachment point
 #[derive(Debug, Clone, Hash, PartialEq, Eq, strum::FromRepr, strum::EnumIs)]
 pub enum HudAttachmentPoint {
@@ -365,6 +575,41 @@ impl std::str::FromStr for HudAttachmentPoint {
             }),
         }
     }
+}
+
+/// parse a HUD attachment point
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn hud_attachment_point_parser(
+) -> impl Parser<char, AvatarAttachmentPoint, Error = Simple<char>> {
+    just("ATTACH_HUD_CENTER_2")
+        .or(just("HUD Center 2"))
+        .to(HudAttachmentPoint::Center2)
+        .or(just("ATTACH_HUD_TOP_RIGHT")
+            .or(just("HUD Top Right"))
+            .to(HudAttachmentPoint::TopRight))
+        .or(just("ATTACH_HUD_TOP_CENTER")
+            .or(just("HUD Top"))
+            .to(HudAttachmentPoint::Top))
+        .or(just("ATTACH_HUD_TOP_LEFT")
+            .or(just("HUD Top Left"))
+            .to(HudAttachmentPoint::TopLeft))
+        .or(just("ATTACH_HUD_CENTER_1")
+            .or(just("HUD Center"))
+            .to(HudAttachmentPoint::Center))
+        .or(just("ATTACH_HUD_BOTTOM_LEFT")
+            .or(just("HUD Bottom Left"))
+            .to(HudAttachmentPoint::BottomLeft))
+        .or(just("ATTACH_HUD_BOTTOM")
+            .or(just("HUD Bottom"))
+            .to(HudAttachmentPoint::Bottom))
+        .or(just("ATTACH_HUD_BOTTOM_RIGHT")
+            .or(just("HUD Bottom Right "))
+            .to(HudAttachmentPoint::BottomRight))
 }
 
 /// avatar and HUD attachment points
@@ -437,4 +682,15 @@ impl std::str::FromStr for AttachmentPoint {
     }
 }
 
-// TODO: parsers
+/// parse an attachment point
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn attachment_point_parser() -> impl Parser<char, AttachmentPoint, Error = Simple<char>> {
+    avatar_attachment_point_parser()
+        .map(AttachmentPoint::Avatar)
+        .or(hud_attachment_point_parser().map(AttachmentPoint::Hud))
+}

@@ -8,7 +8,9 @@ use chumsky::{
 };
 
 #[cfg(feature = "chumsky")]
-use crate::utils::{unsigned_f32_parser, url_text_component_parser};
+use crate::utils::{
+    f32_parser, i16_parser, i32_parser, u16_parser, u8_parser, url_text_component_parser,
+};
 
 /// represents a Second Life distance in meters
 #[derive(Debug, Clone, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
@@ -569,13 +571,13 @@ pub fn region_coordinates_parser() -> impl Parser<char, RegionCoordinates, Error
 
     just('{')
         .ignore_then(whitespace().or_not())
-        .ignore_then(unsigned_f32_parser())
+        .ignore_then(f32_parser())
         .then_ignore(just(','))
         .then_ignore(whitespace().or_not())
-        .then(unsigned_f32_parser())
+        .then(f32_parser())
         .then_ignore(just(','))
         .then_ignore(whitespace().or_not())
-        .then(unsigned_f32_parser())
+        .then(f32_parser())
         .then_ignore(whitespace().or_not())
         .then_ignore(just('}'))
         .map(|((x, y), z)| RegionCoordinates::new(x, y, z))
@@ -604,6 +606,27 @@ impl RegionCoordinates {
     #[must_use]
     pub fn z(&self) -> f32 {
         self.z
+    }
+
+    /// checks if the coordinates are within bounds
+    #[must_use]
+    pub fn in_bounds(&self) -> bool {
+        self.x >= 0f32
+            && self.x < 256f32
+            && self.y >= 0f32
+            && self.y < 256f32
+            && self.z >= 0f32
+            && self.z < 4096f32
+    }
+}
+
+impl From<crate::lsl::Vector> for RegionCoordinates {
+    fn from(value: crate::lsl::Vector) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+            z: value.z,
+        }
     }
 }
 
@@ -683,25 +706,13 @@ pub struct Location {
 #[must_use]
 pub fn location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
     url_region_name_parser()
-        .then(
-            just('/').ignore_then(
-                digits(10)
-                    .then_ignore(just('/'))
-                    .then(digits(10).then_ignore(just('/')).then(digits(10))),
-            ),
-        )
-        .try_map(|(region_name, (x, (y, z))), span| {
-            let x: u8 = x
-                .parse()
-                .map_err(|e| Simple::custom(span.clone(), format!("{:?}", e)))?;
-            let y: u8 = y
-                .parse()
-                .map_err(|e| Simple::custom(span.clone(), format!("{:?}", e)))?;
-            let z: u16 = z
-                .parse()
-                .map_err(|e| Simple::custom(span.clone(), format!("{:?}", e)))?;
-            Ok(Location::new(region_name, x, y, z))
-        })
+        .then_ignore(just('/'))
+        .then(u8_parser())
+        .then_ignore(just('/'))
+        .then(u8_parser())
+        .then_ignore(just('/'))
+        .then(u16_parser())
+        .map(|(((region_name, x), y), z)| Location::new(region_name, x, y, z))
 }
 
 /// the possible errors that can occur when parsing a String to a `Location`
@@ -855,6 +866,91 @@ impl Location {
             "https://maps.secondlife.com/secondlife/{}/{}/{}/{}",
             self.region_name, self.x, self.y, self.z
         )
+    }
+}
+
+/// A location inside Second Life the way it is usually represented in
+/// SLURLs or map URLs, based on a Region Name and integer coordinates
+/// inside the region, this variant allows out of bounds coordinates
+/// (negative and 256 or above for x and y and negative for z)
+#[derive(Debug, Clone, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UnconstrainedLocation {
+    /// the name of the region of the location
+    pub region_name: RegionName,
+    /// the x coordinate inside the region
+    pub x: i16,
+    /// the y coordinate inside the region
+    pub y: i16,
+    /// the z coordinate inside the region
+    pub z: i32,
+}
+
+impl UnconstrainedLocation {
+    /// Creates a new `UnconstrainedLocation`
+    #[must_use]
+    pub fn new(region_name: RegionName, x: i16, y: i16, z: i32) -> Self {
+        UnconstrainedLocation {
+            region_name,
+            x,
+            y,
+            z,
+        }
+    }
+
+    /// The region name of this `UnconstrainedLocation`
+    #[must_use]
+    pub fn region_name(&self) -> &RegionName {
+        &self.region_name
+    }
+
+    /// The x coordinate of the `UnconstrainedLocation`
+    #[must_use]
+    pub fn x(&self) -> i16 {
+        self.x
+    }
+
+    /// The y coordinate of the `UnconstrainedLocation`
+    #[must_use]
+    pub fn y(&self) -> i16 {
+        self.y
+    }
+
+    /// The z coordinate of the `UnconstrainedLocation`
+    #[must_use]
+    pub fn z(&self) -> i32 {
+        self.z
+    }
+}
+
+/// parse a string into an UnconstrainedLocation
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn unconstrained_location_parser(
+) -> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
+    url_region_name_parser()
+        .then_ignore(just('/'))
+        .then(i16_parser())
+        .then_ignore(just('/'))
+        .then(i16_parser())
+        .then_ignore(just('/'))
+        .then(i32_parser())
+        .map(|(((region_name, x), y), z)| UnconstrainedLocation::new(region_name, x, y, z))
+}
+
+impl TryFrom<UnconstrainedLocation> for Location {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(value: UnconstrainedLocation) -> Result<Self, Self::Error> {
+        Ok(Location::new(
+            value.region_name,
+            value.x.try_into()?,
+            value.y.try_into()?,
+            value.z.try_into()?,
+        ))
     }
 }
 

@@ -4,7 +4,7 @@ use chumsky::error::Simple;
 use chumsky::prelude::{any, just, none_of, one_of, take_until};
 use chumsky::text::{digits, newline, whitespace};
 use chumsky::Parser;
-use sl_types::utils::{u64_parser, unsigned_f32_parser, usize_parser};
+use sl_types::utils::{i64_parser, u64_parser, unsigned_f32_parser, usize_parser};
 
 /// represents a Second Life system message
 #[derive(Debug, Clone, PartialEq)]
@@ -75,7 +75,7 @@ pub enum SystemMessage {
     /// message about a completed teleport
     TeleportCompletedMessage {
         /// teleported originated at this location
-        origin: sl_types::map::Location,
+        origin: sl_types::map::UnconstrainedLocation,
     },
     /// message about a region restart of the region that the avatar is in
     RegionRestartMessage,
@@ -84,7 +84,7 @@ pub enum SystemMessage {
         /// the giving object name
         giving_object_name: String,
         /// the giving object location
-        giving_object_location: sl_types::map::Location,
+        giving_object_location: sl_types::map::UnconstrainedLocation,
         /// the giving object owner
         giving_object_owner: sl_types::key::AgentKey,
         /// the name of the given object
@@ -104,7 +104,7 @@ pub enum SystemMessage {
         /// the name of the declined object
         object_name: String,
         /// the location of the giver
-        giver_location: sl_types::map::Location,
+        giver_location: sl_types::map::UnconstrainedLocation,
         /// the name of the giver
         giver_name: String,
     },
@@ -172,6 +172,17 @@ pub enum SystemMessage {
         /// total selected pieces
         total_selected_pieces: usize,
     },
+    /// rezzing an object failed because the parcel is full
+    RezObjectFailedDueToFullParcel {
+        /// name of the object
+        object_name: String,
+        /// name of the parcel
+        parcel_name: String,
+        /// attempted rez location
+        attempted_rez_location: sl_types::map::RegionCoordinates,
+        /// name of the region where the rez failed
+        region_name: sl_types::map::RegionName,
+    },
     /// permission to rez an object denied
     PermissionToRezObjectDenied {
         /// name of the object
@@ -203,6 +214,11 @@ pub enum SystemMessage {
     EjectedFromParcel,
     /// no longer allowed and ejected
     EjectedFromParcelBecauseNoLongerAllowed,
+    /// banned temporarily
+    BannedFromParcelTemporarily {
+        /// How long the ban lasts
+        ban_duration: time::Duration,
+    },
     /// banned indefinitely
     BannedFromParcelIndefinitely,
     /// only group members can visit this area
@@ -231,6 +247,55 @@ pub enum SystemMessage {
         allowed_memory_size_limit: bytesize::ByteSize,
         /// CPU time consumed
         cpu_time_consumed: time::Duration,
+    },
+    /// Firestorm extended script info
+    ExtendedScriptInfo {
+        /// object key
+        object_key: sl_types::key::ObjectKey,
+        /// description of the inspected object
+        description: Option<String>,
+        /// key of the room prim
+        root_prim: sl_types::key::ObjectKey,
+        /// prim count
+        prim_count: usize,
+        /// land impact
+        land_impact: usize,
+        /// number of items in the inspect object's inventory
+        inventory_items: usize,
+        /// velocity
+        velocity: sl_types::lsl::Vector,
+        /// position in the region
+        position: sl_types::map::RegionCoordinates,
+        /// distance from inspecting avatar to position of inspected object
+        position_distance: sl_types::map::Distance,
+        /// rotation of the inspected object as a quaternion
+        rotation: sl_types::lsl::Rotation,
+        /// rotation of the inspected object as a vector of angles in degrees
+        rotation_vector_degrees: sl_types::lsl::Vector,
+        /// angular velocity of the inspected object in radians per second
+        angular_velocity: sl_types::lsl::Vector,
+        /// creator
+        creator: sl_types::key::AgentKey,
+        /// owner
+        owner: sl_types::key::OwnerKey,
+        /// previous owner
+        previous_owner: Option<sl_types::key::OwnerKey>,
+        /// rezzed by
+        rezzed_by: sl_types::key::AgentKey,
+        /// group
+        group: Option<sl_types::key::GroupKey>,
+        /// creation time
+        creation_time: time::OffsetDateTime,
+        /// rez time
+        rez_time: time::OffsetDateTime,
+        /// pathfinding type
+        pathfinding_type: sl_types::pathfinding::PathfindingType,
+        /// attachment point
+        attachment_point: Option<sl_types::attachment::AttachmentPoint>,
+        /// temporarily attached
+        temporarily_attached: bool,
+        /// inspecting avatar position
+        inspecting_avatar_position: sl_types::map::RegionCoordinates,
     },
     /// a message from the Firestorm developers
     FirestormMessage {
@@ -447,7 +512,7 @@ pub fn unable_to_load_notecard_message_parser(
 pub fn teleport_completed_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
 {
     just("Teleport completed from http://maps.secondlife.com/secondlife/")
-        .ignore_then(sl_types::map::location_parser())
+        .ignore_then(sl_types::map::unconstrained_location_parser())
         .try_map(|origin, _span: std::ops::Range<usize>| {
             Ok(SystemMessage::TeleportCompletedMessage { origin })
         })
@@ -501,7 +566,7 @@ pub fn object_gave_object_message_parser() -> impl Parser<char, SystemMessage, E
                 .then(whitespace())
                 .then(just("( http://slurl.com/secondlife/")),
         ))
-        .then(sl_types::map::location_parser())
+        .then(sl_types::map::unconstrained_location_parser())
         .then_ignore(just(" )."))
         .try_map(
             |(
@@ -556,7 +621,7 @@ pub fn declined_given_object_message_parser(
             take_until(just("'  ( http://slurl.com/secondlife/").ignored())
                 .map(|(vc, _)| vc.into_iter().collect::<String>()),
         )
-        .then(sl_types::map::location_parser())
+        .then(sl_types::map::unconstrained_location_parser())
         .then_ignore(just(" ) from "))
         .then(
             any()
@@ -816,6 +881,52 @@ pub fn link_failed_due_to_piece_distance_message_parser(
     )
 }
 
+/// parse a system message about the failure to rez an object due to a full
+/// parcel
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn rezzing_object_failed_due_to_full_parcel_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Can't rez object '").ignore_then(
+        take_until(just("' at ").ignored())
+            .map(|(vc, _)| vc.into_iter().collect::<String>())
+            .then(sl_types::map::region_coordinates_parser())
+            .then_ignore(just(" on parcel '"))
+            .then(
+                take_until(just("' in region ").ignored())
+                    .map(|(vc, _)| vc.into_iter().collect::<String>()),
+            )
+            .then(
+                take_until(just(" because the parcel is too full").ignored())
+                    .map(|(vc, _)| vc.into_iter().collect::<String>())
+                    .try_map(|region_name, span| {
+                        sl_types::map::RegionName::try_new(&region_name).map_err(|err| {
+                            Simple::custom(
+                                span,
+                                format!(
+                                    "Could not turn parsed region name ({}) into RegionName: {:?}",
+                                    region_name, err
+                                ),
+                            )
+                        })
+                    }),
+            )
+            .map(
+                |(((object_name, attempted_rez_location), parcel_name), region_name)| {
+                    SystemMessage::RezObjectFailedDueToFullParcel {
+                        object_name,
+                        attempted_rez_location,
+                        parcel_name,
+                        region_name,
+                    }
+                },
+            ),
+    )
+}
+
 /// parse a system message about the denial of permission to rez an object
 ///
 /// # Errors
@@ -954,15 +1065,23 @@ pub fn ejected_from_parcel_message_parser() -> impl Parser<char, SystemMessage, 
         )
 }
 
-/// parse a system message about being banned from a parcel indefinitely
+/// parse a system message about being banned from a parcel
 ///
 /// # Errors
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn banned_from_parcel_indefinitely_message_parser(
-) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("You have been banned indefinitely").to(SystemMessage::BannedFromParcelIndefinitely)
+pub fn banned_from_parcel_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+{
+    just("You have been banned ").ignore_then(
+        just("indefinitely")
+            .to(SystemMessage::BannedFromParcelIndefinitely)
+            .or(just("for ")
+                .ignore_then(i64_parser().then_ignore(just(" minutes")))
+                .map(|d| SystemMessage::BannedFromParcelTemporarily {
+                    ban_duration: time::Duration::minutes(d),
+                })),
+    )
 }
 
 /// parse a system message about only group members being able to visit an area
@@ -1083,6 +1202,153 @@ pub fn script_info_message_parser() -> impl Parser<char, SystemMessage, Error = 
     )
 }
 
+/// parse a system message with extended script info
+/// usually this should follow a line with regular script info containing the
+/// object name
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn extended_script_info_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Object ID: ")
+        .ignore_then(sl_types::key::object_key_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Description: "))
+        .then(just("(No Description)").to(None).or(
+            take_until(newline().ignored()).map(|(vc, _)| Some(vc.into_iter().collect::<String>())),
+        ))
+        .then_ignore(newline())
+        .then_ignore(just("Root prim: "))
+        .then(sl_types::key::object_key_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Prim count: "))
+        .then(sl_types::utils::usize_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Land impact: "))
+        .then(sl_types::utils::usize_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Inventory items: "))
+        .then(sl_types::utils::usize_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Velocity: "))
+        .then(sl_types::lsl::vector_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Position: "))
+        .then(sl_types::lsl::vector_parser().map(sl_types::map::RegionCoordinates::from))
+        .then_ignore(whitespace())
+        .then(sl_types::map::distance_parser().delimited_by(just('('), just(')')))
+        .then_ignore(newline())
+        .then_ignore(just("Rotation: "))
+        .then(sl_types::lsl::rotation_parser())
+        .then_ignore(whitespace())
+        .then(sl_types::lsl::vector_parser().delimited_by(just('('), just(')')))
+        .then_ignore(newline())
+        .then_ignore(just("Angular velocity: "))
+        .then(sl_types::lsl::vector_parser())
+        .then_ignore(whitespace())
+        .then_ignore(just("(radians per second)"))
+        .then_ignore(newline())
+        .then_ignore(just("Creator: "))
+        .then(sl_types::key::app_agent_uri_as_agent_key_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Owner: "))
+        .then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Previous owner: "))
+        .then(
+            sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
+                .map(Some)
+                .or(just("---").to(None)),
+        )
+        .then_ignore(newline())
+        .then_ignore(just("Rezzed by: "))
+        .then(sl_types::key::agent_key_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Group: "))
+        .then(
+            sl_types::key::app_group_uri_as_group_key_parser()
+                .map(Some)
+                .or(just("---").to(None)),
+        )
+        .then_ignore(newline())
+        .then_ignore(just("Creation time: "))
+        .then(offset_datetime_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Rez time: "))
+        .then(offset_datetime_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Pathfinding type: "))
+        .then(sl_types::pathfinding::int_as_pathfinding_type_parser())
+        .then_ignore(newline())
+        .then_ignore(just("Attachment point: "))
+        .then(
+            sl_types::attachment::attachment_point_parser()
+                .map(Some)
+                .or(just("---").to(None)),
+        )
+        .then_ignore(newline())
+        .then_ignore(just("Temporarily attached: "))
+        .then(just("Yes").to(true).or(just("No").to(false)))
+        .then_ignore(newline())
+        .then_ignore(just("Your current position: "))
+        .then(sl_types::lsl::vector_parser())
+        .map(
+            |(
+                object_key,
+                description,
+                root_prim,
+                prim_count,
+                land_impact,
+                inventory_items,
+                velocity,
+                position,
+                position_distance,
+                rotation,
+                rotation_vector_degrees,
+                angular_velocity,
+                creator,
+                owner,
+                previous_owner,
+                rezzed_by,
+                group,
+                creation_time,
+                rez_time,
+                pathfinding_type,
+                attachment_point,
+                temporarily_attached,
+                inspecting_avatar_position,
+            )| {
+                SystemMessage::ExtendedScriptInfo {
+                    object_key,
+                    description,
+                    root_prim,
+                    prim_count,
+                    land_impact,
+                    inventory_items,
+                    velocity,
+                    position,
+                    position_distance,
+                    rotation,
+                    rotation_vector_degrees,
+                    angular_velocity,
+                    creator,
+                    owner,
+                    previous_owner,
+                    rezzed_by,
+                    group,
+                    creation_time,
+                    rez_time,
+                    pathfinding_type,
+                    attachment_point,
+                    temporarily_attached,
+                    inspecting_avatar_position,
+                }
+            },
+        )
+}
+
 /// Script info: 'icon': [3/3] running scripts, 192 KB allowed memory size limit, 0.012550 ms of CPU time consumed.
 
 /// parse a system message by the Firestorm developers
@@ -1142,20 +1408,16 @@ pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Er
 /// parse a Second Life system message
 ///
 /// TODO:
-/// extended script info on the line after regular script info
 /// ... gave you ... (no location URL, quotes,...)
 /// Gave you messages (without nolink tags)
-/// Teleport completed from http://maps.secondlife.com/secondlife/Ahab%27s%20Haunt/118/142/23
-/// Teleport completed from http://maps.secondlife.com/secondlife/<region name>/-1/253/3 (underflow and overflow)
-/// overflow and underflow in region coordinates in Can't rez object messages
 /// You have offered a calling card to <avatar name>.
 /// You paid secondlife:///app/agent/<agent key>/inspect L$<amount>: <avatar name>
 /// secondlife:///app/agent/<agent key>/inspect paid you L$<amount>: <your avatar name>
 /// '<object name>', an object owned by '<avatar name>', located in (unknown region) at (unknown position), has been granted permission to: Take Linden dollars (L$) from you.
+/// '<object name>', an object owned by '<avatar name>', located in <region name> at <raw position without any delimiters and apparently missing a space after the comma between y and z>, has been granted permission to: Take Linden dollars (L$) from you.
 /// The message sent to Multi-person chat is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
 /// The message sent to (IM Session Doesn't Exist) is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
 /// The message sent to Conference with <avatar name> is still being processed.
-/// Can't rez object '<object name>' at { 185.371, 226.573, 33.3066 } on parcel '<parcel name>' in region <region name> because the parcel is too full.
 /// An object named [secondlife:///app/objectim/00000000-0000-0000-0000-000000000000/?name=Gift%20from%20Mithlumen&owner=99338959-f536-4719-b91b-21a8bd72a1b0&slurl=The%20Seventh%20Valley%2F129%2F116%2F2500 Gift from Mithlumen] gave you this folder: 'Gift from Mithlumen'
 /// Draw Distance set to <distance>m.
 /// You have been banned for 178 minutes
@@ -1194,8 +1456,9 @@ pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Er
 /// Logging in. Firestorm may appear frozen.  Please wait.
 /// This is a test version of Firestorm. If this were an actual release version, a real message of the day would be here. This is only a test.
 /// You have been added as an estate manager.
+/// Your object 'Bandit IF B' has been returned to your inventory Lost and Found folder from parcel 'Gulf of Moles' at Dague 146, 144 due to parcel auto return.
 ///
-/// broken timestamps: [[year,datetime,slt]/[mthnum,datetime,slt]/[day,datetime,slt] [hour,datetime,slt]:[min,datetime,slt]]
+/// broken timestamps: [[year,datetime,slt]/[mthnum,datetime,slt]/[day,datetime,slt] [hour,datetime,slt]:[min,datetime,slt]] (already handled, seems to not be working everywhere?)
 ///
 /// # Errors
 ///
@@ -1227,6 +1490,7 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         .or(group_chat_message_still_being_processed_message_parser())
         .or(object_not_for_sale_message_parser())
         .or(link_failed_due_to_piece_distance_message_parser())
+        .or(rezzing_object_failed_due_to_full_parcel_message_parser())
         .or(permission_to_rez_object_denied_message_parser())
         .or(permission_to_reposition_denied_message_parser())
         .or(permission_to_rotate_denied_message_parser())
@@ -1237,7 +1501,7 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         .or(permission_to_enter_parcel_denied_message_parser())
         .or(permission_to_enter_parcel_denied_due_to_ban_message_parser())
         .or(ejected_from_parcel_message_parser())
-        .or(banned_from_parcel_indefinitely_message_parser())
+        .or(banned_from_parcel_message_parser())
         .or(only_group_members_can_visit_this_area_message_parser())
         .or(unable_to_teleport_due_to_rlv_message_parser())
         .or(unable_to_open_texture_due_to_rlv_message_parser())
@@ -1246,6 +1510,7 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         .or(grid_status_error_invalid_message_format_message_parser())
         .or(script_info_object_invalid_or_out_of_range_message_parser())
         .or(script_info_message_parser())
+        .or(extended_script_into_message_parser())
         .or(firestorm_message_parser())
         .or(grid_status_event_message_parser())
         .or(any()
@@ -1265,7 +1530,7 @@ mod test {
     fn test_teleport_completed() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
             Ok(SystemMessage::TeleportCompletedMessage {
-                origin: sl_types::map::Location {
+                origin: sl_types::map::UnconstrainedLocation {
                     region_name: sl_types::map::RegionName::try_new("Fudo")?,
                     x: 30,
                     y: 169,
@@ -1283,7 +1548,7 @@ mod test {
     fn test_teleport_completed_extra_short() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
             Ok(SystemMessage::TeleportCompletedMessage {
-                origin: sl_types::map::Location {
+                origin: sl_types::map::UnconstrainedLocation {
                     region_name: sl_types::map::RegionName::try_new("AA")?,
                     x: 78,
                     y: 83,

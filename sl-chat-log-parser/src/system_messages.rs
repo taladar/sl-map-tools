@@ -285,9 +285,9 @@ pub enum SystemMessage {
         /// group
         group: Option<sl_types::key::GroupKey>,
         /// creation time
-        creation_time: time::OffsetDateTime,
+        creation_time: Option<time::OffsetDateTime>,
         /// rez time
-        rez_time: time::OffsetDateTime,
+        rez_time: Option<time::OffsetDateTime>,
         /// pathfinding type
         pathfinding_type: sl_types::pathfinding::PathfindingType,
         /// attachment point
@@ -1215,11 +1215,11 @@ pub fn extended_script_info_message_parser(
     just("Object ID: ")
         .ignore_then(sl_types::key::object_key_parser())
         .then_ignore(newline())
-        .then_ignore(just(" Description: "))
-        .then(just("(No Description)").to(None).or(
+        .then_ignore(just(" Description:"))
+        .then_ignore(just(" ").or_not())
+        .then(just("(No Description)").then_ignore(newline()).to(None).or(
             take_until(newline().ignored()).map(|(vc, _)| Some(vc.into_iter().collect::<String>())),
         ))
-        .then_ignore(newline())
         .then_ignore(just(" Root prim: "))
         .then(sl_types::key::object_key_parser())
         .then_ignore(newline())
@@ -1273,11 +1273,13 @@ pub fn extended_script_info_message_parser(
                 .or(just("---").to(None)),
         )
         .then_ignore(newline())
-        .then_ignore(just(" Creation time: "))
-        .then(crate::utils::offset_datetime_parser())
+        .then_ignore(just(" Creation time:"))
+        .then_ignore(just(' ').or_not())
+        .then(crate::utils::offset_datetime_parser().or_not())
         .then_ignore(newline())
-        .then_ignore(just(" Rez time: "))
-        .then(crate::utils::offset_datetime_parser())
+        .then_ignore(just(" Rez time:"))
+        .then_ignore(just(' ').or_not())
+        .then(crate::utils::offset_datetime_parser().or_not())
         .then_ignore(newline())
         .then_ignore(just(" Pathfinding type: "))
         .then(sl_types::pathfinding::int_as_pathfinding_type_parser())
@@ -1457,6 +1459,7 @@ pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Er
 /// This is a test version of Firestorm. If this were an actual release version, a real message of the day would be here. This is only a test.
 /// You have been added as an estate manager.
 /// Your object 'Bandit IF B' has been returned to your inventory Lost and Found folder from parcel 'Gulf of Moles' at Dague 146, 144 due to parcel auto return.
+/// <avatar name> has declined your call.  You will now be reconnected to Nearby Voice Chat.
 ///
 /// broken timestamps: [[year,datetime,slt]/[mthnum,datetime,slt]/[day,datetime,slt] [hour,datetime,slt]:[min,datetime,slt]] (already handled, seems to not be working everywhere?)
 ///

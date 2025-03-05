@@ -268,7 +268,11 @@ mod test {
                                             .parse(message.to_string())
                                     {
                                         for e in e {
-                                            tracing::debug!("Attempt to parse as group chat message still being processed line returned error:\n{}\n{:#?}", e, e);
+                                            tracing::debug!("{}", utils::ChumskyError {
+                                                description: "group chat message still being processed".to_string(),
+                                                source: message.to_owned(),
+                                                errors: vec![e.to_owned()],
+                                            });
                                         }
                                     }
                                 }
@@ -278,7 +282,14 @@ mod test {
                                             .parse(message.to_string())
                                     {
                                         for e in e {
-                                            tracing::debug!("Attempt to parse as object gave object line returned error:\n{}\n{:#?}", e, e);
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description: "owned by gave you".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
                                         }
                                     }
                                 }
@@ -292,17 +303,11 @@ mod test {
                                             .parse(message.to_string())
                                     {
                                         for e in e {
-                                            tracing::debug!("Attempt to parse as permission to rez object denied line returned error:\n{}\n{:#?}", e, e);
-                                        }
-                                    }
-                                }
-                                if message.starts_with("is still being processed") {
-                                    if let Err(e) =
-                                        system_messages::group_chat_message_still_being_processed_message_parser()
-                                            .parse(message.to_string())
-                                    {
-                                        for e in e {
-                                            tracing::debug!("Attempt to parse as group chat message still being processed line returned error:\n{}\n{:#?}", e, e);
+                                            tracing::debug!("{}", utils::ChumskyError {
+                                                description: "permission to rez object denied".to_string(),
+                                                source: message.to_owned(),
+                                                errors: vec![e.to_owned()],
+                                            });
                                         }
                                     }
                                 }
@@ -312,7 +317,14 @@ mod test {
                                             .parse(message.to_string())
                                     {
                                         for e in e {
-                                            tracing::debug!("Attempt to parse as teleport completed line returned error:\n{}\n{:#?}", e, e);
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description: "teleported completed".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
                                         }
                                     }
                                 }
@@ -324,7 +336,14 @@ mod test {
                                             .parse(message.to_string())
                                     {
                                         for e in e {
-                                            tracing::debug!("Attempt to parse as grid status event line returned error:\n{}\n{:#?}", e, e);
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description: "grid status event".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
                                         }
                                     }
                                 }
@@ -334,7 +353,14 @@ mod test {
                                             .parse(message.to_string())
                                     {
                                         for e in e {
-                                            tracing::debug!("Attempt to parse as extended script info line returned error:\n{}\n{:#?}", e, e);
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description: "extended script info".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
                                         }
                                     }
                                 }

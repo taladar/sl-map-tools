@@ -17,6 +17,7 @@ sl-types = { version = "0.1.5", path = "../sl-types", features = ["chumsky"] }
 time = { version = "0.3.37", features = ["formatting", "macros", "parsing"] }
 
 [dev-dependencies]
+ariadne = { version = "0.5.0", features = ["auto-color"] }
 dirs2 = "3.0.1"
 dotenvy = "0.15.7"
 envy = "0.4.2"

@@ -613,14 +613,20 @@ impl std::str::FromStr for HudAttachmentPoint {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "ATTACH_HUD_CENTER_2" | "HUD Center 2" => Ok(HudAttachmentPoint::Center2),
-            "ATTACH_HUD_TOP_RIGHT" | "HUD Top Right" => Ok(HudAttachmentPoint::TopRight),
-            "ATTACH_HUD_TOP_CENTER" | "HUD Top" => Ok(HudAttachmentPoint::Top),
-            "ATTACH_HUD_TOP_LEFT" | "HUD Top Left" => Ok(HudAttachmentPoint::TopLeft),
-            "ATTACH_HUD_CENTER_1" | "HUD Center" => Ok(HudAttachmentPoint::Center),
-            "ATTACH_HUD_BOTTOM_LEFT" | "HUD Bottom Left" => Ok(HudAttachmentPoint::BottomLeft),
-            "ATTACH_HUD_BOTTOM" | "HUD Bottom" => Ok(HudAttachmentPoint::Bottom),
-            "ATTACH_HUD_BOTTOM_RIGHT" | "HUD Bottom Right " => Ok(HudAttachmentPoint::BottomRight),
+            "ATTACH_HUD_CENTER_2" | "HUD Center 2" | "Center 2" => Ok(HudAttachmentPoint::Center2),
+            "ATTACH_HUD_TOP_RIGHT" | "HUD Top Right" | "Top Right" => {
+                Ok(HudAttachmentPoint::TopRight)
+            }
+            "ATTACH_HUD_TOP_CENTER" | "HUD Top" | "Top" => Ok(HudAttachmentPoint::Top),
+            "ATTACH_HUD_TOP_LEFT" | "HUD Top Left" | "Top Left" => Ok(HudAttachmentPoint::TopLeft),
+            "ATTACH_HUD_CENTER_1" | "HUD Center" | "Center" => Ok(HudAttachmentPoint::Center),
+            "ATTACH_HUD_BOTTOM_LEFT" | "HUD Bottom Left" | "Bottom Left" => {
+                Ok(HudAttachmentPoint::BottomLeft)
+            }
+            "ATTACH_HUD_BOTTOM" | "HUD Bottom" | "Bottom" => Ok(HudAttachmentPoint::Bottom),
+            "ATTACH_HUD_BOTTOM_RIGHT" | "HUD Bottom Right " | "Bottom Right" => {
+                Ok(HudAttachmentPoint::BottomRight)
+            }
             _ => Err(HudAttachmentPointParseError {
                 value: s.to_string(),
             }),
@@ -640,28 +646,36 @@ pub fn hud_attachment_point_parser() -> impl Parser<char, HudAttachmentPoint, Er
     choice([
         just("ATTACH_HUD_CENTER_2")
             .or(just("HUD Center 2"))
+            .or(just("Center 2"))
             .to(HudAttachmentPoint::Center2),
         just("ATTACH_HUD_TOP_RIGHT")
             .or(just("HUD Top Right"))
+            .or(just("Top Right"))
             .to(HudAttachmentPoint::TopRight),
-        just("ATTACH_HUD_TOP_CENTER")
-            .or(just("HUD Top"))
-            .to(HudAttachmentPoint::Top),
         just("ATTACH_HUD_TOP_LEFT")
             .or(just("HUD Top Left"))
+            .or(just("Top Left"))
             .to(HudAttachmentPoint::TopLeft),
+        just("ATTACH_HUD_TOP_CENTER")
+            .or(just("HUD Top"))
+            .or(just("Top"))
+            .to(HudAttachmentPoint::Top),
         just("ATTACH_HUD_CENTER_1")
             .or(just("HUD Center"))
+            .or(just("Center"))
             .to(HudAttachmentPoint::Center),
         just("ATTACH_HUD_BOTTOM_LEFT")
             .or(just("HUD Bottom Left"))
+            .or(just("Bottom Left"))
             .to(HudAttachmentPoint::BottomLeft),
-        just("ATTACH_HUD_BOTTOM")
-            .or(just("HUD Bottom"))
-            .to(HudAttachmentPoint::Bottom),
         just("ATTACH_HUD_BOTTOM_RIGHT")
             .or(just("HUD Bottom Right "))
+            .or(just("Bottom Right "))
             .to(HudAttachmentPoint::BottomRight),
+        just("ATTACH_HUD_BOTTOM")
+            .or(just("HUD Bottom"))
+            .or(just("Bottom"))
+            .to(HudAttachmentPoint::Bottom),
     ])
 }
 

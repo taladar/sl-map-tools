@@ -223,17 +223,21 @@ pub fn i64_parser() -> impl Parser<char, i64, Error = Simple<char>> {
 #[cfg(feature = "chumsky")]
 #[must_use]
 pub fn unsigned_f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
-    digits(10).then_ignore(just('.')).then(digits(10)).try_map(
-        |(before_point, after_point), span| {
-            let raw_float = format!("{}.{}", before_point, after_point);
+    digits(10)
+        .then(just('.').ignore_then(digits(10)).or_not())
+        .try_map(|(before_point, after_point), span| {
+            let raw_float = format!(
+                "{}.{}",
+                before_point,
+                after_point.unwrap_or_else(|| "0".to_string())
+            );
             raw_float.parse().map_err(|err| {
                 Simple::custom(
                     span,
                     format!("Could not parse {} as f32: {:?}", raw_float, err),
                 )
             })
-        },
-    )
+        })
 }
 
 /// parse a float without a sign
@@ -243,18 +247,22 @@ pub fn unsigned_f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn unsigned_f64_parser() -> impl Parser<char, f32, Error = Simple<char>> {
-    digits(10).then_ignore(just('.')).then(digits(10)).try_map(
-        |(before_point, after_point), span| {
-            let raw_float = format!("{}.{}", before_point, after_point);
+pub fn unsigned_f64_parser() -> impl Parser<char, f64, Error = Simple<char>> {
+    digits(10)
+        .then(just('.').ignore_then(digits(10)).or_not())
+        .try_map(|(before_point, after_point), span| {
+            let raw_float = format!(
+                "{}.{}",
+                before_point,
+                after_point.unwrap_or_else(|| "0".to_string())
+            );
             raw_float.parse().map_err(|err| {
                 Simple::custom(
                     span,
                     format!("Could not parse {} as f64: {:?}", raw_float, err),
                 )
             })
-        },
-    )
+        })
 }
 
 /// parse a float with or without a sign
@@ -267,20 +275,14 @@ pub fn unsigned_f64_parser() -> impl Parser<char, f32, Error = Simple<char>> {
 pub fn f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
     one_of("+-")
         .or_not()
-        .then(digits(10).then_ignore(just('.')).then(digits(10)))
-        .try_map(
-            |(sign, (before_point, after_point)): (Option<char>, (String, String)), span| {
-                let raw_float = if let Some(sign) = sign {
-                    format!("{}{}.{}", sign, before_point, after_point)
+        .then(unsigned_f32_parser())
+        .map(
+            |(sign, value)| {
+                if sign == Some('-') {
+                    -value
                 } else {
-                    format!("{}.{}", before_point, after_point)
-                };
-                raw_float.parse().map_err(|err| {
-                    Simple::custom(
-                        span,
-                        format!("Could not parse {} as f32: {:?}", raw_float, err),
-                    )
-                })
+                    value
+                }
             },
         )
 }
@@ -295,20 +297,14 @@ pub fn f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
 pub fn f64_parser() -> impl Parser<char, f64, Error = Simple<char>> {
     one_of("+-")
         .or_not()
-        .then(digits(10).then_ignore(just('.')).then(digits(10)))
-        .try_map(
-            |(sign, (before_point, after_point)): (Option<char>, (String, String)), span| {
-                let raw_float = if let Some(sign) = sign {
-                    format!("{}{}.{}", sign, before_point, after_point)
+        .then(unsigned_f64_parser())
+        .map(
+            |(sign, value)| {
+                if sign == Some('-') {
+                    -value
                 } else {
-                    format!("{}.{}", before_point, after_point)
-                };
-                raw_float.parse().map_err(|err| {
-                    Simple::custom(
-                        span,
-                        format!("Could not parse {} as f64: {:?}", raw_float, err),
-                    )
-                })
+                    value
+                }
             },
         )
 }

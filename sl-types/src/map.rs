@@ -3,7 +3,7 @@
 #[cfg(feature = "chumsky")]
 use chumsky::{
     prelude::{filter, just, Simple},
-    text::digits,
+    text::whitespace,
     Parser,
 };
 
@@ -200,15 +200,10 @@ impl std::ops::Rem<f64> for Distance {
 #[cfg(feature = "chumsky")]
 #[must_use]
 pub fn distance_parser() -> impl Parser<char, Distance, Error = Simple<char>> {
-    digits(10)
-        .then_ignore(just('.'))
-        .then(digits(10))
-        .then_ignore(just(" m"))
-        .try_map(|(full, decimal), span: std::ops::Range<usize>| {
-            Ok(Distance(format!("{}.{}", full, decimal).parse().map_err(
-                |e| Simple::custom(span.clone(), format!("{:?}", e)),
-            )?))
-        })
+    crate::utils::unsigned_f64_parser()
+        .then_ignore(whitespace().or_not())
+        .then_ignore(just('m'))
+        .map(|distance| Distance(distance))
 }
 
 /// Grid coordinates for the position of a region on the map
@@ -1430,10 +1425,10 @@ mod test {
 
     #[cfg(feature = "chumsky")]
     #[test]
-    fn test_region_name_parser_no_whitespace() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_url_region_name_parser_no_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Viterbo";
         assert_eq!(
-            region_name_parser().parse(region_name),
+            url_region_name_parser().parse(region_name),
             Ok(RegionName::try_new(region_name)?)
         );
         Ok(())
@@ -1441,10 +1436,21 @@ mod test {
 
     #[cfg(feature = "chumsky")]
     #[test]
-    fn test_region_name_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_url_region_name_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Da Boom";
         assert_eq!(
-            region_name_parser().parse(region_name.replace(" ", "%20")),
+            url_region_name_parser().parse(region_name.replace(" ", "%20")),
+            Ok(RegionName::try_new(region_name)?)
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "chumsky")]
+    #[test]
+    fn test_region_name_parser_whitespace() -> Result<(), Box<dyn std::error::Error>> {
+        let region_name = "Da Boom";
+        assert_eq!(
+            region_name_parser().parse(region_name),
             Ok(RegionName::try_new(region_name)?)
         );
         Ok(())

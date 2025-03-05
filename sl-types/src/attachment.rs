@@ -670,7 +670,7 @@ pub fn hud_attachment_point_parser() -> impl Parser<char, HudAttachmentPoint, Er
             .to(HudAttachmentPoint::BottomLeft),
         just("ATTACH_HUD_BOTTOM_RIGHT")
             .or(just("HUD Bottom Right "))
-            .or(just("Bottom Right "))
+            .or(just("Bottom Right"))
             .to(HudAttachmentPoint::BottomRight),
         just("ATTACH_HUD_BOTTOM")
             .or(just("HUD Bottom"))
@@ -760,4 +760,41 @@ pub fn attachment_point_parser() -> impl Parser<char, AttachmentPoint, Error = S
     avatar_attachment_point_parser()
         .map(AttachmentPoint::Avatar)
         .or(hud_attachment_point_parser().map(AttachmentPoint::Hud))
+}
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature = "chumsky")]
+    use super::{attachment_point_parser, AttachmentPoint, HudAttachmentPoint};
+    #[cfg(feature = "chumsky")]
+    use chumsky::Parser as _;
+    #[cfg(feature = "chumsky")]
+    use pretty_assertions::assert_eq;
+
+    #[cfg(feature = "chumsky")]
+    #[test]
+    fn test_parse_attachment_point_bottom_left() {
+        assert_eq!(
+            attachment_point_parser().parse("Bottom Left"),
+            Ok(AttachmentPoint::Hud(HudAttachmentPoint::BottomLeft)),
+        )
+    }
+
+    #[cfg(feature = "chumsky")]
+    #[test]
+    fn test_parse_attachment_point_bottom() {
+        assert_eq!(
+            attachment_point_parser().parse("Bottom"),
+            Ok(AttachmentPoint::Hud(HudAttachmentPoint::Bottom)),
+        )
+    }
+
+    #[cfg(feature = "chumsky")]
+    #[test]
+    fn test_parse_attachment_point_bottom_right() {
+        assert_eq!(
+            attachment_point_parser().parse("Bottom Right"),
+            Ok(AttachmentPoint::Hud(HudAttachmentPoint::BottomRight)),
+        )
+    }
 }

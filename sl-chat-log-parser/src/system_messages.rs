@@ -1,7 +1,7 @@
 //! Types and parsers for system messages in the chat log
 
 use chumsky::error::Simple;
-use chumsky::prelude::{any, choice, just, none_of, one_of, take_until};
+use chumsky::prelude::{any, choice, end, just, one_of, take_until};
 use chumsky::text::{digits, newline, whitespace};
 use chumsky::Parser;
 use sl_types::utils::{i64_parser, u64_parser, unsigned_f32_parser, usize_parser};
@@ -10,7 +10,7 @@ use sl_types::utils::{i64_parser, u64_parser, unsigned_f32_parser, usize_parser}
 #[derive(Debug, Clone, PartialEq)]
 pub enum SystemMessage {
     /// message about a saved snapshot
-    SavedSnapshotMessage {
+    SavedSnapshot {
         /// the snapshot filename
         filename: std::path::PathBuf,
     },
@@ -28,32 +28,78 @@ pub enum SystemMessage {
         /// the amount of free space reported
         free_disk_space: bytesize::ByteSize,
     },
+    /// message about the draw distance being set to a specific value
+    DrawDistanceSet {
+        /// the distance the draw distance was set to
+        distance: sl_types::map::Distance,
+    },
+    /// message about the home position being set
+    HomePositionSet,
+    /// message about land being divided
+    LandDivided,
+    /// message about a failure to join land due to region boundary
+    FailedToJoinLandDueToRegionBoundary,
+    /// message about offering a calling card
+    OfferedCallingCard {
+        /// the name of the avatar we offered a calling card to
+        recipient_avatar_name: String,
+    },
     /// message about a saved attachment
     AttachmentSavedMessage,
-    /// message about a sent payment
-    SentPaymentMessage {
-        /// the recipient avatar UUID
-        recipient_avatar_key: sl_types::key::AgentKey,
+    /// message about paying for an object
+    YouPaidForObject {
+        /// the seller avatar or group
+        seller: sl_types::key::OwnerKey,
         /// the amount paid
         amount: sl_types::money::LindenAmount,
-        /// when buying an object the name of the object
-        object_name: Option<String>,
+        /// the name of the object you paid for
+        object_name: String,
     },
-    /// message about a received payment
-    ReceivedPaymentMessage {
-        /// the sender avatar UUID
-        sender_avatar_key: sl_types::key::AgentKey,
-        /// the amount received
+    /// message about paying to create a group
+    YouPaidToCreateGroup {
+        /// the agent you paid
+        payment_recipient: sl_types::key::AgentKey,
+        /// the amount you paid
         amount: sl_types::money::LindenAmount,
-        /// an optional message
-        message: Option<String>,
     },
     /// message about paying to join a group
-    YouPaidToJoinGroupMessage {
+    YouPaidToJoinGroup {
         /// the group key for the joined group
         joined_group: sl_types::key::GroupKey,
         /// the amount paid to join
         join_fee: sl_types::money::LindenAmount,
+    },
+    /// message about paying for a parcel of land
+    YouPaidForLand {
+        /// previous land owner
+        previous_land_owner: sl_types::key::OwnerKey,
+        /// the amount paid
+        amount: sl_types::money::LindenAmount,
+    },
+    /// message about a failed payment
+    FailedToPay {
+        /// payment recipient
+        payment_recipient: sl_types::key::OwnerKey,
+        /// the amount that could not be paid
+        amount: sl_types::money::LindenAmount,
+    },
+    /// message about a sent payment
+    SentPayment {
+        /// the recipient avatar or group key
+        recipient_key: sl_types::key::OwnerKey,
+        /// the amount sent
+        amount: sl_types::money::LindenAmount,
+        /// an optional message
+        message: Option<String>,
+    },
+    /// message about a received payment
+    ReceivedPayment {
+        /// the sender avatar or group key
+        sender_key: sl_types::key::OwnerKey,
+        /// the amount received
+        amount: sl_types::money::LindenAmount,
+        /// an optional message
+        message: Option<String>,
     },
     /// message that you have been added to a group
     AddedToGroup,
@@ -68,19 +114,19 @@ pub enum SystemMessage {
     /// message that loading a notecard failed
     UnableToLoadNotecard,
     /// message about a song playing on stream
-    NowPlayingMessage {
+    NowPlaying {
         /// the song name
         song_name: String,
     },
     /// message about a completed teleport
-    TeleportCompletedMessage {
+    TeleportCompleted {
         /// teleported originated at this location
         origin: sl_types::map::UnconstrainedLocation,
     },
     /// message about a region restart of the region that the avatar is in
-    RegionRestartMessage,
+    RegionRestart,
     /// message about an object giving the current avatar an object
-    ObjectGaveObjectMessage {
+    ObjectGaveObject {
         /// the giving object name
         giving_object_name: String,
         /// the giving object location
@@ -91,7 +137,7 @@ pub enum SystemMessage {
         given_object_name: String,
     },
     /// message about an avatar giving the current avatar an object
-    AvatarGaveObjectMessage {
+    AvatarGaveObject {
         /// is the giving avatar a group member
         is_group_member: bool,
         /// the giving avatar name
@@ -145,10 +191,15 @@ pub enum SystemMessage {
     BridgeCreationInProgress,
     /// message that the bridge failed to attach
     BridgeFailedToAttach,
+    /// message that the bridge failed to attach because something else is using
+    /// the bridge attachment point
+    BridgeFailedToAttachDueToBridgeAttachmentPointInUse,
     /// message that the bridge was not created
     BridgeNotCreated,
     /// message that the bridge was detached
     BridgeDetached,
+    /// message that the bridge object was not found and the creation was aborted
+    BridgeObjectNotFoundCantProceedWithCreation,
     /// script count changed
     ScriptCountChanged {
         /// script count before
@@ -168,9 +219,9 @@ pub enum SystemMessage {
     /// link failed because pieces being too far apart
     LinkFailedDueToPieceDistance {
         /// link failed for this many pieces
-        link_failed_pieces: usize,
+        link_failed_pieces: Option<usize>,
         /// total selected pieces
-        total_selected_pieces: usize,
+        total_selected_pieces: Option<usize>,
     },
     /// rezzing an object failed because the parcel is full
     RezObjectFailedDueToFullParcel {
@@ -183,6 +234,10 @@ pub enum SystemMessage {
         /// name of the region where the rez failed
         region_name: sl_types::map::RegionName,
     },
+    /// creating an object failed because the region is full
+    CreateObjectFailedDueToFullRegion,
+    /// permission to create an object denied
+    PermissionToCreateObjectDenied,
     /// permission to rez an object denied
     PermissionToRezObjectDenied {
         /// name of the object
@@ -206,10 +261,14 @@ pub enum SystemMessage {
     PermissionToViewScriptDenied,
     /// permission to view notecard denied
     PermissionToViewNotecardDenied,
+    /// permission to change shape denied
+    PermissionToChangeShapeDenied,
     /// permission to enter parcel denied
     PermissionToEnterParcelDenied,
     /// permission to enter parcel denied due to ban
     PermissionToEnterParcelDeniedDueToBan,
+    /// we ejected an avatar
+    EjectedAvatar,
     /// ejected from parcel
     EjectedFromParcel,
     /// no longer allowed and ejected
@@ -337,7 +396,7 @@ pub fn snapshot_saved_message_parser() -> impl Parser<char, SystemMessage, Error
                 .collect::<String>()
                 .map(std::path::PathBuf::from),
         )
-        .map(|filename| SystemMessage::SavedSnapshotMessage { filename })
+        .map(|filename| SystemMessage::SavedSnapshot { filename })
         .or(just("Failed to save snapshot to ").ignore_then(
             take_until(just(": Directory does not exist.").ignored()).map(|(folder, _)| {
                 SystemMessage::FailedToSaveSnapshotDueToMissingDestinationFolder {
@@ -364,6 +423,70 @@ pub fn snapshot_saved_message_parser() -> impl Parser<char, SystemMessage, Error
         ))
 }
 
+/// parse a system message about the draw distance being set to a specific distance
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn draw_distance_set_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+{
+    just("Draw Distance set to ")
+        .ignore_then(sl_types::map::distance_parser())
+        .then_ignore(just('.'))
+        .map(|distance| SystemMessage::DrawDistanceSet { distance })
+}
+
+/// parse a system message about the home position being set
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn home_position_set_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+{
+    just("Home position set.").to(SystemMessage::HomePositionSet)
+}
+
+/// parse a system message about land being divided
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn land_divided_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Land has been divided.").to(SystemMessage::LandDivided)
+}
+
+/// parse a system message about a failure to join land due to a region boundary
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn failed_to_join_land_due_to_region_boundary_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Selected land is not all in the same region.")
+        .ignore_then(newline())
+        .ignore_then(just(" Try selecting a smaller piece of land."))
+        .to(SystemMessage::FailedToJoinLandDueToRegionBoundary)
+}
+
+/// parse a system message about offering a calling card to an avatar
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn offered_calling_card_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You have offered a calling card to ")
+        .ignore_then(take_until(just('.')).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .map(|recipient_avatar_name| SystemMessage::OfferedCallingCard {
+            recipient_avatar_name,
+        })
+}
+
 /// parse a system message about a saved attachment
 ///
 /// # Errors
@@ -371,8 +494,30 @@ pub fn snapshot_saved_message_parser() -> impl Parser<char, SystemMessage, Error
 /// returns an error if the string could not be parsed
 #[must_use]
 pub fn attachment_saved_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Attachment has been saved")
-        .try_map(|_, _span: std::ops::Range<usize>| Ok(SystemMessage::AttachmentSavedMessage))
+    just("Attachment has been saved").to(SystemMessage::AttachmentSavedMessage)
+}
+
+/// parse a system message about a sent payment
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn you_paid_for_object_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+{
+    just("You paid ")
+        .ignore_then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
+        .then_ignore(whitespace())
+        .then(sl_types::money::linden_amount_parser())
+        .then_ignore(just(" for "))
+        .then(take_until(just(".")).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .map(
+            |((seller, amount), object_name)| SystemMessage::YouPaidForObject {
+                seller,
+                amount,
+                object_name,
+            },
+        )
 }
 
 /// parse a system message about a sent payment
@@ -382,24 +527,24 @@ pub fn attachment_saved_message_parser() -> impl Parser<char, SystemMessage, Err
 /// returns an error if the string could not be parsed
 #[must_use]
 pub fn sent_payment_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("You paid ")
-        .ignore_then(sl_types::key::app_agent_uri_as_agent_key_parser())
-        .then_ignore(just(" "))
-        .then(sl_types::money::linden_amount_parser())
-        .then(
-            just(" for ")
-                .ignore_then(take_until(just(".")).map(|(n, _)| Some(n)))
-                .or(just(".").map(|_| None)),
-        )
-        .try_map(
-            |((recipient_avatar_key, amount), object_name), _span: std::ops::Range<usize>| {
-                Ok(SystemMessage::SentPaymentMessage {
-                    recipient_avatar_key,
+    just("You paid ").ignore_then(
+        sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
+            .then_ignore(whitespace())
+            .then(sl_types::money::linden_amount_parser())
+            .then(
+                just(": ")
+                    .ignore_then(any().repeated().collect::<String>())
+                    .ignore_then(take_until(newline().or(end())).map(|(n, _)| Some(n)))
+                    .or(just(".").map(|_| None)),
+            )
+            .map(
+                |((recipient_key, amount), message)| SystemMessage::SentPayment {
+                    recipient_key,
                     amount,
-                    object_name: object_name.map(|n| n.into_iter().collect()),
-                })
-            },
-        )
+                    message: message.map(|n| n.into_iter().collect()),
+                },
+            ),
+    )
 }
 
 /// parse a system message about a received payment
@@ -409,22 +554,41 @@ pub fn sent_payment_message_parser() -> impl Parser<char, SystemMessage, Error =
 /// returns an error if the string could not be parsed
 #[must_use]
 pub fn received_payment_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    sl_types::key::app_agent_uri_as_agent_key_parser()
+    sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
         .then_ignore(just(" paid you "))
         .then(sl_types::money::linden_amount_parser())
         .then(
             just(": ")
                 .ignore_then(any().repeated().collect::<String>())
-                .ignore_then(take_until(just(".")).map(|(n, _)| Some(n)))
+                .ignore_then(take_until(newline().or(end())).map(|(n, _)| Some(n)))
                 .or(just(".").map(|_| None)),
         )
-        .try_map(
-            |((sender_avatar_key, amount), message), _span: std::ops::Range<usize>| {
-                Ok(SystemMessage::ReceivedPaymentMessage {
-                    sender_avatar_key,
-                    amount,
-                    message: message.map(|n| n.into_iter().collect()),
-                })
+        .map(
+            |((sender_key, amount), message)| SystemMessage::ReceivedPayment {
+                sender_key,
+                amount,
+                message: message.map(|n| n.into_iter().collect()),
+            },
+        )
+}
+
+/// parse a system message about paying to create a group
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn you_paid_to_create_a_group_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You paid ")
+        .ignore_then(sl_types::key::app_agent_uri_as_agent_key_parser())
+        .then_ignore(whitespace())
+        .then(sl_types::money::linden_amount_parser())
+        .then_ignore(just(" to create a group."))
+        .map(
+            |(payment_recipient, amount)| SystemMessage::YouPaidToCreateGroup {
+                payment_recipient,
+                amount,
             },
         )
 }
@@ -438,25 +602,54 @@ pub fn received_payment_message_parser() -> impl Parser<char, SystemMessage, Err
 pub fn you_paid_to_join_group_message_parser(
 ) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
     just("You paid ")
-        .ignore_then(sl_types::viewer_uri::viewer_app_group_uri_parser())
+        .ignore_then(sl_types::key::app_group_uri_as_group_key_parser())
         .then_ignore(whitespace())
         .then(sl_types::money::linden_amount_parser())
         .then_ignore(just(" to join a group."))
-        .try_map(|(group_uri, join_fee), span| match group_uri {
-            sl_types::viewer_uri::ViewerUri::GroupAbout(group_key)
-            | sl_types::viewer_uri::ViewerUri::GroupInspect(group_key) => {
-                Ok(SystemMessage::YouPaidToJoinGroupMessage {
-                    joined_group: group_key,
-                    join_fee,
-                })
-            }
-            other => Err(Simple::custom(
-                span,
-                format!(
-                    "Unexpected type of group URI in group join message: {:?}",
-                    other
-                ),
-            )),
+        .map(
+            |(joined_group, join_fee)| SystemMessage::YouPaidToJoinGroup {
+                joined_group,
+                join_fee,
+            },
+        )
+}
+
+/// parse a system message about paying for land
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn you_paid_for_land_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+{
+    just("You paid ")
+        .ignore_then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
+        .then_ignore(whitespace())
+        .then(sl_types::money::linden_amount_parser())
+        .then_ignore(just(" for a parcel of land."))
+        .map(
+            |(previous_land_owner, amount)| SystemMessage::YouPaidForLand {
+                previous_land_owner,
+                amount,
+            },
+        )
+}
+
+/// parse a system message about a failure to pay
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn failed_to_pay_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You failed to pay ")
+        .ignore_then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
+        .then_ignore(whitespace())
+        .then(sl_types::money::linden_amount_parser())
+        .then_ignore(just('.'))
+        .map(|(payment_recipient, amount)| SystemMessage::FailedToPay {
+            payment_recipient,
+            amount,
         })
 }
 
@@ -470,8 +663,7 @@ pub fn group_membership_message_parser() -> impl Parser<char, SystemMessage, Err
     just("You have been added to the group.")
         .to(SystemMessage::AddedToGroup)
         .or(just("You have left the group '")
-            .ignore_then(none_of('\'').repeated().collect::<String>())
-            .then_ignore(just("'."))
+            .ignore_then(take_until(just("'.")).map(|(vc, _)| vc.into_iter().collect::<String>()))
             .map(|group_name| SystemMessage::LeftGroup { group_name }))
 }
 
@@ -514,7 +706,7 @@ pub fn teleport_completed_message_parser() -> impl Parser<char, SystemMessage, E
     just("Teleport completed from http://maps.secondlife.com/secondlife/")
         .ignore_then(sl_types::map::unconstrained_location_parser())
         .try_map(|origin, _span: std::ops::Range<usize>| {
-            Ok(SystemMessage::TeleportCompletedMessage { origin })
+            Ok(SystemMessage::TeleportCompleted { origin })
         })
 }
 
@@ -528,7 +720,7 @@ pub fn now_playing_message_parser() -> impl Parser<char, SystemMessage, Error = 
     just("Now playing: ")
         .ignore_then(any().repeated().collect::<String>())
         .try_map(|song_name, _span: std::ops::Range<usize>| {
-            Ok(SystemMessage::NowPlayingMessage { song_name })
+            Ok(SystemMessage::NowPlaying { song_name })
         })
 }
 
@@ -541,7 +733,7 @@ pub fn now_playing_message_parser() -> impl Parser<char, SystemMessage, Error = 
 pub fn region_restart_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
     just("The region you are in now is about to restart. If you stay in this region you will be logged out.")
         .try_map(|_, _span: std::ops::Range<usize>| {
-            Ok(SystemMessage::RegionRestartMessage)
+            Ok(SystemMessage::RegionRestart)
         })
 }
 
@@ -574,7 +766,7 @@ pub fn object_gave_object_message_parser() -> impl Parser<char, SystemMessage, E
                 giving_object_location,
             ),
              _span: std::ops::Range<usize>| {
-                Ok(SystemMessage::ObjectGaveObjectMessage {
+                Ok(SystemMessage::ObjectGaveObject {
                     giving_object_name: giving_object_name.into_iter().collect(),
                     giving_object_owner,
                     given_object_name: given_object_name.into_iter().collect(),
@@ -599,7 +791,7 @@ pub fn avatar_gave_object_message_parser() -> impl Parser<char, SystemMessage, E
         .try_map(
             |((group_member, (giving_avatar_name, _)), (given_object_name, _)),
              _span: std::ops::Range<usize>| {
-                Ok(SystemMessage::AvatarGaveObjectMessage {
+                Ok(SystemMessage::AvatarGaveObject {
                     is_group_member: group_member.is_some(),
                     giving_avatar_name: giving_avatar_name.into_iter().collect(),
                     given_object_name: given_object_name.into_iter().collect(),
@@ -745,12 +937,18 @@ pub fn doubleclick_teleport_message_parser(
 /// returns an error if the string could not be parsed
 #[must_use]
 pub fn bridge_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Creating the bridge. This might take a moment, please wait.").to(SystemMessage::CreatingBridge)
-    .or(just("Bridge created.").to(SystemMessage::BridgeCreated))
-    .or(just("Bridge creation in process, cannot start another. Please wait a few minutes before trying again.").to(SystemMessage::BridgeCreationInProgress))
-    .or(just("Bridge failed to attach. This is not the current bridge version. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeFailedToAttach))
-    .or(just("Bridge not created. The bridge couldn't be found in inventory. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeNotCreated))
-    .or(just("Bridge detached.").to(SystemMessage::BridgeDetached))
+    choice([
+        just("Creating the bridge. This might take a moment, please wait.").to(SystemMessage::CreatingBridge).boxed(),
+        just("Creating the bridge. This might take a few moments, please wait").to(SystemMessage::CreatingBridge).boxed(),
+        just("Bridge created.").to(SystemMessage::BridgeCreated).boxed(),
+        just("Bridge creation in process, cannot start another. Please wait a few minutes before trying again.").to(SystemMessage::BridgeCreationInProgress).boxed(),
+        just("Bridge object not found. Can't proceed with creation, exiting.").to(SystemMessage::BridgeObjectNotFoundCantProceedWithCreation).boxed(),
+        just("Bridge failed to attach. This is not the current bridge version. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeFailedToAttach).boxed(),
+        just("Bridge failed to attach. Something else was using the bridge attachment point. Please try to recreate the bridge.").to(SystemMessage::BridgeFailedToAttachDueToBridgeAttachmentPointInUse).boxed(),
+        just("Bridge failed to attach. Something else was using the bridge attachment point. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeFailedToAttachDueToBridgeAttachmentPointInUse).boxed(),
+        just("Bridge not created. The bridge couldn't be found in inventory. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeNotCreated).boxed(),
+        just("Bridge detached.").to(SystemMessage::BridgeDetached).boxed(),
+    ])
 }
 
 /// parse a system message about a changed script count in the current region
@@ -867,18 +1065,23 @@ pub fn object_not_for_sale_message_parser() -> impl Parser<char, SystemMessage, 
 #[must_use]
 pub fn link_failed_due_to_piece_distance_message_parser(
 ) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Link failed -- Unable to link ").ignore_then(
-        usize_parser()
-            .then_ignore(just(" of the "))
-            .then(usize_parser())
-            .then_ignore(just(" selected pieces - pieces are too far apart."))
-            .map(|(link_failed_pieces, total_selected_pieces)| {
-                SystemMessage::LinkFailedDueToPieceDistance {
-                    link_failed_pieces,
-                    total_selected_pieces,
-                }
-            }),
-    )
+    just("Link failed -- Unable to link any pieces - pieces are too far apart.")
+        .to(SystemMessage::LinkFailedDueToPieceDistance {
+            link_failed_pieces: None,
+            total_selected_pieces: None,
+        })
+        .or(just("Link failed -- Unable to link ").ignore_then(
+            usize_parser()
+                .then_ignore(just(" of the "))
+                .then(usize_parser())
+                .then_ignore(just(" selected pieces - pieces are too far apart."))
+                .map(|(link_failed_pieces, total_selected_pieces)| {
+                    SystemMessage::LinkFailedDueToPieceDistance {
+                        link_failed_pieces: Some(link_failed_pieces),
+                        total_selected_pieces: Some(total_selected_pieces),
+                    }
+                }),
+        ))
 }
 
 /// parse a system message about the failure to rez an object due to a full
@@ -925,6 +1128,30 @@ pub fn rezzing_object_failed_due_to_full_parcel_message_parser(
                 },
             ),
     )
+}
+
+/// parse a system message about the failure to create an object due to a full
+/// region
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn create_object_failed_due_to_full_region_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Unable to create requested object. The region is full.")
+        .to(SystemMessage::CreateObjectFailedDueToFullRegion)
+}
+
+/// parse a system message about the denial of permission to create an object
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_create_object_denied_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You cannot create objects here.  The owner of this land does not allow it.  Use the land tool to see land ownership.").to(SystemMessage::PermissionToCreateObjectDenied)
 }
 
 /// parse a system message about the denial of permission to rez an object
@@ -1025,6 +1252,18 @@ pub fn permission_to_view_notecard_denied_message_parser(
         .to(SystemMessage::PermissionToViewNotecardDenied)
 }
 
+/// parse a system message about the denial of permission to change a shape
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn permission_to_change_shape_denied_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You are not allowed to change this shape.")
+        .to(SystemMessage::PermissionToChangeShapeDenied)
+}
+
 /// parse a system message about the denial of permission to enter a parcel
 ///
 /// # Errors
@@ -1047,6 +1286,16 @@ pub fn permission_to_enter_parcel_denied_due_to_ban_message_parser(
 ) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
     just("Cannot enter parcel, you have been banned.")
         .to(SystemMessage::PermissionToEnterParcelDeniedDueToBan)
+}
+
+/// parse a system message about ejecting an avatar from a parcel
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn avatar_ejected_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Avatar ejected.").to(SystemMessage::EjectedAvatar)
 }
 
 /// parse a system message about being ejected from a parcel
@@ -1412,54 +1661,28 @@ pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Er
 /// TODO:
 /// ... gave you ... (no location URL, quotes,...)
 /// Gave you messages (without nolink tags)
-/// You have offered a calling card to <avatar name>.
-/// You paid secondlife:///app/agent/<agent key>/inspect L$<amount>: <avatar name>
-/// secondlife:///app/agent/<agent key>/inspect paid you L$<amount>: <your avatar name>
+/// An object named [secondlife:///app/objectim/00000000-0000-0000-0000-000000000000/?name=Gift%20from%20Mithlumen&owner=99338959-f536-4719-b91b-21a8bd72a1b0&slurl=The%20Seventh%20Valley%2F129%2F116%2F2500 Gift from Mithlumen] gave you this folder: 'Gift from Mithlumen'
 /// '<object name>', an object owned by '<avatar name>', located in (unknown region) at (unknown position), has been granted permission to: Take Linden dollars (L$) from you.
 /// '<object name>', an object owned by '<avatar name>', located in <region name> at <raw position without any delimiters and apparently missing a space after the comma between y and z>, has been granted permission to: Take Linden dollars (L$) from you.
 /// The message sent to Multi-person chat is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
 /// The message sent to (IM Session Doesn't Exist) is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
 /// The message sent to Conference with <avatar name> is still being processed.
-/// An object named [secondlife:///app/objectim/00000000-0000-0000-0000-000000000000/?name=Gift%20from%20Mithlumen&owner=99338959-f536-4719-b91b-21a8bd72a1b0&slurl=The%20Seventh%20Valley%2F129%2F116%2F2500 Gift from Mithlumen] gave you this folder: 'Gift from Mithlumen'
-/// Draw Distance set to <distance>m.
-/// You have been banned for 178 minutes
-/// Audio from the domain <domain (not url, just a bare domain)> will always be played.
-/// You cannot create objects here.  The owner of this land does not allow it.  Use the land tool to see land ownership.
+/// Audio from the domain <domain (not url, just a bare domain) or IPv4> will always be played.
 /// Always Run enabled.
-/// You are not allowed to change this shape.
 /// You must provide positive values for dice (max 100) and faces (max 1000).
 /// #5 1d6: 3.
 /// Total result for 5d6: 15.
-/// Avatar ejected.
-/// You failed to pay secondlife:///app/agent/<agent key>/inspect L$<amount>.
 /// Texture info for: <object name>
 /// 512x512 opaque on face 0
 /// 1024x1024 alpha on face 0
-/// You paid secondlife:///app/group/<group key>/inspect L$<amount> for a parcel of land.
-/// You have left the group '<group name (with ')>'.
-/// Land has been divided.
-/// Home position set.
 /// Cannot create requested inventory.
 /// Failed to place object at specified location.  Please try again.
-/// Bridge object not found. Can't proceed with creation, exiting.
-/// Bridge failed to attach. Something else was using the bridge attachment point. Please try to recreate the bridge.
-/// Creating the bridge. This might take a few moments, please wait
-/// Unable to create requested object. The region is full.
-/// Initializing World...
-/// Initializing multimedia...
-/// Loading fonts...
-/// Decoding images...
-/// Waiting for region handshake...
-/// Welcome to Advertisement-Free Firestorm
-/// Connecting to region...
-/// Loading world...
-/// Downloading clothing...
-/// Logging in...
-/// Logging in. Firestorm may appear frozen.  Please wait.
-/// This is a test version of Firestorm. If this were an actual release version, a real message of the day would be here. This is only a test.
+/// Unable to load gesture <gesture name>.
 /// You have been added as an estate manager.
 /// Your object 'Bandit IF B' has been returned to your inventory Lost and Found folder from parcel 'Gulf of Moles' at Dague 146, 144 due to parcel auto return.
 /// <avatar name> has declined your call.  You will now be reconnected to Nearby Voice Chat.
+/// Unable to invite users because at least one user is in a different
+/// limited estate than the group.
 ///
 /// broken timestamps: [[year,datetime,slt]/[mthnum,datetime,slt]/[day,datetime,slt] [hour,datetime,slt]:[min,datetime,slt]] (already handled, seems to not be working everywhere?)
 ///
@@ -1471,9 +1694,18 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
     choice([
         snapshot_saved_message_parser().boxed(),
         attachment_saved_message_parser().boxed(),
+        draw_distance_set_message_parser().boxed(),
+        home_position_set_message_parser().boxed(),
+        land_divided_message_parser().boxed(),
+        failed_to_join_land_due_to_region_boundary_message_parser().boxed(),
+        offered_calling_card_message_parser().boxed(),
+        you_paid_for_object_message_parser().boxed(),
+        you_paid_to_create_a_group_message_parser().boxed(),
+        you_paid_to_join_group_message_parser().boxed(),
+        you_paid_for_land_message_parser().boxed(),
+        failed_to_pay_message_parser().boxed(),
         sent_payment_message_parser().boxed(),
         received_payment_message_parser().boxed(),
-        you_paid_to_join_group_message_parser().boxed(),
         group_membership_message_parser().boxed(),
         unable_to_invite_user_due_to_missing_group_membership_message_parser().boxed(),
         unable_to_load_notecard_message_parser().boxed(),
@@ -1495,6 +1727,8 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         object_not_for_sale_message_parser().boxed(),
         link_failed_due_to_piece_distance_message_parser().boxed(),
         rezzing_object_failed_due_to_full_parcel_message_parser().boxed(),
+        create_object_failed_due_to_full_region_message_parser().boxed(),
+        permission_to_create_object_denied_message_parser().boxed(),
         permission_to_rez_object_denied_message_parser().boxed(),
         permission_to_reposition_denied_message_parser().boxed(),
         permission_to_rotate_denied_message_parser().boxed(),
@@ -1503,8 +1737,10 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
             .boxed(),
         permission_to_view_script_denied_message_parser().boxed(),
         permission_to_view_notecard_denied_message_parser().boxed(),
+        permission_to_change_shape_denied_message_parser().boxed(),
         permission_to_enter_parcel_denied_message_parser().boxed(),
         permission_to_enter_parcel_denied_due_to_ban_message_parser().boxed(),
+        avatar_ejected_message_parser().boxed(),
         ejected_from_parcel_message_parser().boxed(),
         banned_from_parcel_message_parser().boxed(),
         only_group_members_can_visit_this_area_message_parser().boxed(),
@@ -1536,7 +1772,7 @@ mod test {
     #[test]
     fn test_teleport_completed() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
-            Ok(SystemMessage::TeleportCompletedMessage {
+            Ok(SystemMessage::TeleportCompleted {
                 origin: sl_types::map::UnconstrainedLocation {
                     region_name: sl_types::map::RegionName::try_new("Fudo")?,
                     x: 30,
@@ -1554,7 +1790,7 @@ mod test {
     #[test]
     fn test_teleport_completed_extra_short() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
-            Ok(SystemMessage::TeleportCompletedMessage {
+            Ok(SystemMessage::TeleportCompleted {
                 origin: sl_types::map::UnconstrainedLocation {
                     region_name: sl_types::map::RegionName::try_new("AA")?,
                     x: 78,

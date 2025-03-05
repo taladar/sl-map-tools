@@ -1,7 +1,7 @@
 //! Avatar related messages (those sent by an avatar as well as some system messages about an avatar like coming online or entering chat range)
 
 use chumsky::error::Simple;
-use chumsky::prelude::{any, just};
+use chumsky::prelude::{any, choice, just};
 use chumsky::Parser;
 
 /// represents a Second Life avatar related message
@@ -134,8 +134,12 @@ pub(crate) fn avatar_left_area_message_parser(
 ///
 /// returns an error if the parser fails
 pub fn avatar_message_parser() -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
-    avatar_came_online_message_parser().or(avatar_went_offline_message_parser().or(
-        avatar_entered_area_message_parser().or(avatar_left_area_message_parser()
-            .or(avatar_emote_message_parser().or(avatar_chat_message_parser()))),
-    ))
+    choice([
+        avatar_came_online_message_parser().boxed(),
+        avatar_went_offline_message_parser().boxed(),
+        avatar_entered_area_message_parser().boxed(),
+        avatar_left_area_message_parser().boxed(),
+        avatar_emote_message_parser().boxed(),
+        avatar_chat_message_parser().boxed(),
+    ])
 }

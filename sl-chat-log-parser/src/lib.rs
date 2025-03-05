@@ -364,6 +364,73 @@ mod test {
                                         }
                                     }
                                 }
+                                if message.starts_with("Bridge") {
+                                    if let Err(e) = system_messages::bridge_message_parser()
+                                        .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description: "bridge message".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
+                                        }
+                                    }
+                                }
+
+                                if message.starts_with("You paid") {
+                                    if let Err(e) = system_messages::sent_payment_message_parser()
+                                        .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description: "sent payment".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
+                                        }
+                                    }
+                                }
+                                if message.starts_with("You have offered a calling card") {
+                                    if let Err(e) =
+                                        system_messages::offered_calling_card_message_parser()
+                                            .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description: "offered calling card".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
+                                        }
+                                    }
+                                }
+                                if message.starts_with("Draw Distance set") {
+                                    if let Err(e) =
+                                        system_messages::draw_distance_set_message_parser()
+                                            .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description: "draw distance set".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

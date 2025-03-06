@@ -431,6 +431,23 @@ mod test {
                                         }
                                     }
                                 }
+                                if message.starts_with("Your object") {
+                                    if let Err(e) =
+                                        system_messages::your_object_has_been_returned_message_parser()
+                                            .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description: "your object has been returned".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

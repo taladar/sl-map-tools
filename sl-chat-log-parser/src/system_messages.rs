@@ -111,8 +111,16 @@ pub enum SystemMessage {
     /// message that you are unable to invite a user to a group because you
     /// are not in the group
     UnableToInviteUserDueToMissingGroupMembership,
+    /// message that you are unable to invite a user to a group because the
+    /// user is in a different limited estate than the group
+    UnableToInviteUserToGroupDueToDifferingLimitedEstate,
     /// message that loading a notecard failed
     UnableToLoadNotecard,
+    /// message that loading a gesture failed
+    UnableToLoadGesture {
+        /// name of the gesture that could not be loaded
+        gesture_name: String,
+    },
     /// message about a song playing on stream
     NowPlaying {
         /// the song name
@@ -182,6 +190,13 @@ pub enum SystemMessage {
         /// whether this event enables or disables double-click teleports
         enabled: bool,
     },
+    /// message about enabling or disabling always run
+    AlwaysRun {
+        /// whether this event enables or disables always run
+        enabled: bool,
+    },
+    /// message about being added as an estate manager
+    AddedAsEstateManager,
     /// message that the bridge creation started
     CreatingBridge,
     /// message that the bridge was created
@@ -200,6 +215,8 @@ pub enum SystemMessage {
     BridgeDetached,
     /// message that the bridge object was not found and the creation was aborted
     BridgeObjectNotFoundCantProceedWithCreation,
+    /// failed to place object at specified location, please try again
+    FailedToPlaceObjectAtSpecifiedLocation,
     /// script count changed
     ScriptCountChanged {
         /// script count before
@@ -214,8 +231,20 @@ pub enum SystemMessage {
         /// the name of the group
         group_name: String,
     },
+    /// avatar has declined voice call
+    AvatarDeclinedVoice {
+        /// the avatar who declined our voice call
+        avatar_name: String,
+    },
+    /// audio from a specific domain will always be played (on the audio stream)
+    AudioFromDomainWillAlwaysBePlayed {
+        /// the domain whose audio will always be played
+        domain: String,
+    },
     /// the object is not for sale
     ObjectNotForSale,
+    /// cannot created requested inventory
+    CanNotCreateRequestedInventory,
     /// link failed because pieces being too far apart
     LinkFailedDueToPieceDistance {
         /// link failed for this many pieces
@@ -236,6 +265,17 @@ pub enum SystemMessage {
     },
     /// creating an object failed because the region is full
     CreateObjectFailedDueToFullRegion,
+    /// your object has been returned to your inventory Lost and Found folder
+    YourObjectHasBeenReturned {
+        /// name of the returned object
+        object_name: String,
+        /// from parcel name
+        parcel_name: String,
+        /// at location
+        location: sl_types::map::UnconstrainedLocation,
+        /// due to parcel auto return?
+        auto_return: bool,
+    },
     /// permission to create an object denied
     PermissionToCreateObjectDenied,
     /// permission to rez an object denied
@@ -680,6 +720,21 @@ pub fn unable_to_invite_user_due_to_missing_group_membership_message_parser(
         .to(SystemMessage::UnableToInviteUserDueToMissingGroupMembership)
 }
 
+/// parse a system message about the inability to invite a user to a group
+/// due to a difference in limited estate between user and group
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn unable_to_invite_user_due_to_differing_limited_estate_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Unable to invite users because at least one user is in a different")
+        .ignore_then(newline())
+        .ignore_then(just(" limited estate than the group."))
+        .to(SystemMessage::UnableToInviteUserToGroupDueToDifferingLimitedEstate)
+}
+
 /// parse a system message about the inability to load a notecard
 ///
 /// # Errors
@@ -693,6 +748,21 @@ pub fn unable_to_load_notecard_message_parser(
         .then_ignore(whitespace())
         .then(just("Please try again."))
         .to(SystemMessage::UnableToLoadNotecard)
+}
+
+/// parse a system message about the inability to load a gesture
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn unable_to_load_gesture_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Unable to load gesture ")
+        .ignore_then(
+            take_until(just('.').then(end())).map(|(vc, _)| vc.into_iter().collect::<String>()),
+        )
+        .map(|gesture_name| SystemMessage::UnableToLoadGesture { gesture_name })
 }
 
 /// parse a system message about a completed teleport
@@ -930,6 +1000,29 @@ pub fn doubleclick_teleport_message_parser(
             .to(SystemMessage::DoubleClickTeleport { enabled: false }))
 }
 
+/// parse a system message about enabling or disabling of always run
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn always_run_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Always Run enabled.")
+        .to(SystemMessage::AlwaysRun { enabled: true })
+        .or(just("Always Run disabled.").to(SystemMessage::AlwaysRun { enabled: false }))
+}
+
+/// parse a system message about being added as an estate manager
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn added_as_estate_manager_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("You have been added as an estate manager.").to(SystemMessage::AddedAsEstateManager)
+}
+
 /// parse a system message about the LSL viewer bridge
 ///
 /// # Errors
@@ -949,6 +1042,19 @@ pub fn bridge_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         just("Bridge not created. The bridge couldn't be found in inventory. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeNotCreated).boxed(),
         just("Bridge detached.").to(SystemMessage::BridgeDetached).boxed(),
     ])
+}
+
+/// parse a system message about a failure to place an object a a specified
+/// location
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn failed_to_place_object_at_specified_location_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Failed to place object at specified location.  Please try again.")
+        .to(SystemMessage::FailedToPlaceObjectAtSpecifiedLocation)
 }
 
 /// parse a system message about a changed script count in the current region
@@ -1046,6 +1152,37 @@ pub fn group_chat_message_still_being_processed_message_parser(
         })
 }
 
+/// parse a system message about an avatar declining a voice call
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn avatar_declined_voice_call_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    take_until(just(
+        "has declined your call.  You will now be reconnected to Nearby Voice Chat.",
+    ))
+    .map(|(vc, _)| SystemMessage::AvatarDeclinedVoice {
+        avatar_name: vc.into_iter().collect::<String>(),
+    })
+}
+
+/// parse a system message about audio from a domain always being played
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn audio_from_domain_will_always_be_played_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Audio from the domain ").ignore_then(take_until(just(" will always be played.")).map(
+        |(vc, _)| SystemMessage::AudioFromDomainWillAlwaysBePlayed {
+            domain: vc.into_iter().collect::<String>(),
+        },
+    ))
+}
+
 /// parse a system message about an object not being for sale
 ///
 /// # Errors
@@ -1055,6 +1192,17 @@ pub fn group_chat_message_still_being_processed_message_parser(
 pub fn object_not_for_sale_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
 {
     just("This object is not for sale.").to(SystemMessage::ObjectNotForSale)
+}
+
+/// parse a system message cannot create requested inventory
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn can_not_create_requested_inventory_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Cannot create requested inventory.").to(SystemMessage::CanNotCreateRequestedInventory)
 }
 
 /// parse a system message about a failed link due to piece distance
@@ -1141,6 +1289,44 @@ pub fn create_object_failed_due_to_full_region_message_parser(
 ) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
     just("Unable to create requested object. The region is full.")
         .to(SystemMessage::CreateObjectFailedDueToFullRegion)
+}
+
+/// parse a system message about an object being returned to your inventory
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn your_object_has_been_returned_message_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just("Your object '")
+        .ignore_then(
+            take_until(just(
+                "' has been returned to your inventory Lost and Found folder from parcel '",
+            ))
+            .map(|(vc, _)| vc.into_iter().collect::<String>()),
+        )
+        .then(take_until(just("' at ")).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .then(sl_types::map::region_name_parser())
+        .then_ignore(whitespace())
+        .then(sl_types::utils::i16_parser())
+        .then_ignore(just(", "))
+        .then(sl_types::utils::i16_parser())
+        .then(
+            just(" due to parcel auto return.")
+                .to(true)
+                .or(just('.').to(false)),
+        )
+        .map(
+            |(((((object_name, parcel_name), region_name), x), y), auto_return)| {
+                SystemMessage::YourObjectHasBeenReturned {
+                    object_name,
+                    parcel_name,
+                    location: sl_types::map::UnconstrainedLocation::new(region_name, x, y, 0),
+                    auto_return,
+                }
+            },
+        )
 }
 
 /// parse a system message about the denial of permission to create an object
@@ -1667,22 +1853,12 @@ pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Er
 /// The message sent to Multi-person chat is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
 /// The message sent to (IM Session Doesn't Exist) is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
 /// The message sent to Conference with <avatar name> is still being processed.
-/// Audio from the domain <domain (not url, just a bare domain) or IPv4> will always be played.
-/// Always Run enabled.
 /// You must provide positive values for dice (max 100) and faces (max 1000).
 /// #5 1d6: 3.
 /// Total result for 5d6: 15.
 /// Texture info for: <object name>
 /// 512x512 opaque on face 0
 /// 1024x1024 alpha on face 0
-/// Cannot create requested inventory.
-/// Failed to place object at specified location.  Please try again.
-/// Unable to load gesture <gesture name>.
-/// You have been added as an estate manager.
-/// Your object 'Bandit IF B' has been returned to your inventory Lost and Found folder from parcel 'Gulf of Moles' at Dague 146, 144 due to parcel auto return.
-/// <avatar name> has declined your call.  You will now be reconnected to Nearby Voice Chat.
-/// Unable to invite users because at least one user is in a different
-/// limited estate than the group.
 ///
 /// broken timestamps: [[year,datetime,slt]/[mthnum,datetime,slt]/[day,datetime,slt] [hour,datetime,slt]:[min,datetime,slt]] (already handled, seems to not be working everywhere?)
 ///
@@ -1708,7 +1884,9 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         received_payment_message_parser().boxed(),
         group_membership_message_parser().boxed(),
         unable_to_invite_user_due_to_missing_group_membership_message_parser().boxed(),
+        unable_to_invite_user_due_to_differing_limited_estate_message_parser().boxed(),
         unable_to_load_notecard_message_parser().boxed(),
+        unable_to_load_gesture_message_parser().boxed(),
         teleport_completed_message_parser().boxed(),
         now_playing_message_parser().boxed(),
         region_restart_message_parser().boxed(),
@@ -1721,13 +1899,20 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         simulator_version_message_parser().boxed(),
         renamed_avatar_message_parser().boxed(),
         doubleclick_teleport_message_parser().boxed(),
+        always_run_message_parser().boxed(),
+        added_as_estate_manager_message_parser().boxed(),
         bridge_message_parser().boxed(),
+        failed_to_place_object_at_specified_location_message_parser().boxed(),
         region_script_count_change_message_parser().boxed(),
         group_chat_message_still_being_processed_message_parser().boxed(),
+        avatar_declined_voice_call_message_parser().boxed(),
+        audio_from_domain_will_always_be_played_message_parser().boxed(),
         object_not_for_sale_message_parser().boxed(),
+        can_not_create_requested_inventory_message_parser().boxed(),
         link_failed_due_to_piece_distance_message_parser().boxed(),
         rezzing_object_failed_due_to_full_parcel_message_parser().boxed(),
         create_object_failed_due_to_full_region_message_parser().boxed(),
+        your_object_has_been_returned_message_parser().boxed(),
         permission_to_create_object_denied_message_parser().boxed(),
         permission_to_rez_object_denied_message_parser().boxed(),
         permission_to_reposition_denied_message_parser().boxed(),

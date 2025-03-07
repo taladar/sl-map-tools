@@ -133,6 +133,7 @@ pub(crate) fn avatar_left_area_message_parser(
 /// # Errors
 ///
 /// returns an error if the parser fails
+#[must_use]
 pub fn avatar_message_parser() -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
     choice([
         avatar_came_online_message_parser().boxed(),

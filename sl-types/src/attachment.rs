@@ -107,24 +107,25 @@ pub enum AvatarAttachmentPoint {
 
 impl AvatarAttachmentPoint {
     /// returns true if the attachment point requires Bento
+    #[must_use]
     pub fn requires_bento(&self) -> bool {
-        match self {
-            AvatarAttachmentPoint::Tongue => true,
-            AvatarAttachmentPoint::AltLeftEar => true,
-            AvatarAttachmentPoint::AltRightEar => true,
-            AvatarAttachmentPoint::AltLeftEye => true,
-            AvatarAttachmentPoint::AltRightEye => true,
-            AvatarAttachmentPoint::LeftRingFinger => true,
-            AvatarAttachmentPoint::RightRingFinger => true,
-            AvatarAttachmentPoint::LeftWing => true,
-            AvatarAttachmentPoint::RightWing => true,
-            AvatarAttachmentPoint::TailBase => true,
-            AvatarAttachmentPoint::TailTip => true,
-            AvatarAttachmentPoint::Groin => true,
-            AvatarAttachmentPoint::LeftHindFoot => true,
-            AvatarAttachmentPoint::RightHindFoot => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            AvatarAttachmentPoint::Tongue
+                | AvatarAttachmentPoint::AltLeftEar
+                | AvatarAttachmentPoint::AltRightEar
+                | AvatarAttachmentPoint::AltLeftEye
+                | AvatarAttachmentPoint::AltRightEye
+                | AvatarAttachmentPoint::LeftRingFinger
+                | AvatarAttachmentPoint::RightRingFinger
+                | AvatarAttachmentPoint::LeftWing
+                | AvatarAttachmentPoint::RightWing
+                | AvatarAttachmentPoint::TailBase
+                | AvatarAttachmentPoint::TailTip
+                | AvatarAttachmentPoint::Groin
+                | AvatarAttachmentPoint::LeftHindFoot
+                | AvatarAttachmentPoint::RightHindFoot
+        )
     }
 }
 
@@ -692,16 +693,13 @@ impl AttachmentPoint {
     /// converts the numeric enum discriminant used in the LSL (and presumably
     /// C++) code for the attachment point into the respective enum variant
     ///
-    /// https://wiki.secondlife.com/wiki/Category:LSL_Attachment
+    /// <https://wiki.secondlife.com/wiki/Category:LSL_Attachment>
     ///
+    #[must_use]
     pub fn from_repr(repr: usize) -> Option<AttachmentPoint> {
-        if let Some(avatar_attachment_point) = AvatarAttachmentPoint::from_repr(repr) {
-            Some(Self::Avatar(avatar_attachment_point))
-        } else if let Some(hud_attachment_point) = HudAttachmentPoint::from_repr(repr) {
-            Some(Self::Hud(hud_attachment_point))
-        } else {
-            None
-        }
+        AvatarAttachmentPoint::from_repr(repr)
+            .map(Self::Avatar)
+            .or_else(|| HudAttachmentPoint::from_repr(repr).map(Self::Hud))
     }
 }
 

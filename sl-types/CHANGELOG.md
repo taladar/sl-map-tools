@@ -1,3 +1,8 @@
+## 0.1.6
+
+update dependencies
+add a lot of new types for other areas of SL related types besides maps
+
 ## 0.1.5
 
 update dependencies

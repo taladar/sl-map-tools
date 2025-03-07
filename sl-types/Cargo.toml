@@ -3,12 +3,12 @@ name = "sl-types"
 description = "Some basic types for Second Life related tools"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2021"
 repository = "https://github.com/taladar/sl-map-tools"
 keywords = ["secondlife", "map", "route", "usb_notecard"]
-categories = ["science::geo"]
+categories = ["science::geo", "parser-implementations"]
 
 exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -18,13 +18,13 @@ chumsky = ["dep:chumsky"]
 
 [dependencies]
 chumsky = { version = "0.9.3", optional = true }
-nutype = { version = "0.5.1", features = ["serde"] }
+nutype = { version = "0.6.1", features = ["serde"] }
 percent-encoding = "2.3.1"
 ranges = "0.4.0"
-serde = { version = "1.0.217", features = ["derive"] }
+serde = { version = "1.0.218", features = ["derive"] }
 strum = { version = "0.27.1", features = ["derive"] }
-thiserror = "2.0.11"
-uuid = "1.13.1"
+thiserror = "2.0.12"
+uuid = "1.15.1"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

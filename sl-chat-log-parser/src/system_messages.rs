@@ -1090,8 +1090,6 @@ pub fn declined_given_object_message_parser(
         )
 }
 
-/// You decline '<object name>' ( http://slurl.com/secondlife/<location> ) from <giving object name>.
-
 /// parse a system message asking to select residents to share with
 ///
 /// # Errors

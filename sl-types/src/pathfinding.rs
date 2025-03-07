@@ -5,7 +5,7 @@ use chumsky::{prelude::Simple, Parser};
 
 /// Pathfinding types
 ///
-/// see https://wiki.secondlife.com/wiki/Category:LSL_Pathfinding_Types
+/// see <https://wiki.secondlife.com/wiki/Category:LSL_Pathfinding_Types>
 #[derive(Debug, Clone, Hash, PartialEq, Eq, strum::FromRepr, strum::EnumIs)]
 #[repr(i8)]
 pub enum PathfindingType {

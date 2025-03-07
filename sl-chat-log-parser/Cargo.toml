@@ -6,15 +6,17 @@ license = "MIT OR Apache-2.0"
 version = "0.1.0"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2021"
-publish = false
+repository = "https://github.com/taladar/sl-map-tools"
+keywords = ["secondlife"]
+categories = ["parser-implementations"]
 
 exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 
 [dependencies]
 bytesize = "2.0.1"
 chumsky = "0.9.3"
-sl-types = { version = "0.1.5", path = "../sl-types", features = ["chumsky"] }
-time = { version = "0.3.37", features = ["formatting", "macros", "parsing"] }
+sl-types = { version = "0.1.6", path = "../sl-types", features = ["chumsky"] }
+time = { version = "0.3.39", features = ["formatting", "macros", "parsing"] }
 
 [dev-dependencies]
 ariadne = { version = "0.5.0", features = ["auto-color"] }
@@ -24,8 +26,8 @@ envy = "0.4.2"
 pretty_assertions = "1.4.1"
 serde = { version = "1.0.218", features = ["derive"] }
 serde-aux = { version = "4.6.0", default-features = false }
-thiserror = "2.0.11"
-tokio = { version = "1.43.0", features = ["full"] }
+thiserror = "2.0.12"
+tokio = { version = "1.44.0", features = ["full"] }
 tracing = "0.1.41"
 tracing-test = "0.2.5"
 

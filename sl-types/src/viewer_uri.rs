@@ -1,6 +1,6 @@
 //! Viewer URI related types
 //!
-//! see https://wiki.secondlife.com/wiki/Viewer_URI_Name_Space
+//! see <https://wiki.secondlife.com/wiki/Viewer_URI_Name_Space>
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
@@ -307,12 +307,9 @@ pub enum ViewerUri {
 impl ViewerUri {
     /// this returns whether the given ViewerUri can only be called from internal
     /// browsers/chat/... or if external programs (like browsers) can use them too
+    #[must_use]
     pub fn internal_only(&self) -> bool {
-        match self {
-            ViewerUri::Location(_) => false,
-            ViewerUri::Login { .. } => false,
-            _ => true,
-        }
+        matches!(self, ViewerUri::Location(_) | ViewerUri::Login { .. })
     }
 }
 

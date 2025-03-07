@@ -203,7 +203,7 @@ pub fn distance_parser() -> impl Parser<char, Distance, Error = Simple<char>> {
     crate::utils::unsigned_f64_parser()
         .then_ignore(whitespace().or_not())
         .then_ignore(just('m'))
-        .map(|distance| Distance(distance))
+        .map(Distance)
 }
 
 /// Grid coordinates for the position of a region on the map

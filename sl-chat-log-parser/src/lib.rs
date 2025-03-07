@@ -17,12 +17,12 @@ pub enum ChatLogEvent {
         /// name of the avatar or object
         name: String,
         /// message
-        message: crate::avatar_messages::AvatarMessage,
+        message: Box<crate::avatar_messages::AvatarMessage>,
     },
     /// a message by the Second Life viewer or server itself
     SystemMessage {
         /// the system message
-        message: crate::system_messages::SystemMessage,
+        message: Box<crate::system_messages::SystemMessage>,
     },
     /// a message without a colon, most likely an unnamed object like a translator, spanker, etc.
     OtherMessage {
@@ -36,6 +36,7 @@ pub enum ChatLogEvent {
 /// # Errors
 ///
 /// returns an error if the parser fails
+#[must_use]
 pub fn avatar_name_parser() -> impl Parser<char, String, Error = Simple<char>> {
     none_of(":")
         .repeated()
@@ -48,6 +49,7 @@ pub fn avatar_name_parser() -> impl Parser<char, String, Error = Simple<char>> {
 /// # Errors
 ///
 /// returns an error if the parser fails
+#[must_use]
 fn chat_log_event_parser() -> impl Parser<char, ChatLogEvent, Error = Simple<char>> {
     just("Second Life: ")
         .ignore_then(
@@ -61,17 +63,23 @@ fn chat_log_event_parser() -> impl Parser<char, ChatLogEvent, Error = Simple<cha
             .map(|(vc, msg)| (vc.into_iter().collect::<String>(), msg))
             .map(|(name, message)| ChatLogEvent::AvatarLine {
                 name: name.strip_suffix(" ").unwrap_or(&name).to_owned(),
-                message,
+                message: Box::new(message),
             }),
         )
-        .or(just("Second Life: ").ignore_then(
-            crate::system_messages::system_message_parser()
-                .map(|message| ChatLogEvent::SystemMessage { message }),
-        ))
+        .or(
+            just("Second Life: ").ignore_then(crate::system_messages::system_message_parser().map(
+                |message| ChatLogEvent::SystemMessage {
+                    message: Box::new(message),
+                },
+            )),
+        )
         .or(avatar_name_parser()
             .then_ignore(just(":").then(whitespace()))
             .then(crate::avatar_messages::avatar_message_parser())
-            .map(|(name, message)| ChatLogEvent::AvatarLine { name, message }))
+            .map(|(name, message)| ChatLogEvent::AvatarLine {
+                name,
+                message: Box::new(message),
+            }))
         .or(any()
             .repeated()
             .collect::<String>()
@@ -92,6 +100,7 @@ pub struct ChatLogLine {
 /// # Errors
 ///
 /// returns an error if the parser fails
+#[must_use]
 pub fn chat_log_line_parser() -> impl Parser<char, ChatLogLine, Error = Simple<char>> {
     just("[")
         .ignore_then(

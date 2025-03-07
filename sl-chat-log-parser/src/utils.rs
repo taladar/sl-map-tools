@@ -69,9 +69,9 @@ pub fn offset_datetime_parser() -> impl Parser<char, time::OffsetDateTime, Error
                 let format = time::macros::format_description!(
                     "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z"
                 );
-                Ok(time::PrimitiveDateTime::parse(&input, format)
+                time::PrimitiveDateTime::parse(&input, format)
                     .map(time::PrimitiveDateTime::assume_utc)
-                    .map_err(|e| Simple::custom(span, format!("{:?}", e)))?)
+                    .map_err(|e| Simple::custom(span, format!("{:?}", e)))
             },
         )
 }

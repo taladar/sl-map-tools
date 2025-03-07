@@ -34,7 +34,7 @@ pub enum Error {
     RateLimiterError(#[from] ratelimit::Error),
     /// error in map tile cache
     #[error("error in map tile cache: {0}")]
-    MapTileCacheError(#[from] MapTileCacheError),
+    MapTileCacheError(#[from] Box<MapTileCacheError>),
     /// error in map generation
     #[error("error in map generation: {0}")]
     MapError(#[from] MapError),

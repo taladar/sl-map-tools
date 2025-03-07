@@ -268,7 +268,7 @@ pub enum ViewerUri {
     },
     /// track a friend with the permission on the world map
     MapTrackAvatar(crate::key::FriendKey),
-    /// display an info disalog for the object sending this message
+    /// display an info dialog for the object sending this message
     ObjectInstantMessage {
         /// key of the object
         object_key: crate::key::ObjectKey,
@@ -628,7 +628,7 @@ impl std::fmt::Display for ViewerUri {
             } => {
                 write!(
                     f,
-                    "secondlife::///app/objectim/{}?object_name={}&{}&slurl={}/{}/{}/{}",
+                    "secondlife::///app/objectim/{}/?object_name={}&{}&slurl={}/{}/{}/{}",
                     object_key,
                     percent_encoding::percent_encode(
                         object_name.as_bytes(),
@@ -1044,17 +1044,18 @@ pub fn viewer_app_maptrackavatar_uri_parser() -> impl Parser<char, ViewerUri, Er
 pub fn viewer_app_objectim_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
     just("secondlife:///app/objectim/")
         .ignore_then(crate::key::object_key_parser())
+        .then_ignore(just('/').or_not())
         .then(just("?name=").ignore_then(url_text_component_parser()))
         .then(
-            just("?owner=")
+            just("&owner=")
                 .ignore_then(crate::key::group_key_parser())
-                .then_ignore(just("?groupowned=true"))
+                .then_ignore(just("&groupowned=true"))
                 .map(crate::key::OwnerKey::Group)
-                .or(just("?owner=")
+                .or(just("&owner=")
                     .ignore_then(crate::key::agent_key_parser())
                     .map(crate::key::OwnerKey::Agent)),
         )
-        .then(just("&slurl=").ignore_then(crate::map::location_parser()))
+        .then(just("&slurl=").ignore_then(crate::map::url_encoded_location_parser()))
         .map(
             |(((object_key, object_name), owner), location)| ViewerUri::ObjectInstantMessage {
                 object_key,
@@ -1128,7 +1129,7 @@ pub fn viewer_app_sharewithavatar_uri_parser() -> impl Parser<char, ViewerUri, E
 #[must_use]
 pub fn viewer_app_teleport_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
     just("secondlife:///app/teleport/")
-        .ignore_then(crate::map::location_parser().map(ViewerUri::Teleport))
+        .ignore_then(crate::map::url_location_parser().map(ViewerUri::Teleport))
 }
 
 /// parse a viewer app voicecallavatar URI
@@ -1171,7 +1172,7 @@ pub fn viewer_app_wear_folder_uri_parser() -> impl Parser<char, ViewerUri, Error
 #[must_use]
 pub fn viewer_app_worldmap_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
     just("secondlife:///app/worldmap/")
-        .ignore_then(crate::map::location_parser().map(ViewerUri::WorldMap))
+        .ignore_then(crate::map::url_location_parser().map(ViewerUri::WorldMap))
 }
 
 /// parse a viewer app URI
@@ -1215,7 +1216,7 @@ pub fn viewer_app_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<ch
 #[must_use]
 pub fn viewer_location_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
     just("secondlife:///")
-        .ignore_then(crate::map::location_parser())
+        .ignore_then(crate::map::url_location_parser())
         .map(ViewerUri::Location)
 }
 

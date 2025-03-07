@@ -692,7 +692,7 @@ pub struct Location {
     pub z: u16,
 }
 
-/// parse a string into a Location
+/// parse a string into a Location where no component is url-encoded
 ///
 /// # Errors
 ///
@@ -700,6 +700,25 @@ pub struct Location {
 #[cfg(feature = "chumsky")]
 #[must_use]
 pub fn location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
+    region_name_parser()
+        .then_ignore(just('/'))
+        .then(u8_parser())
+        .then_ignore(just('/'))
+        .then(u8_parser())
+        .then_ignore(just('/'))
+        .then(u16_parser())
+        .map(|(((region_name, x), y), z)| Location::new(region_name, x, y, z))
+}
+
+/// parse a string into a Location where the region name is url encoded
+/// but each component of the location is separated by an actual slash
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn url_location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
     url_region_name_parser()
         .then_ignore(just('/'))
         .then(u8_parser())
@@ -708,6 +727,25 @@ pub fn location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
         .then_ignore(just('/'))
         .then(u16_parser())
         .map(|(((region_name, x), y), z)| Location::new(region_name, x, y, z))
+}
+
+/// parse a string into a Location from a URL-encoded location (the slashes in
+/// particular)
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn url_encoded_location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
+    url_text_component_parser().try_map(|s, span| {
+        location_parser().parse(s.clone()).map_err(|err| {
+            Simple::custom(
+                span,
+                format!("Parsing {} as location failed with: {:#?}", s, err),
+            )
+        })
+    })
 }
 
 /// the possible errors that can occur when parsing a String to a `Location`
@@ -917,7 +955,7 @@ impl UnconstrainedLocation {
     }
 }
 
-/// parse a string into an UnconstrainedLocation
+/// parse a string into an UnconstrainedLocation where nothing is urlencoded
 ///
 /// # Errors
 ///
@@ -925,6 +963,46 @@ impl UnconstrainedLocation {
 #[cfg(feature = "chumsky")]
 #[must_use]
 pub fn unconstrained_location_parser(
+) -> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
+    region_name_parser()
+        .then_ignore(just('/'))
+        .then(i16_parser())
+        .then_ignore(just('/'))
+        .then(i16_parser())
+        .then_ignore(just('/'))
+        .then(i32_parser())
+        .map(|(((region_name, x), y), z)| UnconstrainedLocation::new(region_name, x, y, z))
+}
+
+/// parse a string into an UnconstrainedLocation where the region is urlencoded
+/// but the components are separated by actual slashes
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn url_unconstrained_location_parser(
+) -> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
+    url_region_name_parser()
+        .then_ignore(just('/'))
+        .then(i16_parser())
+        .then_ignore(just('/'))
+        .then(i16_parser())
+        .then_ignore(just('/'))
+        .then(i32_parser())
+        .map(|(((region_name, x), y), z)| UnconstrainedLocation::new(region_name, x, y, z))
+}
+
+/// parse a string into an UnconstrainedLocation where the entire location is
+/// urlencoded with urlencoded slashes
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn urlencoded_unconstrained_location_parser(
 ) -> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
     url_region_name_parser()
         .then_ignore(just('/'))
@@ -946,6 +1024,17 @@ impl TryFrom<UnconstrainedLocation> for Location {
             value.y.try_into()?,
             value.z.try_into()?,
         ))
+    }
+}
+
+impl From<Location> for UnconstrainedLocation {
+    fn from(value: Location) -> Self {
+        UnconstrainedLocation {
+            region_name: value.region_name,
+            x: value.x.into(),
+            y: value.y.into(),
+            z: value.z.into(),
+        }
     }
 }
 
@@ -1458,10 +1547,10 @@ mod test {
 
     #[cfg(feature = "chumsky")]
     #[test]
-    fn test_location_parser_no_whitespace() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_url_location_parser_no_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Viterbo";
         assert_eq!(
-            location_parser().parse(format!("{}/1/2/300", region_name)),
+            url_location_parser().parse(format!("{}/1/2/300", region_name)),
             Ok(Location {
                 region_name: RegionName::try_new(region_name)?,
                 x: 1,
@@ -1474,10 +1563,10 @@ mod test {
 
     #[cfg(feature = "chumsky")]
     #[test]
-    fn test_location_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_url_location_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Da Boom";
         assert_eq!(
-            location_parser().parse(format!("{}/1/2/300", region_name.replace(" ", "%20"))),
+            url_location_parser().parse(format!("{}/1/2/300", region_name.replace(" ", "%20"))),
             Ok(Location {
                 region_name: RegionName::try_new(region_name)?,
                 x: 1,
@@ -1490,11 +1579,11 @@ mod test {
 
     #[cfg(feature = "chumsky")]
     #[test]
-    fn test_location_parser_url_whitespace_single_digit_after_space(
+    fn test_url_location_parser_url_whitespace_single_digit_after_space(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Foo Bar 3";
         assert_eq!(
-            location_parser().parse(format!("{}/1/2/300", region_name.replace(" ", "%20"))),
+            url_location_parser().parse(format!("{}/1/2/300", region_name.replace(" ", "%20"))),
             Ok(Location {
                 region_name: RegionName::try_new(region_name)?,
                 x: 1,

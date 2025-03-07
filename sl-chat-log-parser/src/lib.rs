@@ -264,7 +264,7 @@ mod test {
                                 tracing::info!("parsed line\n{}\n{:?}", ll, parsed_line);
                                 if message.starts_with("The message sent to") {
                                     if let Err(e) =
-                                        system_messages::group_chat_message_still_being_processed_message_parser()
+                                        system_messages::chat_message_still_being_processed_message_parser()
                                             .parse(message.to_string())
                                     {
                                         for e in e {
@@ -286,6 +286,27 @@ mod test {
                                                 "{}",
                                                 utils::ChumskyError {
                                                     description: "owned by gave you".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
+                                        }
+                                    }
+                                }
+                                if message.contains("An object named")
+                                    && message.contains("gave you this folder")
+                                {
+                                    if let Err(e) =
+                                        system_messages::object_gave_folder_message_parser()
+                                            .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description:
+                                                        "An object named ... gave you this folder"
+                                                            .to_string(),
                                                     source: message.to_owned(),
                                                     errors: vec![e.to_owned()],
                                                 }
@@ -397,6 +418,22 @@ mod test {
                                         }
                                     }
                                 }
+                                if message.contains("Take Linden dollars") {
+                                    if let Err(e) = system_messages::object_granted_permission_to_take_money_parser()
+                                        .parse(message.to_string())
+                                    {
+                                        for e in e {
+                                            tracing::debug!(
+                                                "{}",
+                                                utils::ChumskyError {
+                                                    description: "object granted permission to take money".to_string(),
+                                                    source: message.to_owned(),
+                                                    errors: vec![e.to_owned()],
+                                                }
+                                            );
+                                        }
+                                    }
+                                }
                                 if message.starts_with("You have offered a calling card") {
                                     if let Err(e) =
                                         system_messages::offered_calling_card_message_parser()
@@ -455,7 +492,8 @@ mod test {
                 last_line = Some(line);
             }
         }
-        panic!();
-        //Ok(())
+        // enable to see output during development, both to identity unhandled messages and to see parse errors above
+        //panic!();
+        Ok(())
     }
 }

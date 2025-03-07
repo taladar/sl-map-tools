@@ -83,6 +83,17 @@ pub enum SystemMessage {
         /// the amount that could not be paid
         amount: sl_types::money::LindenAmount,
     },
+    /// message about an object being granted permission to take L$
+    ObjectGrantedPermissionToTakeMoney {
+        /// the name of the object
+        object_name: String,
+        /// the owner of the object
+        owner_name: String,
+        /// the region where the object is located
+        object_region: Option<sl_types::map::RegionName>,
+        /// the coordinates within that region
+        object_location: Option<sl_types::map::RegionCoordinates>,
+    },
     /// message about a sent payment
     SentPayment {
         /// the recipient avatar or group key
@@ -140,9 +151,24 @@ pub enum SystemMessage {
         /// the giving object location
         giving_object_location: sl_types::map::UnconstrainedLocation,
         /// the giving object owner
-        giving_object_owner: sl_types::key::AgentKey,
+        giving_object_owner: sl_types::key::OwnerKey,
         /// the name of the given object
         given_object_name: String,
+    },
+    /// message about an object giving the current avatar a folder
+    ObjectGaveFolder {
+        /// key of the object
+        giving_object_key: sl_types::key::ObjectKey,
+        /// name of the object
+        giving_object_name: String,
+        /// owner of the object
+        giving_object_owner: sl_types::key::OwnerKey,
+        /// object location
+        giving_object_location: sl_types::map::Location,
+        /// giving object link label
+        giving_object_link_label: String,
+        /// given folder name
+        folder_name: String,
     },
     /// message about an avatar giving the current avatar an object
     AvatarGaveObject {
@@ -225,6 +251,15 @@ pub enum SystemMessage {
         current_script_count: u32,
         /// change
         change: i32,
+    },
+    /// the chat message to a multi-person chat is still being processed
+    MultiPersonChatMessageStillBeingProcessed,
+    /// the chat message to an im session that no longer exists is still being processed
+    ChatMessageToNoLongerExistingImSessionStillBeingProcessed,
+    /// the chat message to a conference is still being processed
+    ConferenceChatMessageStillBeingProcessed {
+        /// the name of the avatar whose conference it is
+        avatar_name: String,
     },
     /// the group chat message is still being processed
     GroupChatMessageStillBeingProcessed {
@@ -396,6 +431,42 @@ pub enum SystemMessage {
         /// inspecting avatar position
         inspecting_avatar_position: sl_types::map::RegionCoordinates,
     },
+    /// usage instruction for dice roll command
+    DiceRollCommandUsageInstructions,
+    /// dice roll result
+    DiceRollResult {
+        /// which dice roll (when multiple rolls were requested)
+        roll_number: usize,
+        /// how many faces on the dice rolled
+        dice_faces: usize,
+        /// roll result
+        roll_result: usize,
+    },
+    /// dice roll result sum
+    DiceRollResultSum {
+        /// number of rolls
+        roll_count: usize,
+        /// how many faces on the dice rolled
+        dice_faces: usize,
+        /// result sum
+        result_sum: usize,
+    },
+    /// texture info for object (followed by one or more of the below)
+    TextureInfoForObject {
+        /// name of the object
+        object_name: String,
+    },
+    /// texture info for one face
+    TextureInfoForFace {
+        /// number of the face this line is about
+        face_number: usize,
+        /// width of the texture
+        texture_width: u16,
+        /// height of the texture
+        texture_height: u16,
+        /// type of texture, e.g. opaque, alpha
+        texture_type: String,
+    },
     /// a message from the Firestorm developers
     FirestormMessage {
         /// the type of message, basically whatever follows the initial
@@ -414,6 +485,31 @@ pub enum SystemMessage {
         body: String,
         /// event URL
         incident_url: String,
+    },
+    /// message with a link at the end (mostly announcements of events or
+    /// similar message of the day style stuff)
+    SystemMessageWithLink {
+        /// the message before the link
+        message: String,
+        /// the link
+        link: String,
+    },
+    /// Firestorm holiday wishes
+    FirestormHolidayWishes {
+        /// the message
+        message: String,
+    },
+    /// Warning about phishing
+    PhishingWarning {
+        /// the message
+        message: String,
+    },
+    /// Test MOTD
+    TestMessageOfTheDay,
+    /// Early Firestorm startup message
+    EarlyFirestormStartupMessage {
+        /// the message
+        message: String,
     },
     /// other system message
     OtherSystemMessage {
@@ -693,6 +789,60 @@ pub fn failed_to_pay_message_parser() -> impl Parser<char, SystemMessage, Error 
         })
 }
 
+/// parse a system message about an object being granted permission to take L$
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn object_granted_permission_to_take_money_parser(
+) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    just('\'')
+        .ignore_then(
+            take_until(just("', an object owned by '"))
+                .map(|(vc, _)| vc.into_iter().collect::<String>()),
+        )
+        .then(take_until(just("', located in ")).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .then(
+            just("(unknown region) at ")
+                .to(None)
+                .or(take_until(just(" at ")).try_map(|(vc, _), span| {
+                    Ok(Some(
+                        sl_types::map::RegionName::try_new(vc.into_iter().collect::<String>())
+                            .map_err(|err| {
+                                Simple::custom(
+                                    span,
+                                    format!("Error creating region name: {:?}", err),
+                                )
+                            })?,
+                    ))
+                })),
+        )
+        .then(
+            just("(unknown position)")
+                .to(None)
+                .or(sl_types::utils::f32_parser()
+                    .then_ignore(just(", "))
+                    .then(sl_types::utils::f32_parser())
+                    .then_ignore(just(','))
+                    .then(sl_types::utils::f32_parser())
+                    .map(|((x, y), z)| Some(sl_types::map::RegionCoordinates::new(x, y, z)))),
+        )
+        .then_ignore(just(
+            ", has been granted permission to: Take Linden dollars (L$) from you.",
+        ))
+        .map(
+            |(((object_name, owner_name), object_region), object_location)| {
+                SystemMessage::ObjectGrantedPermissionToTakeMoney {
+                    object_name,
+                    owner_name,
+                    object_region,
+                    object_location,
+                }
+            },
+        )
+}
+
 /// parse a system message about being added or leaving a group
 ///
 /// # Errors
@@ -774,7 +924,7 @@ pub fn unable_to_load_gesture_message_parser(
 pub fn teleport_completed_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
 {
     just("Teleport completed from http://maps.secondlife.com/secondlife/")
-        .ignore_then(sl_types::map::unconstrained_location_parser())
+        .ignore_then(sl_types::map::url_unconstrained_location_parser())
         .try_map(|origin, _span: std::ops::Range<usize>| {
             Ok(SystemMessage::TeleportCompleted { origin })
         })
@@ -816,7 +966,7 @@ pub fn region_restart_message_parser() -> impl Parser<char, SystemMessage, Error
 pub fn object_gave_object_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
 {
     take_until(just(" owned by "))
-        .then(sl_types::key::app_agent_uri_as_agent_key_parser())
+        .then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
         .then_ignore(
             whitespace()
                 .or_not()
@@ -828,20 +978,60 @@ pub fn object_gave_object_message_parser() -> impl Parser<char, SystemMessage, E
                 .then(whitespace())
                 .then(just("( http://slurl.com/secondlife/")),
         ))
-        .then(sl_types::map::unconstrained_location_parser())
+        .then(sl_types::map::url_unconstrained_location_parser())
         .then_ignore(just(" )."))
-        .try_map(
+        .map(
             |(
                 (((giving_object_name, _), giving_object_owner), (given_object_name, _)),
                 giving_object_location,
-            ),
-             _span: std::ops::Range<usize>| {
-                Ok(SystemMessage::ObjectGaveObject {
+            )| {
+                SystemMessage::ObjectGaveObject {
                     giving_object_name: giving_object_name.into_iter().collect(),
                     giving_object_owner,
                     given_object_name: given_object_name.into_iter().collect(),
                     giving_object_location,
-                })
+                }
+            },
+        )
+}
+
+/// parse a system message about an object giving the current avatar a folder
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn object_gave_folder_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+{
+    just("An object named [")
+        .ignore_then(sl_types::viewer_uri::viewer_app_objectim_uri_parser())
+        .then_ignore(whitespace())
+        .then(
+            take_until(just("] gave you this folder: '"))
+                .map(|(vc, _)| vc.into_iter().collect::<String>()),
+        )
+        .then(take_until(just('\'')).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .try_map(
+            |((app_objectim_uri, giving_object_link_label), folder_name), span| {
+                match app_objectim_uri {
+                    sl_types::viewer_uri::ViewerUri::ObjectInstantMessage {
+                        object_key,
+                        object_name,
+                        owner,
+                        location,
+                    } => Ok(SystemMessage::ObjectGaveFolder {
+                        giving_object_key: object_key,
+                        giving_object_name: object_name,
+                        giving_object_owner: owner,
+                        giving_object_location: location,
+                        giving_object_link_label,
+                        folder_name,
+                    }),
+                    _ => Err(Simple::custom(
+                        span,
+                        "Unexpected type of viewer URI in object gave folder message parser",
+                    )),
+                }
             },
         )
 }
@@ -883,7 +1073,7 @@ pub fn declined_given_object_message_parser(
             take_until(just("'  ( http://slurl.com/secondlife/").ignored())
                 .map(|(vc, _)| vc.into_iter().collect::<String>()),
         )
-        .then(sl_types::map::unconstrained_location_parser())
+        .then(sl_types::map::url_unconstrained_location_parser())
         .then_ignore(just(" ) from "))
         .then(
             any()
@@ -1132,24 +1322,31 @@ pub fn region_script_count_change_message_parser(
         )
 }
 
-/// parse a system message about a group chat message still being processed
+/// parse a system message about a chat message still being processed
 ///
 /// # Errors
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn group_chat_message_still_being_processed_message_parser(
+pub fn chat_message_still_being_processed_message_parser(
 ) -> impl Parser<char, SystemMessage, Error = Simple<char>> {
     just("The message sent to ")
-        .ignore_then(take_until(just(" is still being processed.").ignored()).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .ignore_then(
+            choice([
+                just("Multi-person chat is still being processed.").to(SystemMessage::MultiPersonChatMessageStillBeingProcessed).boxed(),
+                just("(IM Session Doesn't Exist) is still being processed.").to(SystemMessage::ChatMessageToNoLongerExistingImSessionStillBeingProcessed).boxed(),
+                just("Conference with ").ignore_then(take_until(just(" is still being processed.")).map(|(vc, _)| SystemMessage::ConferenceChatMessageStillBeingProcessed { avatar_name: vc.into_iter().collect::<String>() })).boxed(),
+                take_until(just(" is still being processed.").ignored()).map(|(vc, _)| vc.into_iter().collect::<String>())
+                .map(|group_name| {
+                    SystemMessage::GroupChatMessageStillBeingProcessed {
+                        group_name,
+                    }
+                }).boxed(),
+            ])
+        )
         .then_ignore(newline())
         .then_ignore(whitespace())
         .then_ignore(just("If the message does not appear in the next few minutes, it may have been dropped by the server."))
-        .map(|group_name| {
-            SystemMessage::GroupChatMessageStillBeingProcessed {
-                group_name,
-            }
-        })
 }
 
 /// parse a system message about an avatar declining a voice call
@@ -1786,7 +1983,88 @@ pub fn extended_script_info_message_parser(
         )
 }
 
-/// Script info: 'icon': [3/3] running scripts, 192 KB allowed memory size limit, 0.012550 ms of CPU time consumed.
+/// parse a system message about dice rolls
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn dice_roll_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    choice([
+        just("You must provide positive values for dice (max 100) and faces (max 1000).")
+            .to(SystemMessage::DiceRollCommandUsageInstructions)
+            .boxed(),
+        just('#')
+            .ignore_then(usize_parser())
+            .then_ignore(whitespace())
+            .then_ignore(just("1d"))
+            .then(usize_parser())
+            .then_ignore(just(":"))
+            .then_ignore(whitespace())
+            .then(usize_parser())
+            .then_ignore(just('.'))
+            .map(
+                |((roll_number, dice_faces), roll_result)| SystemMessage::DiceRollResult {
+                    roll_number,
+                    dice_faces,
+                    roll_result,
+                },
+            )
+            .boxed(),
+        just("Total result for ")
+            .ignore_then(usize_parser())
+            .then_ignore(just('d'))
+            .then(usize_parser())
+            .then_ignore(just(':'))
+            .then_ignore(whitespace())
+            .then(usize_parser())
+            .then_ignore(just('.'))
+            .map(
+                |((roll_count, dice_faces), result_sum)| SystemMessage::DiceRollResultSum {
+                    roll_count,
+                    dice_faces,
+                    result_sum,
+                },
+            )
+            .boxed(),
+    ])
+}
+
+/// parse a system message about object textures on faces
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn texture_info_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    choice([
+        just("Texture info for: ")
+            .ignore_then(take_until(newline().or(end())).map(|(vc, _)| {
+                SystemMessage::TextureInfoForObject {
+                    object_name: vc.into_iter().collect::<String>(),
+                }
+            }))
+            .boxed(),
+        sl_types::utils::u16_parser()
+            .then_ignore(just('x'))
+            .then(sl_types::utils::u16_parser())
+            .then_ignore(whitespace())
+            .then(just("opaque").or(just("alpha")))
+            .then_ignore(just(" on face "))
+            .then(usize_parser())
+            .map(
+                |(((texture_width, texture_height), texture_type), face_number)| {
+                    SystemMessage::TextureInfoForFace {
+                        face_number,
+                        texture_width,
+                        texture_height,
+                        texture_type: texture_type.to_owned(),
+                    }
+                },
+            )
+            .boxed(),
+    ])
+}
 
 /// parse a system message by the Firestorm developers
 ///
@@ -1844,24 +2122,6 @@ pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Er
 
 /// parse a Second Life system message
 ///
-/// TODO:
-/// ... gave you ... (no location URL, quotes,...)
-/// Gave you messages (without nolink tags)
-/// An object named [secondlife:///app/objectim/00000000-0000-0000-0000-000000000000/?name=Gift%20from%20Mithlumen&owner=99338959-f536-4719-b91b-21a8bd72a1b0&slurl=The%20Seventh%20Valley%2F129%2F116%2F2500 Gift from Mithlumen] gave you this folder: 'Gift from Mithlumen'
-/// '<object name>', an object owned by '<avatar name>', located in (unknown region) at (unknown position), has been granted permission to: Take Linden dollars (L$) from you.
-/// '<object name>', an object owned by '<avatar name>', located in <region name> at <raw position without any delimiters and apparently missing a space after the comma between y and z>, has been granted permission to: Take Linden dollars (L$) from you.
-/// The message sent to Multi-person chat is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
-/// The message sent to (IM Session Doesn't Exist) is still being processed.\n If the message does not appear in the next few minutes, it may have been dropped by the server.
-/// The message sent to Conference with <avatar name> is still being processed.
-/// You must provide positive values for dice (max 100) and faces (max 1000).
-/// #5 1d6: 3.
-/// Total result for 5d6: 15.
-/// Texture info for: <object name>
-/// 512x512 opaque on face 0
-/// 1024x1024 alpha on face 0
-///
-/// broken timestamps: [[year,datetime,slt]/[mthnum,datetime,slt]/[day,datetime,slt] [hour,datetime,slt]:[min,datetime,slt]] (already handled, seems to not be working everywhere?)
-///
 /// # Errors
 ///
 /// returns an error if the string could not be parsed
@@ -1880,6 +2140,7 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         you_paid_to_join_group_message_parser().boxed(),
         you_paid_for_land_message_parser().boxed(),
         failed_to_pay_message_parser().boxed(),
+        object_granted_permission_to_take_money_parser().boxed(),
         sent_payment_message_parser().boxed(),
         received_payment_message_parser().boxed(),
         group_membership_message_parser().boxed(),
@@ -1891,6 +2152,7 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         now_playing_message_parser().boxed(),
         region_restart_message_parser().boxed(),
         object_gave_object_message_parser().boxed(),
+        object_gave_folder_message_parser().boxed(),
         declined_given_object_message_parser().boxed(),
         select_residents_to_share_with_message_parser().boxed(),
         items_successfully_shared_message_parser().boxed(),
@@ -1904,7 +2166,7 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         bridge_message_parser().boxed(),
         failed_to_place_object_at_specified_location_message_parser().boxed(),
         region_script_count_change_message_parser().boxed(),
-        group_chat_message_still_being_processed_message_parser().boxed(),
+        chat_message_still_being_processed_message_parser().boxed(),
         avatar_declined_voice_call_message_parser().boxed(),
         audio_from_domain_will_always_be_played_message_parser().boxed(),
         object_not_for_sale_message_parser().boxed(),
@@ -1937,13 +2199,55 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         script_info_object_invalid_or_out_of_range_message_parser().boxed(),
         script_info_message_parser().boxed(),
         extended_script_info_message_parser().boxed(),
+        dice_roll_message_parser().boxed(),
+        texture_info_message_parser().boxed(),
         firestorm_message_parser().boxed(),
         grid_status_event_message_parser().boxed(),
+        take_until(just("https").or(just("http")).or(just("Http")))
+            .map(|(message, scheme)| (message.into_iter().collect::<String>(), scheme))
+            .then(take_until(newline().or(end())).map(|(vc, _)| vc.into_iter().collect::<String>()))
+            .map(
+                |((message, scheme), rest_of_url)| SystemMessage::SystemMessageWithLink {
+                    message,
+                    link: format!("{}://{}", scheme, rest_of_url),
+                },
+            )
+            .boxed(),
+        take_until(just("www."))
+            .map(|(message, subdomain)| (message.into_iter().collect::<String>(), subdomain))
+            .then(take_until(newline().or(end())).map(|(vc, _)| vc.into_iter().collect::<String>()))
+            .map(
+                |((message, subdomain), rest_of_url)| SystemMessage::SystemMessageWithLink {
+                    message,
+                    link: format!("{}{}", subdomain, rest_of_url),
+                },
+            )
+            .boxed(),
         any()
             .repeated()
             .collect::<String>()
-            .try_map(|s, _span: std::ops::Range<usize>| {
-                Ok(SystemMessage::OtherSystemMessage { message: s })
+            .map(|message| {
+                if message.contains("Firestorm") && (message.contains("holiday") || message.contains("Happy New Year")) {
+                    SystemMessage::FirestormHolidayWishes { message }
+                } else if message.contains("phishing") {
+                    SystemMessage::PhishingWarning { message }
+                } else if message == "This is a test version of Firestorm. If this were an actual release version, a real message of the day would be here. This is only a test." {
+                    SystemMessage::TestMessageOfTheDay
+                } else if (message.ends_with("...") && (message.starts_with("Loading") || message.starts_with("Initializing") || message.starts_with("Downloading") || message.starts_with("Verifying") || message.starts_with("Loading") || message.starts_with("Connecting") || message.starts_with("Decoding") || message.starts_with("Waiting"))) || message == "Welcome to Advertisement-Free Firestorm" || message.starts_with("Logging in") {
+                    SystemMessage::EarlyFirestormStartupMessage { message }
+                } else if message.contains("wiki.phoenixviewer.com/firestorm_classes") {
+                    SystemMessage::FirestormMessage {
+                        message_type: "Classes".to_string(),
+                        message,
+                    }
+                } else if message.contains("BETA TESTERS") || message.contains("Beta Testers") {
+                    SystemMessage::FirestormMessage {
+                        message_type: "Beta Test".to_string(),
+                        message,
+                    }
+                } else {
+                    SystemMessage::OtherSystemMessage { message }
+                }
             })
             .boxed(),
     ])

@@ -10,6 +10,10 @@ pub mod system_messages;
 pub mod utils;
 
 /// represents an event commemorated in the Second Life chat log
+///
+/// large variant warning for clippy is overridden since the Box get in the way
+/// of properly pattern matching
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChatLogEvent {
     /// line about an avatar (or an object doing things indistinguishable from an avatar in the chat log)
@@ -17,12 +21,12 @@ pub enum ChatLogEvent {
         /// name of the avatar or object
         name: String,
         /// message
-        message: Box<crate::avatar_messages::AvatarMessage>,
+        message: crate::avatar_messages::AvatarMessage,
     },
     /// a message by the Second Life viewer or server itself
     SystemMessage {
         /// the system message
-        message: Box<crate::system_messages::SystemMessage>,
+        message: crate::system_messages::SystemMessage,
     },
     /// a message without a colon, most likely an unnamed object like a translator, spanker, etc.
     OtherMessage {
@@ -63,23 +67,17 @@ fn chat_log_event_parser() -> impl Parser<char, ChatLogEvent, Error = Simple<cha
             .map(|(vc, msg)| (vc.into_iter().collect::<String>(), msg))
             .map(|(name, message)| ChatLogEvent::AvatarLine {
                 name: name.strip_suffix(" ").unwrap_or(&name).to_owned(),
-                message: Box::new(message),
+                message,
             }),
         )
-        .or(
-            just("Second Life: ").ignore_then(crate::system_messages::system_message_parser().map(
-                |message| ChatLogEvent::SystemMessage {
-                    message: Box::new(message),
-                },
-            )),
-        )
+        .or(just("Second Life: ").ignore_then(
+            crate::system_messages::system_message_parser()
+                .map(|message| ChatLogEvent::SystemMessage { message }),
+        ))
         .or(avatar_name_parser()
             .then_ignore(just(":").then(whitespace()))
             .then(crate::avatar_messages::avatar_message_parser())
-            .map(|(name, message)| ChatLogEvent::AvatarLine {
-                name,
-                message: Box::new(message),
-            }))
+            .map(|(name, message)| ChatLogEvent::AvatarLine { name, message }))
         .or(any()
             .repeated()
             .collect::<String>()

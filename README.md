@@ -1,3 +1,10 @@
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/taladar/sl-map-tools/github-release.yaml)
+
+![Crates.io Version sl-types](https://img.shields.io/crates/v/sl-types) ![docs.rs sl-types](https://img.shields.io/docsrs/sl-types) ![Dependency status sl-types](https://deps.rs/crate/sl-types)
+![Crates.io Version sl-map-apis](https://img.shields.io/crates/v/sl-map-apis) ![docs.rs sl-map-apis](https://img.shields.io/docsrs/sl-map-apis) ![Dependency status sl-map-apis](https://deps.rs/crate/sl-map-apis)
+![Crates.io Version sl-map-cli](https://img.shields.io/crates/v/sl-map-cli) ![docs.rs sl-map-cli](https://img.shields.io/docsrs/sl-map-cli) ![Dependency status sl-map-cli](https://deps.rs/crate/sl-map-cli)
+![Crates.io Version sl-chat-log-parser](https://img.shields.io/crates/v/sl-chat-log-parser) ![docs.rs sl-chat-log-parser](https://img.shields.io/docsrs/sl-chat-log-parser) ![Dependency status sl-chat-log-parser](https://deps.rs/crate/sl-chat-log-parser)
+
 # SL map tools
 
 This is a small set of Rust libraries and a CLI to generate

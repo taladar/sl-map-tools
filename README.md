@@ -1,9 +1,13 @@
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/taladar/sl-map-tools/github-release.yaml)
 
-![Crates.io Version sl-types](https://img.shields.io/crates/v/sl-types) ![docs.rs sl-types](https://img.shields.io/docsrs/sl-types) ![Dependency status sl-types](https://deps.rs/crate/sl-types)
-![Crates.io Version sl-map-apis](https://img.shields.io/crates/v/sl-map-apis) ![docs.rs sl-map-apis](https://img.shields.io/docsrs/sl-map-apis) ![Dependency status sl-map-apis](https://deps.rs/crate/sl-map-apis)
-![Crates.io Version sl-map-cli](https://img.shields.io/crates/v/sl-map-cli) ![docs.rs sl-map-cli](https://img.shields.io/docsrs/sl-map-cli) ![Dependency status sl-map-cli](https://deps.rs/crate/sl-map-cli)
-![Crates.io Version sl-chat-log-parser](https://img.shields.io/crates/v/sl-chat-log-parser) ![docs.rs sl-chat-log-parser](https://img.shields.io/docsrs/sl-chat-log-parser) ![Dependency status sl-chat-log-parser](https://deps.rs/crate/sl-chat-log-parser)
+[![Crates.io Version sl-types](https://img.shields.io/crates/v/sl-types)](https://crates.io/crates/sl-types) [![lib.rs Version sl-types](https://img.shields.io/crates/v/sl-types)](https://lib.rs/crates/sl-types)[![docs.rs sl-types](https://img.shields.io/docsrs/sl-types)](https://docs.rs/sl-types/latest/sl-types) [![Dependency status sl-types](https://deps.rs/crate/sl-types/latest/status.svg)](https://deps.rs/crate/sl-types/latest/)
+
+[![Crates.io Version sl-map-apis](https://img.shields.io/crates/v/sl-map-apis)](https://crates.io/crates/sl-map-api) [![lib.rs Version sl-map-apis](https://img.shields.io/crates/v/sl-map-apis)](https://lib.rs/crates/sl-map-api) [![docs.rs sl-map-apis](https://img.shields.io/docsrs/sl-map-apis)](https://docs.rs/sl-map-apis/latest/sl-map-apis) [![Dependency status sl-map-apis](https://deps.rs/crate/sl-map-apis/latest/status.svg)](https://deps.rs/crate/sl-map-apis/latest/)
+
+[![Crates.io Version sl-map-cli](https://img.shields.io/crates/v/sl-map-cli)](https://crates.io/crates/sl-map-cli) [![lib.rs Version sl-map-cli](https://img.shields.io/crates/v/sl-map-cli)](https://lib.rs/crates/sl-map-cli) [![docs.rs sl-map-cli](https://img.shields.io/docsrs/sl-map-cli)](https://docs.rs/sl-map-cli/latest/sl-map-cli) [![Dependency status sl-map-cli](https://deps.rs/crate/sl-map-cli/latest/status.svg)](https://deps.rs/crate/sl-map-cli/latest/)
+
+[![Crates.io Version sl-chat-log-parser](https://img.shields.io/crates/v/sl-chat-log-parser)](https://crates.io/crates/sl-chat-log-parser) [![lib.rs Version sl-chat-log-parser](https://img.shields.io/crates/v/sl-chat-log-parser)](https://lib.rs/crates/sl-chat-log-parser) [![docs.rs sl-chat-log-parser](https://img.shields.io/docsrs/sl-chat-log-parser)](https://docs.rs/sl-chat-log-parser/latest/sl-chat-log-parser) [![Dependency status sl-chat-log-parser](https://deps.rs/crate/sl-chat-log-parser/latest/status.svg)](https://deps.rs/crate/sl-chat-log-parser/latest/)
+
 
 # SL map tools
 

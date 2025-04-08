@@ -1,3 +1,7 @@
+## 0.1.2
+
+update dependencies
+
 ## 0.1.1
 
 remove Box suggested by clippy to make pattern matching easier

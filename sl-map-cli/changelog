@@ -1,3 +1,9 @@
+sl-map-cli (0.1.10-1) unstable; urgency=medium
+
+  * update dependencies
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Wednesday, 24 Sep 2025 19:52:42 +0200
+
 sl-map-cli (0.1.9-1) unstable; urgency=medium
 
   * update dependencies

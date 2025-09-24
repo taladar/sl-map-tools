@@ -1,3 +1,9 @@
+# Changelog
+
+## 0.1.10
+
+update dependencies
+
 ## 0.1.9
 
 update dependencies

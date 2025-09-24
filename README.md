@@ -1,15 +1,30 @@
+# SL map tools
+
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/taladar/sl-map-tools/github-release.yaml)](https://github.com/taladar/sl-map-tools/actions/workflows/github-release.yaml)
 
-sl-types: [![Crates.io Version sl-types](https://img.shields.io/crates/v/sl-types)](https://crates.io/crates/sl-types) [![lib.rs Version sl-types](https://img.shields.io/crates/v/sl-types?label=lib.rs)](https://lib.rs/crates/sl-types) [![docs.rs sl-types](https://img.shields.io/docsrs/sl-types)](https://docs.rs/sl-types/latest/sl-types) [![Dependency status sl-types](https://deps.rs/crate/sl-types/latest/status.svg)](https://deps.rs/crate/sl-types/)
+sl-types:
+[![Crates.io Version sl-types](https://img.shields.io/crates/v/sl-types)](https://crates.io/crates/sl-types)
+[![lib.rs Version sl-types](https://img.shields.io/crates/v/sl-types?label=lib.rs)](https://lib.rs/crates/sl-types)
+[![docs.rs sl-types](https://img.shields.io/docsrs/sl-types)](https://docs.rs/sl-types/latest/sl-types)
+[![Dependency status sl-types](https://deps.rs/crate/sl-types/latest/status.svg)](https://deps.rs/crate/sl-types/)
 
-sl-map-apis: [![Crates.io Version sl-map-apis](https://img.shields.io/crates/v/sl-map-apis)](https://crates.io/crates/sl-map-apis) [![lib.rs Version sl-map-apis](https://img.shields.io/crates/v/sl-map-apis?label=lib.rs)](https://lib.rs/crates/sl-map-apis) [![docs.rs sl-map-apis](https://img.shields.io/docsrs/sl-map-apis)](https://docs.rs/sl-map-apis/latest/sl-map-apis) [![Dependency status sl-map-apis](https://deps.rs/crate/sl-map-apis/latest/status.svg)](https://deps.rs/crate/sl-map-apis/)
+sl-map-apis:
+[![Crates.io Version sl-map-apis](https://img.shields.io/crates/v/sl-map-apis)](https://crates.io/crates/sl-map-apis)
+[![lib.rs Version sl-map-apis](https://img.shields.io/crates/v/sl-map-apis?label=lib.rs)](https://lib.rs/crates/sl-map-apis)
+[![docs.rs sl-map-apis](https://img.shields.io/docsrs/sl-map-apis)](https://docs.rs/sl-map-apis/latest/sl-map-apis)
+[![Dependency status sl-map-apis](https://deps.rs/crate/sl-map-apis/latest/status.svg)](https://deps.rs/crate/sl-map-apis/)
 
-sl-map-cli: [![Crates.io Version sl-map-cli](https://img.shields.io/crates/v/sl-map-cli)](https://crates.io/crates/sl-map-cli) [![lib.rs Version sl-map-cli](https://img.shields.io/crates/v/sl-map-cli?label=lib.rs)](https://lib.rs/crates/sl-map-cli) ![docs.rs sl-map-cli - none for binary crate](https://img.shields.io/badge/docs-none_for_binary_crate-lightgrey) [![Dependency status sl-map-cli](https://deps.rs/crate/sl-map-cli/latest/status.svg)](https://deps.rs/crate/sl-map-cli/)
+sl-map-cli:
+[![Crates.io Version sl-map-cli](https://img.shields.io/crates/v/sl-map-cli)](https://crates.io/crates/sl-map-cli)
+[![lib.rs Version sl-map-cli](https://img.shields.io/crates/v/sl-map-cli?label=lib.rs)](https://lib.rs/crates/sl-map-cli)
+[![docs.rs sl-map-cli - none for binary crate](https://img.shields.io/badge/docs-none_for_binary_crate-lightgrey)
+[![Dependency status sl-map-cli](https://deps.rs/crate/sl-map-cli/latest/status.svg)](https://deps.rs/crate/sl-map-cli/)
 
-sl-chat-log-parser: [![Crates.io Version sl-chat-log-parser](https://img.shields.io/crates/v/sl-chat-log-parser)](https://crates.io/crates/sl-chat-log-parser) [![lib.rs Version sl-chat-log-parser](https://img.shields.io/crates/v/sl-chat-log-parser?label=lib.rs)](https://lib.rs/crates/sl-chat-log-parser) [![docs.rs sl-chat-log-parser](https://img.shields.io/docsrs/sl-chat-log-parser)](https://docs.rs/sl-chat-log-parser/latest/sl-chat-log-parser) [![Dependency status sl-chat-log-parser](https://deps.rs/crate/sl-chat-log-parser/latest/status.svg)](https://deps.rs/crate/sl-chat-log-parser/)
-
-
-# SL map tools
+sl-chat-log-parser:
+[![Crates.io Version sl-chat-log-parser](https://img.shields.io/crates/v/sl-chat-log-parser)](https://crates.io/crates/sl-chat-log-parser)
+[![lib.rs Version sl-chat-log-parser](https://img.shields.io/crates/v/sl-chat-log-parser?label=lib.rs)](https://lib.rs/crates/sl-chat-log-parser)
+[![docs.rs sl-chat-log-parser](https://img.shields.io/docsrs/sl-chat-log-parser)](https://docs.rs/sl-chat-log-parser/latest/sl-chat-log-parser)
+[![Dependency status sl-chat-log-parser](https://deps.rs/crate/sl-chat-log-parser/latest/status.svg)](https://deps.rs/crate/sl-chat-log-parser/)
 
 This is a small set of Rust libraries and a CLI to generate
 Second Life maps using the map tile CDN and the APIs for
@@ -25,7 +40,7 @@ You can use Preferences->Move & View->Map & Minimap->Show grid coordinates on
 the worldmap in the Firestorm viewer (and probably others) to show grid
 coordinates, Da Boom, the oldest region, is at (1000, 1000).
 
-# Generate a map from a grid rectangle
+## Generate a map from a grid rectangle
 
 To generate a map for a given rectangle of grid coordinates you need the
 coordinates for the lower left corner (the lowest coordinates on each axis)
@@ -51,9 +66,16 @@ determining which regions exist there has some performance impact.
 
 To use this you can use the  --missing-region-color option.
 
-
-```
-sl_map_cli --cache-dir cache from-grid-rectangle --lower-left-x 380 --lower-left-y 380 --upper-right-x 1500 --upper-right-y 1500 --max-width 2048 --max-height 2048 --output-file test_map.jpg
+```shell
+sl_map_cli --cache-dir cache \
+           from-grid-rectangle \
+           --lower-left-x 380 \
+           --lower-left-y 380 \
+           --upper-right-x 1500 \
+           --upper-right-y 1500 \
+           --max-width 2048 \
+           --max-height 2048 \
+           --output-file test_map.jpg
 ```
 
 If you want to use the generated map with a PPS HUD you can use the string
@@ -66,7 +88,7 @@ You can then use a long click on the dot to reset the scripts.
 You can also use the aspect ratio printed to edit the PPS HUD to be the correct
 size.
 
-# Generate a map from a USB notecard
+## Generate a map from a USB notecard
 
 The USB notecard should be saved into a text file. A hex color code
 should be specified for the route waypoints and lines (no arrows or
@@ -75,9 +97,16 @@ B-splines yet but that is one of my future plans).
 All the notes on cache dir, output file and resolution apply equally to this
 mode
 
-
+```shell
+sl_map_cli --cache-dir cache \
+           from-usb-notecard \
+           --usb-notecard usb_notecard.txt \
+           --color '#0f0' \
+           --max-width 2048 \
+           --max-height 2048 \
+           --output-file test_map.jpg
 ```
-sl_map_cli --cache-dir cache from-usb-notecard --usb-notecard usb_notecard.txt --color '#0f0' --max-width 2048 --max-height 2048 --output-file test_map.jpg
-```
 
-It is also possible to additionally save the map without the route to a separate file by specifying the --output-file-without-route option with another file name.
+It is also possible to additionally save the map without the route to a separate
+file by specifying the --output-file-without-route option with another file
+name.

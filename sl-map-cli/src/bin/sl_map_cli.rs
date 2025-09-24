@@ -254,6 +254,7 @@ async fn do_stuff() -> Result<(), crate::Error> {
 /// The main function mainly just handles setting up tracing
 /// and handling any Err Results.
 #[tokio::main]
+#[allow(clippy::result_large_err)]
 async fn main() -> Result<(), Error> {
     let terminal_env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::WARN.into())

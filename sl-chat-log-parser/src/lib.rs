@@ -199,19 +199,19 @@ mod test {
     pub enum TestError {
         /// error loading environment
         #[error("error loading environment: {0}")]
-        EnvError(#[from] envy::Error),
+        Env(#[from] envy::Error),
         /// error loading .env file
         #[error("error loading .env file: {0}")]
-        DotEnvError(#[from] dotenvy::Error),
+        DotEnv(#[from] dotenvy::Error),
         /// error determining current user home directory
         #[error("error determining current user home directory")]
-        HomeDirError,
+        HomeDir,
         /// error opening chat log file
         #[error("error opening chat log file {0}: {1}")]
-        OpenChatLogFileError(std::path::PathBuf, std::io::Error),
+        OpenChatLogFile(std::path::PathBuf, std::io::Error),
         /// error reading chat log line from file
         #[error("error reading chat log line from file: {0}")]
-        ChatLogLineReadError(std::io::Error),
+        ChatLogLineRead(std::io::Error),
     }
 
     /// determine avatar log dir from avatar name
@@ -221,7 +221,7 @@ mod test {
 
         let Some(home_dir) = dirs2::home_dir() else {
             tracing::error!("Could not determine current user home directory");
-            return Err(TestError::HomeDirError);
+            return Err(TestError::HomeDir);
         };
 
         Ok(home_dir.join(".firestorm/").join(avatar_dir_name))
@@ -236,18 +236,19 @@ mod test {
             let avatar_dir = avatar_log_dir(&avatar_name)?;
             let local_chat_log_file = avatar_dir.join("chat.txt");
             let file = std::fs::File::open(&local_chat_log_file)
-                .map_err(|e| TestError::OpenChatLogFileError(local_chat_log_file.clone(), e))?;
+                .map_err(|e| TestError::OpenChatLogFile(local_chat_log_file.clone(), e))?;
             let file = BufReader::new(file);
             let mut last_line: Option<String> = None;
             for line in file.lines() {
-                let line = line.map_err(TestError::ChatLogLineReadError)?;
-                if line.starts_with(" ") || line == "" {
+                let line = line.map_err(TestError::ChatLogLineRead)?;
+                if line.starts_with(" ") || line.is_empty() {
                     if let Some(ll) = last_line {
                         last_line = Some(format!("{}\n{}", ll, line));
                         continue;
                     }
                 }
                 if let Some(ref ll) = last_line {
+                    #[allow(clippy::panic)]
                     match chat_log_line_parser().parse(ll.clone()) {
                         Err(e) => {
                             tracing::error!("failed to parse line\n{}", ll);

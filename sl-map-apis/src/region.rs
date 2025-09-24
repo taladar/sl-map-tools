@@ -1,4 +1,5 @@
 //! Contains functionality related to converting region names to grid coordinates and vice versa
+use redb::ReadableDatabase as _;
 use sl_types::map::{GridCoordinates, GridRectangle, RegionName, RegionNameError, USBNotecard};
 
 /// Represents the possible errors that can occur when converting a region name to grid coordinates

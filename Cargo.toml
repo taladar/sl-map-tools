@@ -1,6 +1,9 @@
 [profile.release]
 debug = 2
 
+[profile.test]
+opt-level = 3
+
 [workspace]
 members = [
     "sl-chat-log-parser",

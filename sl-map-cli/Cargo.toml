@@ -3,28 +3,19 @@ name = "sl-map-cli"
 description = "Makes the SL map functionality available on the CLI"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-version = "0.1.9"
+version = "0.1.10"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2021"
 repository = "https://github.com/taladar/sl-map-tools"
 keywords = ["secondlife", "map", "route", "usb_notecard"]
 categories = ["command-line-utilities"]
 
-exclude = ["push-deploy-branches.sh", ".env", "tarpaulin-report.html", "tarpaulin-report.json"]
-
-[dependencies]
-clap = { version = "4.5.35", features = ["derive", "cargo"] }
-hex_color = "3.0.0"
-image = "0.25.6"
-log-panics = { version = "2.1.0", features = ["with-backtrace"] }
-ratelimit = "0.10.0"
-sl-map-apis = { path = "../sl-map-apis", version = "0.1.9" }
-sl-types = { path = "../sl-types", version = "0.1.7" }
-thiserror = { version = "2.0.12" }
-tokio = { version = "1.44.2", features = [ "full" ] }
-tracing = { version = "0.1.41" }
-tracing-appender = { version = "0.2.3" }
-tracing-subscriber = { version = "0.3.19", features = [ "env-filter", "tracing-log" ] }
+exclude = [
+    "push-deploy-branches.sh",
+    ".env",
+    "tarpaulin-report.html",
+    "tarpaulin-report.json",
+]
 
 [package.metadata.deb]
 name = "sl-map-cli"
@@ -32,9 +23,7 @@ depends = "$auto"
 extended-description = "Makes the SL map functionality available on the CLI"
 section = "database"
 copyright = "2024, Matthias Hörmann <mhoermann@gmail.com>"
-assets = [
-  [ "target/release/sl_map_cli", "usr/bin/", "755" ],
-  ]
+assets = [[ "target/release/sl_map_cli", "usr/bin/", "755" ]]
 maintainer-scripts = "maintainer-scripts"
 changelog = "changelog"
 revision = "1"
@@ -44,6 +33,20 @@ buildflags = ["--release"]
 
 [package.metadata.rpm.targets]
 sl_map_cli = { path = "/usr/bin/sl_map_cli" }
+
+[dependencies]
+clap = { version = "4.5.48", features = ["derive", "cargo"] }
+hex_color = "3.0.0"
+image = "0.25.8"
+log-panics = { version = "2.1.0", features = ["with-backtrace"] }
+ratelimit = "0.10.0"
+sl-map-apis = { path = "../sl-map-apis", version = "0.1.9" }
+sl-types = { path = "../sl-types", version = "0.1.7" }
+thiserror = { version = "2.0.16" }
+tokio = { version = "1.47.1", features = [ "full" ] }
+tracing = { version = "0.1.41" }
+tracing-appender = { version = "0.2.3" }
+tracing-subscriber = { version = "0.3.20", features = [ "env-filter", "tracing-log" ] }
 
 [lints.rust]
 unknown_lints = "deny"

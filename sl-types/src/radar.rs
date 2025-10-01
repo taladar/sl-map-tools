@@ -29,4 +29,5 @@ pub fn area_parser() -> impl Parser<char, Area, Error = Simple<char>> {
         .to(Area::ChatRange)
         .or(just("draw distance").to(Area::DrawDistance))
         .or(just("region").to(Area::Region))
+        .or(just("the region").to(Area::Region))
 }

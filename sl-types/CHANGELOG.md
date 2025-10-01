@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.9
+
+fix parsing of area for the region case
+
 ## 0.1.8
 
 update dependencies

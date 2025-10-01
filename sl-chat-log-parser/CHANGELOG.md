@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+fix parsing of entered/left region lines
+
 ## 0.1.3
 
 update dependencies

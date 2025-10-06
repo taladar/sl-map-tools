@@ -3,7 +3,7 @@ name = "sl-map-apis"
 description = "Wraps the SL map API to convert grid coordinates to region names and vice versa and to fetch map tiles"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-version = "0.1.10"
+version = "0.2.0"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2021"
 repository = "https://github.com/taladar/sl-map-tools"
@@ -20,14 +20,14 @@ image = { version = "0.25.8", default-features = false, features = ["jpeg", "png
 imageproc = "0.25.0"
 lru = "0.16.1"
 ratelimit = "0.10.0"
-redb = "3.0.2"
+redb = "3.1.0"
 reqwest = { version = "0.12.23", features = ["native-tls-vendored"] }
 serde_json = "1.0.145"
 sl-types = { path = "../sl-types", version = "0.1.6" }
-thiserror = "2.0.16"
+thiserror = "2.0.17"
 tokio = { version = "1.47.1", features = ["full"] }
 tracing = "0.1.41"
-uniform-cubic-splines = { version = "= 0.3.0", default-features = false }
+uniform-cubic-splines = { version = "0.5.1", default-features = false }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

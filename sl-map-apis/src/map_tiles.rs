@@ -808,6 +808,13 @@ pub enum MapError {
     /// error in region name to grid coordinate cache
     #[error("error in region name to grid coordinate cache: {0}")]
     RegionNameToGridCoordinateCacheError(#[from] crate::region::CacheError),
+    /// error calculating spline
+    #[error("error calculating spline: {0}")]
+    SplineError(
+        #[source]
+        #[from]
+        uniform_cubic_splines::SplineError,
+    ),
 }
 
 impl Map {
@@ -1011,16 +1018,16 @@ impl Map {
         knots.extend(pixel_waypoints.to_owned());
         knots.push(extra_after_end);
         let (points_x, points_y): (Vec<f32>, Vec<f32>) = knots.into_iter().unzip();
-        let sample = |v: f32| -> (f32, f32) {
+        let sample = |v: f32| -> Result<(f32, f32), uniform_cubic_splines::SplineError> {
             let point_x =
                 uniform_cubic_splines::spline::<uniform_cubic_splines::basis::CatmullRom, _, _>(
                     v, &points_x,
-                );
+                )?;
             let point_y =
                 uniform_cubic_splines::spline::<uniform_cubic_splines::basis::CatmullRom, _, _>(
                     v, &points_y,
-                );
-            (point_x, point_y)
+                )?;
+            Ok((point_x, point_y))
         };
         let spline_value_for_waypoint =
             |i: usize| -> f32 { i as f32 / (waypoint_count as f32 - 2f32) };
@@ -1032,7 +1039,7 @@ impl Map {
         for (i, waypoint) in pixel_waypoints.iter().enumerate().take(waypoint_count - 1) {
             tracing::debug!("Waypoint {}: {:?}", i, waypoint);
             let v = spline_value_for_waypoint(i);
-            let point = sample(v);
+            let point = sample(v)?;
             tracing::debug!("Sampled Catmull Rom curve {i} at point {v}: {point:?} for route");
             /// size of rectangles to use to draw the spline, should be odd
             /// or it won't be centered properly
@@ -1048,7 +1055,7 @@ impl Map {
                 for j in (0..samples_between_last_waypoint_and_this_one).rev() {
                     let v = v - spline_value_between_waypoints
                         * (j as f32 / (samples_between_last_waypoint_and_this_one as f32 - 2f32));
-                    let sample_point = sample(v);
+                    let sample_point = sample(v)?;
                     imageproc::drawing::draw_filled_rect_mut(
                         self.image_mut(),
                         imageproc::rect::Rect::at(
@@ -1060,7 +1067,7 @@ impl Map {
                     );
                 }
                 self.draw_arrow(
-                    sample(v - (0.1f32 * spline_value_between_waypoints)),
+                    sample(v - (0.1f32 * spline_value_between_waypoints))?,
                     point,
                     color,
                 );

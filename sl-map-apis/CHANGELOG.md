@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+update dependencies
+new error variant from uniform_cubic_splice calculations
+
 ## 0.1.10
 
 update dependencies

@@ -1,13 +1,17 @@
 //! Pathfinding related types
 
 #[cfg(feature = "chumsky")]
-use chumsky::{prelude::Simple, Parser};
+use chumsky::{Parser, prelude::Simple};
 
 /// Pathfinding types
 ///
 /// see <https://wiki.secondlife.com/wiki/Category:LSL_Pathfinding_Types>
 #[derive(Debug, Clone, Hash, PartialEq, Eq, strum::FromRepr, strum::EnumIs)]
 #[repr(i8)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is used outside this module"
+)]
 pub enum PathfindingType {
     /// Attachments, Linden trees & grass
     Other = -1,
@@ -38,9 +42,11 @@ pub enum PathfindingType {
 pub fn int_as_pathfinding_type_parser() -> impl Parser<char, PathfindingType, Error = Simple<char>>
 {
     crate::utils::i8_parser().try_map(|repr, span| {
-        crate::pathfinding::PathfindingType::from_repr(repr).ok_or(Simple::custom(
-            span,
-            "Could not convert parsed pathfinding type i8 into PathfindingType enum",
-        ))
+        crate::pathfinding::PathfindingType::from_repr(repr).ok_or_else(|| {
+            Simple::custom(
+                span,
+                "Could not convert parsed pathfinding type i8 into PathfindingType enum",
+            )
+        })
     })
 }

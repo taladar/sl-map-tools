@@ -2,14 +2,14 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    prelude::{filter, just, Simple},
-    text::whitespace,
     Parser,
+    prelude::{Simple, filter, just},
+    text::whitespace,
 };
 
 #[cfg(feature = "chumsky")]
 use crate::utils::{
-    f32_parser, i16_parser, i32_parser, u16_parser, u8_parser, url_text_component_parser,
+    f32_parser, i16_parser, i32_parser, u8_parser, u16_parser, url_text_component_parser,
 };
 
 /// represents a Second Life distance in meters
@@ -23,114 +23,98 @@ impl std::fmt::Display for Distance {
 }
 
 impl std::ops::Add for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Distance(self.0 + rhs.0)
+        Self(self.0 + rhs.0)
     }
 }
 
 impl std::ops::Sub for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Distance(self.0 - rhs.0)
+        Self(self.0 - rhs.0)
     }
 }
 
 impl std::ops::Mul<u8> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn mul(self, rhs: u8) -> Self::Output {
-        Distance(self.0 * rhs as f64)
+        Self(self.0 * f64::from(rhs))
     }
 }
 
 impl std::ops::Mul<u16> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn mul(self, rhs: u16) -> Self::Output {
-        Distance(self.0 * rhs as f64)
+        Self(self.0 * f64::from(rhs))
     }
 }
 
 impl std::ops::Mul<u32> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn mul(self, rhs: u32) -> Self::Output {
-        Distance(self.0 * rhs as f64)
-    }
-}
-
-impl std::ops::Mul<u64> for Distance {
-    type Output = Distance;
-
-    fn mul(self, rhs: u64) -> Self::Output {
-        Distance(self.0 * rhs as f64)
+        Self(self.0 * f64::from(rhs))
     }
 }
 
 impl std::ops::Mul<f32> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn mul(self, rhs: f32) -> Self::Output {
-        Distance(self.0 * rhs as f64)
+        Self(self.0 * f64::from(rhs))
     }
 }
 
 impl std::ops::Mul<f64> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn mul(self, rhs: f64) -> Self::Output {
-        Distance(self.0 * rhs)
+        Self(self.0 * rhs)
     }
 }
 
 impl std::ops::Div<u8> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn div(self, rhs: u8) -> Self::Output {
-        Distance(self.0 / rhs as f64)
+        Self(self.0 / f64::from(rhs))
     }
 }
 
 impl std::ops::Div<u16> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn div(self, rhs: u16) -> Self::Output {
-        Distance(self.0 / rhs as f64)
+        Self(self.0 / f64::from(rhs))
     }
 }
 
 impl std::ops::Div<u32> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn div(self, rhs: u32) -> Self::Output {
-        Distance(self.0 / rhs as f64)
-    }
-}
-
-impl std::ops::Div<u64> for Distance {
-    type Output = Distance;
-
-    fn div(self, rhs: u64) -> Self::Output {
-        Distance(self.0 / rhs as f64)
+        Self(self.0 / f64::from(rhs))
     }
 }
 
 impl std::ops::Div<f32> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn div(self, rhs: f32) -> Self::Output {
-        Distance(self.0 / rhs as f64)
+        Self(self.0 / f64::from(rhs))
     }
 }
 
 impl std::ops::Div<f64> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn div(self, rhs: f64) -> Self::Output {
-        Distance(self.0 / rhs)
+        Self(self.0 / rhs)
     }
 }
 
@@ -143,50 +127,42 @@ impl std::ops::Div for Distance {
 }
 
 impl std::ops::Rem<u8> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn rem(self, rhs: u8) -> Self::Output {
-        Distance(self.0 % rhs as f64)
+        Self(self.0 % f64::from(rhs))
     }
 }
 
 impl std::ops::Rem<u16> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn rem(self, rhs: u16) -> Self::Output {
-        Distance(self.0 % rhs as f64)
+        Self(self.0 % f64::from(rhs))
     }
 }
 
 impl std::ops::Rem<u32> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn rem(self, rhs: u32) -> Self::Output {
-        Distance(self.0 % rhs as f64)
-    }
-}
-
-impl std::ops::Rem<u64> for Distance {
-    type Output = Distance;
-
-    fn rem(self, rhs: u64) -> Self::Output {
-        Distance(self.0 % rhs as f64)
+        Self(self.0 % f64::from(rhs))
     }
 }
 
 impl std::ops::Rem<f32> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn rem(self, rhs: f32) -> Self::Output {
-        Distance(self.0 % rhs as f64)
+        Self(self.0 % f64::from(rhs))
     }
 }
 
 impl std::ops::Rem<f64> for Distance {
-    type Output = Distance;
+    type Output = Self;
 
     fn rem(self, rhs: f64) -> Self::Output {
-        Distance(self.0 % rhs)
+        Self(self.0 % rhs)
     }
 }
 
@@ -228,19 +204,19 @@ pub struct GridCoordinates {
 impl GridCoordinates {
     /// Create a new `GridCoordinates`
     #[must_use]
-    pub fn new(x: u16, y: u16) -> Self {
-        GridCoordinates { x, y }
+    pub const fn new(x: u16, y: u16) -> Self {
+        Self { x, y }
     }
 
     /// The x coordinate of the region
     #[must_use]
-    pub fn x(&self) -> u16 {
+    pub const fn x(&self) -> u16 {
         self.x
     }
 
     /// The y coordinate of the region
     #[must_use]
-    pub fn y(&self) -> u16 {
+    pub const fn y(&self) -> u16 {
         self.y
     }
 }
@@ -257,41 +233,45 @@ pub struct GridCoordinateOffset {
 impl GridCoordinateOffset {
     /// creates a new `GridCoordinateOffset`
     #[must_use]
-    pub fn new(x: i32, y: i32) -> Self {
+    pub const fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
 
     /// the offset in the x direction
     #[must_use]
-    pub fn x(&self) -> i32 {
+    pub const fn x(&self) -> i32 {
         self.x
     }
 
     /// the offset in the y direction
     #[must_use]
-    pub fn y(&self) -> i32 {
+    pub const fn y(&self) -> i32 {
         self.y
     }
 }
 
 impl std::ops::Add<GridCoordinateOffset> for GridCoordinates {
-    type Output = GridCoordinates;
+    type Output = Self;
 
     fn add(self, rhs: GridCoordinateOffset) -> Self::Output {
-        GridCoordinates::new(
-            (<u16 as Into<i32>>::into(self.x) + rhs.x) as u16,
-            (<u16 as Into<i32>>::into(self.y) + rhs.y) as u16,
+        Self::new(
+            (<u16 as Into<i32>>::into(self.x).saturating_add(rhs.x))
+                .try_into()
+                .unwrap_or(if rhs.x > 0 { u16::MAX } else { u16::MIN }),
+            (<u16 as Into<i32>>::into(self.y).saturating_add(rhs.y))
+                .try_into()
+                .unwrap_or(if rhs.y > 0 { u16::MAX } else { u16::MIN }),
         )
     }
 }
 
-impl std::ops::Sub<GridCoordinates> for GridCoordinates {
+impl std::ops::Sub<Self> for GridCoordinates {
     type Output = GridCoordinateOffset;
 
     fn sub(self, rhs: Self) -> Self::Output {
         GridCoordinateOffset::new(
-            <u16 as Into<i32>>::into(self.x) - <u16 as Into<i32>>::into(rhs.x),
-            <u16 as Into<i32>>::into(self.y) - <u16 as Into<i32>>::into(rhs.y),
+            <u16 as Into<i32>>::into(self.x).saturating_sub(<u16 as Into<i32>>::into(rhs.x)),
+            <u16 as Into<i32>>::into(self.y).saturating_sub(<u16 as Into<i32>>::into(rhs.y)),
         )
     }
 }
@@ -310,7 +290,7 @@ impl GridRectangle {
     /// creates a new `GridRectangle` given any two corners
     #[must_use]
     pub fn new(corner1: GridCoordinates, corner2: GridCoordinates) -> Self {
-        GridRectangle {
+        Self {
             lower_left_corner: GridCoordinates::new(
                 corner1.x().min(corner2.x()),
                 corner1.y().min(corner2.y()),
@@ -412,7 +392,7 @@ pub trait GridRectangleLike {
                 ranges::OperationResult::Single(y_range),
             ) => {
                 use std::ops::Bound;
-                use std::ops::RangeBounds;
+                use std::ops::RangeBounds as _;
                 match (
                     x_range.start_bound(),
                     x_range.end_bound(),
@@ -447,16 +427,16 @@ pub trait GridRectangleLike {
     /// calibration.
     #[must_use]
     fn pps_hud_config(&self) -> String {
-        let lower_left_corner_x = 256f32 * self.lower_left_corner().x() as f32;
-        let lower_left_corner_y = 256f32 * self.lower_left_corner().y() as f32;
+        let lower_left_corner_x = 256f32 * f32::from(self.lower_left_corner().x());
+        let lower_left_corner_y = 256f32 * f32::from(self.lower_left_corner().y());
         // this is basically the lower left corner as an LSL vector of meters from the grid coordinate origin
         // followed by the width and height of the map in regions
         // and a 0/1 for the locked state of the HUD
         // each of those is separated from the next by a slash character
         format!(
             "<{lower_left_corner_x},{lower_left_corner_y},0>/{}/{}/1",
-            self.size_x() as f32,
-            self.size_y() as f32
+            f32::from(self.size_x()),
+            f32::from(self.size_y())
         )
     }
 }
@@ -475,11 +455,17 @@ impl GridRectangleLike for GridRectangle {
     }
 
     fn size_x(&self) -> u16 {
-        self.upper_right_corner.x() - self.lower_left_corner().x() + 1
+        self.upper_right_corner
+            .x()
+            .saturating_sub(self.lower_left_corner().x())
+            .saturating_add(1)
     }
 
     fn size_y(&self) -> u16 {
-        self.upper_right_corner.y() - self.lower_left_corner().y() + 1
+        self.upper_right_corner
+            .y()
+            .saturating_sub(self.lower_left_corner().y())
+            .saturating_add(1)
     }
 
     fn x_range(&self) -> std::ops::RangeInclusive<u16> {
@@ -496,8 +482,14 @@ impl GridRectangleLike for MapTileDescriptor {
         GridRectangle::new(
             self.lower_left_corner,
             GridCoordinates::new(
-                self.lower_left_corner.x() + self.zoom_level.tile_size() - 1,
-                self.lower_left_corner.y() + self.zoom_level.tile_size() - 1,
+                self.lower_left_corner
+                    .x()
+                    .saturating_add(self.zoom_level.tile_size())
+                    .saturating_sub(1),
+                self.lower_left_corner
+                    .y()
+                    .saturating_add(self.zoom_level.tile_size())
+                    .saturating_sub(1),
             ),
         )
     }
@@ -520,9 +512,15 @@ impl GridCoordinatesExt for Vec<GridCoordinates> {
         }
         let (xs, ys): (Vec<u16>, Vec<u16>) = self.iter().map(|gc| (gc.x(), gc.y())).unzip();
         // unwrap is okay in these cases because we checked above that the container is non-empty
-        #[allow(clippy::unwrap_used)]
+        #[expect(
+            clippy::unwrap_used,
+            reason = "we checked above that the container is non-empty"
+        )]
         let (min_x, max_x) = (xs.iter().min().unwrap(), xs.iter().max().unwrap());
-        #[allow(clippy::unwrap_used)]
+        #[expect(
+            clippy::unwrap_used,
+            reason = "we checked above that the container is non-empty"
+        )]
         let (min_y, max_y) = (ys.iter().min().unwrap(), ys.iter().max().unwrap());
         Some(GridRectangle {
             lower_left_corner: GridCoordinates::new(*min_x, *min_y),
@@ -562,8 +560,6 @@ pub struct RegionCoordinates {
 #[cfg(feature = "chumsky")]
 #[must_use]
 pub fn region_coordinates_parser() -> impl Parser<char, RegionCoordinates, Error = Simple<char>> {
-    use chumsky::text::whitespace;
-
     just('{')
         .ignore_then(whitespace().or_not())
         .ignore_then(f32_parser())
@@ -581,25 +577,25 @@ pub fn region_coordinates_parser() -> impl Parser<char, RegionCoordinates, Error
 impl RegionCoordinates {
     /// Create a new `RegionCoordinates`
     #[must_use]
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        RegionCoordinates { x, y, z }
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { x, y, z }
     }
 
     /// The x coordinate inside the region
     #[must_use]
-    pub fn x(&self) -> f32 {
+    pub const fn x(&self) -> f32 {
         self.x
     }
 
     /// The y coordinate inside the region
     #[must_use]
-    pub fn y(&self) -> f32 {
+    pub const fn y(&self) -> f32 {
         self.y
     }
 
     /// The z coordinate inside the region
     #[must_use]
-    pub fn z(&self) -> f32 {
+    pub const fn z(&self) -> f32 {
         self.z
     }
 
@@ -742,7 +738,7 @@ pub fn url_encoded_location_parser() -> impl Parser<char, Location, Error = Simp
         location_parser().parse(s.clone()).map_err(|err| {
             Simple::custom(
                 span,
-                format!("Parsing {} as location failed with: {:#?}", s, err),
+                format!("Parsing {s} as location failed with: {err:#?}"),
             )
         })
     })
@@ -752,16 +748,22 @@ pub fn url_encoded_location_parser() -> impl Parser<char, Location, Error = Simp
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, strum::EnumIs)]
 pub enum LocationParseError {
     /// unexpected number of /-separated components in the location URL
-    #[error("unexpected number of /-separated components in the location URL {0}, found {1} expected 4 (for a bare location) or 8 (for a URL)")]
+    #[error(
+        "unexpected number of /-separated components in the location URL {0}, found {1} expected 4 (for a bare location) or 8 (for a URL)"
+    )]
     UnexpectedComponentCount(String, usize),
     /// unexpected scheme in the location URL
     #[error("unexpected scheme in the location URL {0}, found {1}, expected http: or https:")]
     UnexpectedScheme(String, String),
     /// unexpected non-empty second component in location URL
-    #[error("unexpected non-empty second component in location URL {0}, found {1}, expected http or https")]
+    #[error(
+        "unexpected non-empty second component in location URL {0}, found {1}, expected http or https"
+    )]
     UnexpectedNonEmptySecondComponent(String, String),
     /// unexpected host in the location URL
-    #[error("unexpected host in the location URL {0}, found {1}, expected maps.secondlife.com or slurl.com")]
+    #[error(
+        "unexpected host in the location URL {0}, found {1}, expected maps.secondlife.com or slurl.com"
+    )]
     UnexpectedHost(String, String),
     /// unexpected path in the location URL
     #[error("unexpected path in the location URL {0}, found {1}, expected secondlife")]
@@ -785,64 +787,66 @@ impl std::str::FromStr for Location {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // if the string is an USB-notecard line drop everything after the first comma
-        let usb_parts = s.split(',').collect::<Vec<_>>();
-        let parts = usb_parts[0].split('/').collect::<Vec<_>>();
-        if parts.len() == 4 {
-            let region_name = RegionName::try_new(parts[0].replace("%20", " "))
+        let usb_location = s
+            .split_once(',')
+            .map_or(s, |(usb_location, _usb_comment)| usb_location);
+        let parts = usb_location.split('/').collect::<Vec<_>>();
+        if let [region_name, x, y, z] = parts.as_slice() {
+            let region_name = RegionName::try_new(region_name.replace("%20", " "))
                 .map_err(|err| LocationParseError::RegionName(s.to_owned(), err))?;
-            let x = parts[1]
+            let x = x
                 .parse()
                 .map_err(|err| LocationParseError::X(s.to_owned(), err))?;
-            let y = parts[2]
+            let y = y
                 .parse()
                 .map_err(|err| LocationParseError::Y(s.to_owned(), err))?;
-            let z = parts[3]
+            let z = z
                 .parse()
                 .map_err(|err| LocationParseError::Z(s.to_owned(), err))?;
-            return Ok(Location {
+            return Ok(Self {
                 region_name,
                 x,
                 y,
                 z,
             });
         }
-        if parts.len() == 8 {
-            if parts[0] != "http:" && parts[0] != "https:" {
+        if let [scheme, second_component, host, path, region_name, x, y, z] = parts.as_slice() {
+            if *scheme != "http:" && *scheme != "https:" {
                 return Err(LocationParseError::UnexpectedScheme(
                     s.to_owned(),
-                    parts[0].to_owned(),
+                    scheme.to_string(),
                 ));
             }
-            if !parts[1].is_empty() {
+            if !second_component.is_empty() {
                 return Err(LocationParseError::UnexpectedNonEmptySecondComponent(
                     s.to_owned(),
-                    parts[1].to_owned(),
+                    second_component.to_string(),
                 ));
             }
-            if parts[2] != "maps.secondlife.com" && parts[2] != "slurl.com" {
+            if *host != "maps.secondlife.com" && *host != "slurl.com" {
                 return Err(LocationParseError::UnexpectedHost(
                     s.to_owned(),
-                    parts[2].to_owned(),
+                    host.to_string(),
                 ));
             }
-            if parts[3] != "secondlife" {
+            if *path != "secondlife" {
                 return Err(LocationParseError::UnexpectedPath(
                     s.to_owned(),
-                    parts[3].to_owned(),
+                    path.to_string(),
                 ));
             }
-            let region_name = RegionName::try_new(parts[4].replace("%20", " "))
+            let region_name = RegionName::try_new(region_name.replace("%20", " "))
                 .map_err(|err| LocationParseError::RegionName(s.to_owned(), err))?;
-            let x = parts[5]
+            let x = x
                 .parse()
                 .map_err(|err| LocationParseError::X(s.to_owned(), err))?;
-            let y = parts[6]
+            let y = y
                 .parse()
                 .map_err(|err| LocationParseError::Y(s.to_owned(), err))?;
-            let z = parts[7]
+            let z = z
                 .parse()
                 .map_err(|err| LocationParseError::Z(s.to_owned(), err))?;
-            return Ok(Location {
+            return Ok(Self {
                 region_name,
                 x,
                 y,
@@ -859,8 +863,8 @@ impl std::str::FromStr for Location {
 impl Location {
     /// Creates a new `Location`
     #[must_use]
-    pub fn new(region_name: RegionName, x: u8, y: u8, z: u16) -> Self {
-        Location {
+    pub const fn new(region_name: RegionName, x: u8, y: u8, z: u16) -> Self {
+        Self {
             region_name,
             x,
             y,
@@ -870,25 +874,25 @@ impl Location {
 
     /// The region name of this `Location`
     #[must_use]
-    pub fn region_name(&self) -> &RegionName {
+    pub const fn region_name(&self) -> &RegionName {
         &self.region_name
     }
 
     /// The x coordinate of the `Location`
     #[must_use]
-    pub fn x(&self) -> u8 {
+    pub const fn x(&self) -> u8 {
         self.x
     }
 
     /// The y coordinate of the `Location`
     #[must_use]
-    pub fn y(&self) -> u8 {
+    pub const fn y(&self) -> u8 {
         self.y
     }
 
     /// The z coordinate of the `Location`
     #[must_use]
-    pub fn z(&self) -> u16 {
+    pub const fn z(&self) -> u16 {
         self.z
     }
 
@@ -921,8 +925,8 @@ pub struct UnconstrainedLocation {
 impl UnconstrainedLocation {
     /// Creates a new `UnconstrainedLocation`
     #[must_use]
-    pub fn new(region_name: RegionName, x: i16, y: i16, z: i32) -> Self {
-        UnconstrainedLocation {
+    pub const fn new(region_name: RegionName, x: i16, y: i16, z: i32) -> Self {
+        Self {
             region_name,
             x,
             y,
@@ -932,25 +936,25 @@ impl UnconstrainedLocation {
 
     /// The region name of this `UnconstrainedLocation`
     #[must_use]
-    pub fn region_name(&self) -> &RegionName {
+    pub const fn region_name(&self) -> &RegionName {
         &self.region_name
     }
 
     /// The x coordinate of the `UnconstrainedLocation`
     #[must_use]
-    pub fn x(&self) -> i16 {
+    pub const fn x(&self) -> i16 {
         self.x
     }
 
     /// The y coordinate of the `UnconstrainedLocation`
     #[must_use]
-    pub fn y(&self) -> i16 {
+    pub const fn y(&self) -> i16 {
         self.y
     }
 
     /// The z coordinate of the `UnconstrainedLocation`
     #[must_use]
-    pub fn z(&self) -> i32 {
+    pub const fn z(&self) -> i32 {
         self.z
     }
 }
@@ -962,8 +966,8 @@ impl UnconstrainedLocation {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn unconstrained_location_parser(
-) -> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
+pub fn unconstrained_location_parser()
+-> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
     region_name_parser()
         .then_ignore(just('/'))
         .then(i16_parser())
@@ -982,8 +986,8 @@ pub fn unconstrained_location_parser(
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn url_unconstrained_location_parser(
-) -> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
+pub fn url_unconstrained_location_parser()
+-> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
     url_region_name_parser()
         .then_ignore(just('/'))
         .then(i16_parser())
@@ -1002,8 +1006,8 @@ pub fn url_unconstrained_location_parser(
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn urlencoded_unconstrained_location_parser(
-) -> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
+pub fn urlencoded_unconstrained_location_parser()
+-> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
     url_region_name_parser()
         .then_ignore(just('/'))
         .then(i16_parser())
@@ -1018,7 +1022,7 @@ impl TryFrom<UnconstrainedLocation> for Location {
     type Error = std::num::TryFromIntError;
 
     fn try_from(value: UnconstrainedLocation) -> Result<Self, Self::Error> {
-        Ok(Location::new(
+        Ok(Self::new(
             value.region_name,
             value.x.try_into()?,
             value.y.try_into()?,
@@ -1029,7 +1033,7 @@ impl TryFrom<UnconstrainedLocation> for Location {
 
 impl From<Location> for UnconstrainedLocation {
     fn from(value: Location) -> Self {
-        UnconstrainedLocation {
+        Self {
             region_name: value.region_name,
             x: value.x.into(),
             y: value.y.into(),
@@ -1078,6 +1082,10 @@ pub enum ZoomFitError {
     #[error("output image size in y direction can not be zero")]
     OutputSizeYZero,
 
+    /// Error converting a logarithm value into a `u8` (should never happen)
+    #[error("error converting a logarithm value into a u8")]
+    LogarithmConversionError(#[from] std::num::TryFromIntError),
+
     /// Error creating the zoom level from the calculated value
     /// (should never happen)
     #[error("error creating zoom level from calculated value")]
@@ -1092,7 +1100,7 @@ impl ZoomLevel {
     #[must_use]
     pub fn tile_size(&self) -> u16 {
         let exponent: u32 = self.into_inner().into();
-        let exponent = exponent - 1;
+        let exponent = exponent.saturating_sub(1);
         2u16.pow(exponent)
     }
 
@@ -1100,6 +1108,10 @@ impl ZoomLevel {
     ///
     /// This applies to both dimensions equally since both regions and map tiles
     /// are square
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "both values we multiply here are u16 originally so their product should never overflow an u32"
+    )]
     #[must_use]
     pub fn tile_size_in_pixels(&self) -> u32 {
         let tile_size: u32 = self.tile_size().into();
@@ -1116,9 +1128,13 @@ impl ZoomLevel {
     #[must_use]
     pub fn map_tile_corner(&self, GridCoordinates { x, y }: &GridCoordinates) -> GridCoordinates {
         let tile_size = self.tile_size();
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "remainder should not have any side-effects since tile_size is never 0 (no division by zero issues) or negative (no issues with x or y being e.g. i16::MIN which overflows when the sign is flipped)"
+        )]
         GridCoordinates {
-            x: x - (x % tile_size),
-            y: y - (y % tile_size),
+            x: x.saturating_sub(x % tile_size),
+            y: y.saturating_sub(y % tile_size),
         }
     }
 
@@ -1129,15 +1145,15 @@ impl ZoomLevel {
     #[must_use]
     pub fn pixels_per_region(&self) -> u16 {
         let exponent: u32 = self.into_inner().into();
-        let exponent = exponent - 1;
-        let exponent = 8 - exponent;
+        let exponent = exponent.saturating_sub(1);
+        let exponent = 8u32.saturating_sub(exponent);
         2u16.pow(exponent)
     }
 
     /// returns the number of pixels per meter at this zoom level
     #[must_use]
     pub fn pixels_per_meter(&self) -> f32 {
-        self.pixels_per_region() as f32 / 256f32
+        f32::from(self.pixels_per_region()) / 256f32
     }
 
     /// returns the zoom level that is the highest zoom level that makes sense
@@ -1149,13 +1165,12 @@ impl ZoomLevel {
     /// returns an error if any of the parameters are zero or in the (theoretically
     /// impossible if the algorithm is correct) case that ZoomLevel::try_new()
     /// returns an error on the calculated value
-    #[allow(clippy::missing_panics_doc)]
     pub fn max_zoom_level_to_fit_regions_into_output_image(
         region_x: u16,
         region_y: u16,
         output_x: u32,
         output_y: u32,
-    ) -> Result<ZoomLevel, ZoomFitError> {
+    ) -> Result<Self, ZoomFitError> {
         if region_x == 0 {
             return Err(ZoomFitError::RegionSizeXZero);
         }
@@ -1170,23 +1185,21 @@ impl ZoomLevel {
         }
         let output_pixels_per_region_x: u32 = output_x.div_ceil(region_x.into());
         let output_pixels_per_region_y: u32 = output_y.div_ceil(region_y.into());
-        #[allow(clippy::expect_used)]
-        let max_zoom_level_x: u8 = 9 - std::cmp::min(
+        let max_zoom_level_x: u8 = 9u8.saturating_sub(std::cmp::min(
             8,
             output_pixels_per_region_x
                 .ilog2()
                 .try_into()
-                .expect("Logarithm of a u32 should always fit in a u8"),
-        );
-        #[allow(clippy::expect_used)]
-        let max_zoom_level_y: u8 = 9 - std::cmp::min(
+                .map_err(ZoomFitError::LogarithmConversionError)?,
+        ));
+        let max_zoom_level_y: u8 = 9u8.saturating_sub(std::cmp::min(
             8,
             output_pixels_per_region_y
                 .ilog2()
                 .try_into()
-                .expect("Logarithm of a u32 should always fit in a u8"),
-        );
-        Ok(ZoomLevel::try_new(std::cmp::max(
+                .map_err(ZoomFitError::LogarithmConversionError)?,
+        ));
+        Ok(Self::try_new(std::cmp::max(
             max_zoom_level_x,
             max_zoom_level_y,
         ))?)
@@ -1195,6 +1208,10 @@ impl ZoomLevel {
 
 /// describes a map tile
 #[derive(Debug, Clone, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is used outside this module"
+)]
 pub struct MapTileDescriptor {
     /// the zoom level of the map tile
     zoom_level: ZoomLevel,
@@ -1210,7 +1227,7 @@ impl MapTileDescriptor {
     #[must_use]
     pub fn new(zoom_level: ZoomLevel, grid_coordinates: GridCoordinates) -> Self {
         let lower_left_corner = zoom_level.map_tile_corner(&grid_coordinates);
-        MapTileDescriptor {
+        Self {
             zoom_level,
             lower_left_corner,
         }
@@ -1218,13 +1235,13 @@ impl MapTileDescriptor {
 
     /// the `ZoomLevel` of the map tile
     #[must_use]
-    pub fn zoom_level(&self) -> &ZoomLevel {
+    pub const fn zoom_level(&self) -> &ZoomLevel {
         &self.zoom_level
     }
 
     /// the `GridCoordinates` of the lower left corner of this map tile
     #[must_use]
-    pub fn lower_left_corner(&self) -> &GridCoordinates {
+    pub const fn lower_left_corner(&self) -> &GridCoordinates {
         &self.lower_left_corner
     }
 
@@ -1246,8 +1263,14 @@ impl MapTileDescriptor {
         GridRectangle::new(
             self.lower_left_corner,
             GridCoordinates::new(
-                self.lower_left_corner.x() + self.zoom_level.tile_size() - 1,
-                self.lower_left_corner.y() + self.zoom_level.tile_size() - 1,
+                self.lower_left_corner
+                    .x()
+                    .saturating_add(self.zoom_level.tile_size())
+                    .saturating_sub(1),
+                self.lower_left_corner
+                    .y()
+                    .saturating_add(self.zoom_level.tile_size())
+                    .saturating_sub(1),
             ),
         )
     }
@@ -1265,13 +1288,13 @@ pub struct USBWaypoint {
 impl USBWaypoint {
     /// Create a new USB waypoint
     #[must_use]
-    pub fn new(location: Location, comment: Option<String>) -> Self {
+    pub const fn new(location: Location, comment: Option<String>) -> Self {
         Self { location, comment }
     }
 
     /// get the location of the waypoint
     #[must_use]
-    pub fn location(&self) -> &Location {
+    pub const fn location(&self) -> &Location {
         &self.location
     }
 
@@ -1279,15 +1302,15 @@ impl USBWaypoint {
     #[must_use]
     pub fn region_coordinates(&self) -> RegionCoordinates {
         RegionCoordinates::new(
-            self.location.x() as f32,
-            self.location.y() as f32,
-            self.location.z() as f32,
+            f32::from(self.location.x()),
+            f32::from(self.location.y()),
+            f32::from(self.location.z()),
         )
     }
 
     /// get the comment for the waypoint if any
     #[must_use]
-    pub fn comment(&self) -> Option<&String> {
+    pub const fn comment(&self) -> Option<&String> {
         self.comment.as_ref()
     }
 }
@@ -1296,7 +1319,7 @@ impl std::fmt::Display for USBWaypoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.location.as_maps_url())?;
         if let Some(comment) = &self.comment {
-            write!(f, ",{}", comment)?;
+            write!(f, ",{comment}")?;
         }
         Ok(())
     }
@@ -1341,7 +1364,7 @@ pub enum USBNotecardLoadError {
 impl USBNotecard {
     /// Create a new USB notecard
     #[must_use]
-    pub fn new(waypoints: Vec<USBWaypoint>) -> Self {
+    pub const fn new(waypoints: Vec<USBWaypoint>) -> Self {
         Self { waypoints }
     }
 
@@ -1366,7 +1389,7 @@ impl USBNotecard {
 impl std::fmt::Display for USBNotecard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for waypoint in &self.waypoints {
-            writeln!(f, "{}", waypoint)?;
+            writeln!(f, "{waypoint}")?;
         }
         Ok(())
     }
@@ -1379,7 +1402,7 @@ impl std::str::FromStr for USBNotecard {
         s.lines()
             .map(|line| line.parse::<USBWaypoint>())
             .collect::<Result<Vec<_>, _>>()
-            .map(|waypoints| USBNotecard { waypoints })
+            .map(|waypoints| Self { waypoints })
     }
 }
 
@@ -1445,8 +1468,8 @@ mod test {
     }
 
     #[test]
-    fn test_grid_rectangle_intersection_upper_right_corner(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn test_grid_rectangle_intersection_upper_right_corner()
+    -> Result<(), Box<dyn std::error::Error>> {
         let rect1 = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
         let rect2 = GridRectangle::new(GridCoordinates::new(15, 15), GridCoordinates::new(25, 25));
         assert_eq!(
@@ -1490,8 +1513,8 @@ mod test {
     }
 
     #[test]
-    fn test_grid_rectangle_intersection_lower_right_corner(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn test_grid_rectangle_intersection_lower_right_corner()
+    -> Result<(), Box<dyn std::error::Error>> {
         let rect1 = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
         let rect2 = GridRectangle::new(GridCoordinates::new(15, 5), GridCoordinates::new(25, 15));
         assert_eq!(
@@ -1528,7 +1551,7 @@ mod test {
     fn test_url_region_name_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Da Boom";
         assert_eq!(
-            url_region_name_parser().parse(region_name.replace(" ", "%20")),
+            url_region_name_parser().parse(region_name.replace(' ', "%20")),
             Ok(RegionName::try_new(region_name)?)
         );
         Ok(())
@@ -1550,7 +1573,7 @@ mod test {
     fn test_url_location_parser_no_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Viterbo";
         assert_eq!(
-            url_location_parser().parse(format!("{}/1/2/300", region_name)),
+            url_location_parser().parse(format!("{region_name}/1/2/300")),
             Ok(Location {
                 region_name: RegionName::try_new(region_name)?,
                 x: 1,
@@ -1566,7 +1589,7 @@ mod test {
     fn test_url_location_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Da Boom";
         assert_eq!(
-            url_location_parser().parse(format!("{}/1/2/300", region_name.replace(" ", "%20"))),
+            url_location_parser().parse(format!("{}/1/2/300", region_name.replace(' ', "%20"))),
             Ok(Location {
                 region_name: RegionName::try_new(region_name)?,
                 x: 1,
@@ -1579,11 +1602,11 @@ mod test {
 
     #[cfg(feature = "chumsky")]
     #[test]
-    fn test_url_location_parser_url_whitespace_single_digit_after_space(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn test_url_location_parser_url_whitespace_single_digit_after_space()
+    -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Foo Bar 3";
         assert_eq!(
-            url_location_parser().parse(format!("{}/1/2/300", region_name.replace(" ", "%20"))),
+            url_location_parser().parse(format!("{}/1/2/300", region_name.replace(' ', "%20"))),
             Ok(Location {
                 region_name: RegionName::try_new(region_name)?,
                 x: 1,

@@ -2,12 +2,16 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    prelude::{just, Simple},
     Parser,
+    prelude::{Simple, just},
 };
 
 /// Search categories
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, strum::EnumIs)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is used outside this module"
+)]
 pub enum SearchCategory {
     /// search in all categories
     All,
@@ -34,6 +38,10 @@ pub enum SearchCategory {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the parser is used outside this module"
+)]
 pub fn search_category_parser() -> impl Parser<char, SearchCategory, Error = Simple<char>> {
     just("all")
         .to(SearchCategory::All)
@@ -49,20 +57,24 @@ pub fn search_category_parser() -> impl Parser<char, SearchCategory, Error = Sim
 impl std::fmt::Display for SearchCategory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SearchCategory::All => write!(f, "all"),
-            SearchCategory::People => write!(f, "people"),
-            SearchCategory::Places => write!(f, "places"),
-            SearchCategory::Events => write!(f, "events"),
-            SearchCategory::Groups => write!(f, "groups"),
-            SearchCategory::Wiki => write!(f, "wiki"),
-            SearchCategory::Destinations => write!(f, "destinations"),
-            SearchCategory::Classifieds => write!(f, "classifieds"),
+            Self::All => write!(f, "all"),
+            Self::People => write!(f, "people"),
+            Self::Places => write!(f, "places"),
+            Self::Events => write!(f, "events"),
+            Self::Groups => write!(f, "groups"),
+            Self::Wiki => write!(f, "wiki"),
+            Self::Destinations => write!(f, "destinations"),
+            Self::Classifieds => write!(f, "classifieds"),
         }
     }
 }
 
 /// Error deserializing SearchCategory from String
 #[derive(Debug, Clone)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is used outside this module"
+)]
 pub struct SearchCategoryParseError {
     /// the value that could not be parsed
     value: String,

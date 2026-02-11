@@ -1,10 +1,14 @@
 //! Types related to SL chat
 
 #[cfg(feature = "chumsky")]
-use chumsky::{prelude::Simple, text::digits, Parser};
+use chumsky::{Parser, prelude::Simple, text::digits};
 
 /// represents a Second Life chat channel
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "this type is used outside of this module"
+)]
 pub struct ChatChannel(pub i32);
 
 /// parse a chat channel
@@ -14,11 +18,15 @@ pub struct ChatChannel(pub i32);
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "this parser is used outside of this module"
+)]
 pub fn chat_channel_parser() -> impl Parser<char, ChatChannel, Error = Simple<char>> {
     digits(10).try_map(|d: <char as chumsky::text::Character>::Collection, span| {
         let d: i32 = d
             .parse()
-            .map_err(|e| Simple::custom(span, format!("{:?}", e)))?;
+            .map_err(|e| Simple::custom(span, format!("{e:?}")))?;
         Ok(ChatChannel(d))
     })
 }
@@ -41,13 +49,17 @@ impl std::str::FromStr for ChatChannel {
 pub const PUBLIC_CHANNEL: ChatChannel = ChatChannel(0);
 
 /// the combat log event chat channel on Second Life
-pub const COMBAT_CHANNEL: ChatChannel = ChatChannel(0x7FFFFFFE);
+pub const COMBAT_CHANNEL: ChatChannel = ChatChannel(0x7FFF_FFFE);
 
 /// the script debug chat channel on Second Life
-pub const DEBUG_CHANNEL: ChatChannel = ChatChannel(0x7FFFFFFF);
+pub const DEBUG_CHANNEL: ChatChannel = ChatChannel(0x7FFF_FFFF);
 
 /// represents a Second Life chat volume
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, strum::EnumIs)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "this type is used outside of this module"
+)]
 pub enum ChatVolume {
     /// whisper (10m)
     Whisper,
@@ -62,13 +74,13 @@ pub enum ChatVolume {
 impl ChatVolume {
     /// identify the chat volume of a message and strip it off the message
     #[must_use]
-    pub fn volume_and_message(s: String) -> (ChatVolume, String) {
+    pub fn volume_and_message(s: String) -> (Self, String) {
         if let Some(whisper_message) = s.strip_prefix("whispers: ") {
-            (ChatVolume::Whisper, whisper_message.to_string())
+            (Self::Whisper, whisper_message.to_string())
         } else if let Some(shout_message) = s.strip_prefix("shouts: ") {
-            (ChatVolume::Shout, shout_message.to_string())
+            (Self::Shout, shout_message.to_string())
         } else {
-            (ChatVolume::Say, s)
+            (Self::Say, s)
         }
     }
 }

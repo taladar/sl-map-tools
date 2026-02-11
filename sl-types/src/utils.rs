@@ -2,9 +2,9 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    prelude::{filter, just, one_of, Simple},
-    text::digits,
     Parser,
+    prelude::{Simple, filter, just, one_of},
+    text::digits,
 };
 
 /// parse some text in a URL component and URL decode it
@@ -25,7 +25,7 @@ pub fn url_text_component_parser() -> impl Parser<char, String, Error = Simple<c
         percent_encoding::percent_decode(s.as_bytes())
             .decode_utf8()
             .map(|s| s.into_owned())
-            .map_err(|e| Simple::custom(span, format!("{:?}", e)))
+            .map_err(|e| Simple::custom(span, format!("{e:?}")))
     })
 }
 
@@ -38,9 +38,8 @@ pub fn url_text_component_parser() -> impl Parser<char, String, Error = Simple<c
 #[must_use]
 pub fn usize_parser() -> impl Parser<char, usize, Error = Simple<char>> {
     digits(10).try_map(|c: String, span| {
-        c.parse().map_err(|err| {
-            Simple::custom(span, format!("failed to parse {} as usize: {:?}", c, err))
-        })
+        c.parse()
+            .map_err(|err| Simple::custom(span, format!("failed to parse {c} as usize: {err:?}")))
     })
 }
 
@@ -57,12 +56,12 @@ pub fn isize_parser() -> impl Parser<char, isize, Error = Simple<char>> {
         .then(digits(10))
         .try_map(|(sign, c): (Option<char>, String), span| {
             let c = if let Some(sign) = sign {
-                format!("{}{}", sign, c)
+                format!("{sign}{c}")
             } else {
                 c
             };
             c.parse().map_err(|err| {
-                Simple::custom(span, format!("failed to parse {} as isize: {:?}", c, err))
+                Simple::custom(span, format!("failed to parse {c} as isize: {err:?}"))
             })
         })
 }
@@ -77,7 +76,7 @@ pub fn isize_parser() -> impl Parser<char, isize, Error = Simple<char>> {
 pub fn u8_parser() -> impl Parser<char, u8, Error = Simple<char>> {
     digits(10).try_map(|c: String, span| {
         c.parse()
-            .map_err(|err| Simple::custom(span, format!("failed to parse {} as u8: {:?}", c, err)))
+            .map_err(|err| Simple::custom(span, format!("failed to parse {c} as u8: {err:?}")))
     })
 }
 
@@ -91,7 +90,7 @@ pub fn u8_parser() -> impl Parser<char, u8, Error = Simple<char>> {
 pub fn u16_parser() -> impl Parser<char, u16, Error = Simple<char>> {
     digits(10).try_map(|c: String, span| {
         c.parse()
-            .map_err(|err| Simple::custom(span, format!("failed to parse {} as u16: {:?}", c, err)))
+            .map_err(|err| Simple::custom(span, format!("failed to parse {c} as u16: {err:?}")))
     })
 }
 
@@ -105,7 +104,7 @@ pub fn u16_parser() -> impl Parser<char, u16, Error = Simple<char>> {
 pub fn u32_parser() -> impl Parser<char, u32, Error = Simple<char>> {
     digits(10).try_map(|c: String, span| {
         c.parse()
-            .map_err(|err| Simple::custom(span, format!("failed to parse {} as u32: {:?}", c, err)))
+            .map_err(|err| Simple::custom(span, format!("failed to parse {c} as u32: {err:?}")))
     })
 }
 
@@ -119,7 +118,7 @@ pub fn u32_parser() -> impl Parser<char, u32, Error = Simple<char>> {
 pub fn u64_parser() -> impl Parser<char, u64, Error = Simple<char>> {
     digits(10).try_map(|c: String, span| {
         c.parse()
-            .map_err(|err| Simple::custom(span, format!("failed to parse {} as u64: {:?}", c, err)))
+            .map_err(|err| Simple::custom(span, format!("failed to parse {c} as u64: {err:?}")))
     })
 }
 
@@ -136,13 +135,12 @@ pub fn i8_parser() -> impl Parser<char, i8, Error = Simple<char>> {
         .then(digits(10))
         .try_map(|(sign, c): (Option<char>, String), span| {
             let c = if let Some(sign) = sign {
-                format!("{}{}", sign, c)
+                format!("{sign}{c}")
             } else {
                 c
             };
-            c.parse().map_err(|err| {
-                Simple::custom(span, format!("failed to parse {} as i8: {:?}", c, err))
-            })
+            c.parse()
+                .map_err(|err| Simple::custom(span, format!("failed to parse {c} as i8: {err:?}")))
         })
 }
 
@@ -159,13 +157,12 @@ pub fn i16_parser() -> impl Parser<char, i16, Error = Simple<char>> {
         .then(digits(10))
         .try_map(|(sign, c): (Option<char>, String), span| {
             let c = if let Some(sign) = sign {
-                format!("{}{}", sign, c)
+                format!("{sign}{c}")
             } else {
                 c
             };
-            c.parse().map_err(|err| {
-                Simple::custom(span, format!("failed to parse {} as i16: {:?}", c, err))
-            })
+            c.parse()
+                .map_err(|err| Simple::custom(span, format!("failed to parse {c} as i16: {err:?}")))
         })
 }
 
@@ -182,13 +179,12 @@ pub fn i32_parser() -> impl Parser<char, i32, Error = Simple<char>> {
         .then(digits(10))
         .try_map(|(sign, c): (Option<char>, String), span| {
             let c = if let Some(sign) = sign {
-                format!("{}{}", sign, c)
+                format!("{sign}{c}")
             } else {
                 c
             };
-            c.parse().map_err(|err| {
-                Simple::custom(span, format!("failed to parse {} as i32: {:?}", c, err))
-            })
+            c.parse()
+                .map_err(|err| Simple::custom(span, format!("failed to parse {c} as i32: {err:?}")))
         })
 }
 
@@ -205,13 +201,12 @@ pub fn i64_parser() -> impl Parser<char, i64, Error = Simple<char>> {
         .then(digits(10))
         .try_map(|(sign, c): (Option<char>, String), span| {
             let c = if let Some(sign) = sign {
-                format!("{}{}", sign, c)
+                format!("{sign}{c}")
             } else {
                 c
             };
-            c.parse().map_err(|err| {
-                Simple::custom(span, format!("failed to parse {} as i64: {:?}", c, err))
-            })
+            c.parse()
+                .map_err(|err| Simple::custom(span, format!("failed to parse {c} as i64: {err:?}")))
         })
 }
 
@@ -232,10 +227,7 @@ pub fn unsigned_f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
                 after_point.unwrap_or_else(|| "0".to_string())
             );
             raw_float.parse().map_err(|err| {
-                Simple::custom(
-                    span,
-                    format!("Could not parse {} as f32: {:?}", raw_float, err),
-                )
+                Simple::custom(span, format!("Could not parse {raw_float} as f32: {err:?}"))
             })
         })
 }
@@ -257,10 +249,7 @@ pub fn unsigned_f64_parser() -> impl Parser<char, f64, Error = Simple<char>> {
                 after_point.unwrap_or_else(|| "0".to_string())
             );
             raw_float.parse().map_err(|err| {
-                Simple::custom(
-                    span,
-                    format!("Could not parse {} as f64: {:?}", raw_float, err),
-                )
+                Simple::custom(span, format!("Could not parse {raw_float} as f64: {err:?}"))
             })
         })
 }
@@ -278,11 +267,7 @@ pub fn f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
         .then(unsigned_f32_parser())
         .map(
             |(sign, value)| {
-                if sign == Some('-') {
-                    -value
-                } else {
-                    value
-                }
+                if sign == Some('-') { -value } else { value }
             },
         )
 }
@@ -300,11 +285,7 @@ pub fn f64_parser() -> impl Parser<char, f64, Error = Simple<char>> {
         .then(unsigned_f64_parser())
         .map(
             |(sign, value)| {
-                if sign == Some('-') {
-                    -value
-                } else {
-                    value
-                }
+                if sign == Some('-') { -value } else { value }
             },
         )
 }

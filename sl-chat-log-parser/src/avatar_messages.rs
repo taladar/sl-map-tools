@@ -1,8 +1,8 @@
 //! Avatar related messages (those sent by an avatar as well as some system messages about an avatar like coming online or entering chat range)
 
+use chumsky::Parser;
 use chumsky::error::Simple;
 use chumsky::prelude::{any, choice, just};
-use chumsky::Parser;
 
 /// represents a Second Life avatar related message
 #[derive(Debug, Clone, PartialEq)]
@@ -79,8 +79,8 @@ fn avatar_emote_message_parser() -> impl Parser<char, AvatarMessage, Error = Sim
 /// # Errors
 ///
 /// returns an error if the parser fails
-pub(crate) fn avatar_came_online_message_parser(
-) -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+pub(crate) fn avatar_came_online_message_parser()
+-> impl Parser<char, AvatarMessage, Error = Simple<char>> {
     just("is online.").map(|_| AvatarMessage::CameOnline)
 }
 
@@ -89,8 +89,8 @@ pub(crate) fn avatar_came_online_message_parser(
 /// # Errors
 ///
 /// returns an error if the parser fails
-pub(crate) fn avatar_went_offline_message_parser(
-) -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+pub(crate) fn avatar_went_offline_message_parser()
+-> impl Parser<char, AvatarMessage, Error = Simple<char>> {
     just("is offline.").map(|_| AvatarMessage::WentOffline)
 }
 
@@ -99,8 +99,8 @@ pub(crate) fn avatar_went_offline_message_parser(
 /// # Errors
 ///
 /// returns an error if the parser fails
-pub(crate) fn avatar_entered_area_message_parser(
-) -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+pub(crate) fn avatar_entered_area_message_parser()
+-> impl Parser<char, AvatarMessage, Error = Simple<char>> {
     just("entered ")
         .ignore_then(sl_types::radar::area_parser())
         .then(
@@ -120,8 +120,8 @@ pub(crate) fn avatar_entered_area_message_parser(
 /// # Errors
 ///
 /// returns an error if the parser fails
-pub(crate) fn avatar_left_area_message_parser(
-) -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+pub(crate) fn avatar_left_area_message_parser()
+-> impl Parser<char, AvatarMessage, Error = Simple<char>> {
     just("left ")
         .ignore_then(sl_types::radar::area_parser())
         .then_ignore(just("."))

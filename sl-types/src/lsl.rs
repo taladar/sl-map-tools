@@ -2,9 +2,9 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    prelude::{just, Simple},
-    text::whitespace,
     Parser,
+    prelude::{Simple, just},
+    text::whitespace,
 };
 
 #[cfg(feature = "chumsky")]

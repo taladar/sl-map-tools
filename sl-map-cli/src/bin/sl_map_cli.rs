@@ -2,19 +2,20 @@
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::Parser as _;
 
 use sl_map_apis::map_tiles::{Map, MapError, MapTileCache, MapTileCacheError};
 use sl_map_apis::region::{
-    usb_notecard_to_grid_rectangle, RegionNameToGridCoordinatesCache,
-    USBNotecardToGridRectangleError,
+    RegionNameToGridCoordinatesCache, USBNotecardToGridRectangleError,
+    usb_notecard_to_grid_rectangle,
 };
 use sl_types::map::{
     GridCoordinates, GridRectangle, GridRectangleLike as _, USBNotecard, USBNotecardLoadError,
 };
 use tracing::instrument;
 use tracing_subscriber::{
-    filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer, Registry,
+    EnvFilter, Layer as _, Registry, filter::LevelFilter, layer::SubscriberExt as _,
+    util::SubscriberInitExt as _,
 };
 
 /// Error enum for the application
@@ -98,7 +99,7 @@ impl From<&FromGridRectangle> for GridRectangle {
             ..
         }: &FromGridRectangle,
     ) -> Self {
-        GridRectangle::new(
+        Self::new(
             GridCoordinates::new(lower_left_x.to_owned(), lower_left_y.to_owned()),
             GridCoordinates::new(upper_right_x.to_owned(), upper_right_y.to_owned()),
         )
@@ -201,9 +202,11 @@ async fn do_stuff() -> Result<(), crate::Error> {
                 "The aspect ratio of the image is {}:{} ({})",
                 grid_rectangle.size_x(),
                 grid_rectangle.size_y(),
-                grid_rectangle.size_x() as f32 / grid_rectangle.size_y() as f32
+                f32::from(grid_rectangle.size_x()) / f32::from(grid_rectangle.size_y())
             );
-            println!("You can use this to edit e.g. the PPS HUD to have the correct ratio of width and height");
+            println!(
+                "You can use this to edit e.g. the PPS HUD to have the correct ratio of width and height"
+            );
         }
         Command::FromUSBNotecard(from_usb_notecard) => {
             let usb_notecard = USBNotecard::load_from_file(&from_usb_notecard.usb_notecard)?;
@@ -242,9 +245,11 @@ async fn do_stuff() -> Result<(), crate::Error> {
                 "The aspect ratio of the image is {}:{} ({})",
                 grid_rectangle.size_x(),
                 grid_rectangle.size_y(),
-                grid_rectangle.size_x() as f32 / grid_rectangle.size_y() as f32
+                f32::from(grid_rectangle.size_x()) / f32::from(grid_rectangle.size_y())
             );
-            println!("You can use this to edit e.g. the PPS HUD to have the correct ratio of width and height");
+            println!(
+                "You can use this to edit e.g. the PPS HUD to have the correct ratio of width and height"
+            );
         }
     }
 
@@ -254,7 +259,10 @@ async fn do_stuff() -> Result<(), crate::Error> {
 /// The main function mainly just handles setting up tracing
 /// and handling any Err Results.
 #[tokio::main]
-#[allow(clippy::result_large_err)]
+#[expect(
+    clippy::result_large_err,
+    reason = "this is main so we only return from it once"
+)]
 async fn main() -> Result<(), Error> {
     let terminal_env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::WARN.into())
@@ -286,10 +294,10 @@ async fn main() -> Result<(), Error> {
     registry.init();
     log_panics::init();
     match do_stuff().await {
-        Ok(_) => (),
+        Ok(()) => (),
         Err(e) => {
             tracing::error!("{}", e);
-            eprintln!("{}", e);
+            eprintln!("{e}");
             std::process::exit(1);
         }
     }

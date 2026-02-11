@@ -2,8 +2,8 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    prelude::{choice, just, Simple},
     Parser,
+    prelude::{Simple, choice, just},
 };
 
 /// avatar attachment points
@@ -108,23 +108,23 @@ pub enum AvatarAttachmentPoint {
 impl AvatarAttachmentPoint {
     /// returns true if the attachment point requires Bento
     #[must_use]
-    pub fn requires_bento(&self) -> bool {
+    pub const fn requires_bento(&self) -> bool {
         matches!(
             self,
-            AvatarAttachmentPoint::Tongue
-                | AvatarAttachmentPoint::AltLeftEar
-                | AvatarAttachmentPoint::AltRightEar
-                | AvatarAttachmentPoint::AltLeftEye
-                | AvatarAttachmentPoint::AltRightEye
-                | AvatarAttachmentPoint::LeftRingFinger
-                | AvatarAttachmentPoint::RightRingFinger
-                | AvatarAttachmentPoint::LeftWing
-                | AvatarAttachmentPoint::RightWing
-                | AvatarAttachmentPoint::TailBase
-                | AvatarAttachmentPoint::TailTip
-                | AvatarAttachmentPoint::Groin
-                | AvatarAttachmentPoint::LeftHindFoot
-                | AvatarAttachmentPoint::RightHindFoot
+            Self::Tongue
+                | Self::AltLeftEar
+                | Self::AltRightEar
+                | Self::AltLeftEye
+                | Self::AltRightEye
+                | Self::LeftRingFinger
+                | Self::RightRingFinger
+                | Self::LeftWing
+                | Self::RightWing
+                | Self::TailBase
+                | Self::TailTip
+                | Self::Groin
+                | Self::LeftHindFoot
+                | Self::RightHindFoot
         )
     }
 }
@@ -132,53 +132,53 @@ impl AvatarAttachmentPoint {
 impl std::fmt::Display for AvatarAttachmentPoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AvatarAttachmentPoint::Skull => write!(f, "Skull"),
-            AvatarAttachmentPoint::Nose => write!(f, "Nose"),
-            AvatarAttachmentPoint::Mouth => write!(f, "Mouth"),
-            AvatarAttachmentPoint::Tongue => write!(f, "Tongue"),
-            AvatarAttachmentPoint::Chin => write!(f, "Chin"),
-            AvatarAttachmentPoint::Jaw => write!(f, "Jaw"),
-            AvatarAttachmentPoint::LeftEar => write!(f, "Left Ear"),
-            AvatarAttachmentPoint::RightEar => write!(f, "Right Ear"),
-            AvatarAttachmentPoint::AltLeftEar => write!(f, "Alt Left Ear"),
-            AvatarAttachmentPoint::AltRightEar => write!(f, "Alt Right Ear"),
-            AvatarAttachmentPoint::LeftEye => write!(f, "Left Eye"),
-            AvatarAttachmentPoint::RightEye => write!(f, "Right Eye"),
-            AvatarAttachmentPoint::AltLeftEye => write!(f, "Alt Left Eye"),
-            AvatarAttachmentPoint::AltRightEye => write!(f, "Alt Right Eye"),
-            AvatarAttachmentPoint::Neck => write!(f, "Neck"),
-            AvatarAttachmentPoint::LeftShoulder => write!(f, "Left Shoulder"),
-            AvatarAttachmentPoint::RightShoulder => write!(f, "Right Shoulder"),
-            AvatarAttachmentPoint::LeftUpperArm => write!(f, "L Upper Arm"),
-            AvatarAttachmentPoint::RightUpperArm => write!(f, "R Upper Arm"),
-            AvatarAttachmentPoint::LeftLowerArm => write!(f, "L Lower Arm"),
-            AvatarAttachmentPoint::RightLowerArm => write!(f, "R Lower Arm"),
-            AvatarAttachmentPoint::LeftHand => write!(f, "Left Hand"),
-            AvatarAttachmentPoint::RightHand => write!(f, "Right Hand"),
-            AvatarAttachmentPoint::LeftRingFinger => write!(f, "Left Ring Finger"),
-            AvatarAttachmentPoint::RightRingFinger => write!(f, "Right Ring Finger"),
-            AvatarAttachmentPoint::LeftWing => write!(f, "Left Wing"),
-            AvatarAttachmentPoint::RightWing => write!(f, "Right Wing"),
-            AvatarAttachmentPoint::Chest => write!(f, "Chest"),
-            AvatarAttachmentPoint::LeftPec => write!(f, "Left Pec"),
-            AvatarAttachmentPoint::RightPec => write!(f, "Right Pec"),
-            AvatarAttachmentPoint::Stomach => write!(f, "Stomach"),
-            AvatarAttachmentPoint::Spine => write!(f, "Spine"),
-            AvatarAttachmentPoint::TailBase => write!(f, "Tail Base"),
-            AvatarAttachmentPoint::TailTip => write!(f, "Tail Tip"),
-            AvatarAttachmentPoint::AvatarCenter => write!(f, "Avatar Center"),
-            AvatarAttachmentPoint::Pelvis => write!(f, "Pelvis"),
-            AvatarAttachmentPoint::Groin => write!(f, "Groin"),
-            AvatarAttachmentPoint::LeftHip => write!(f, "Left Hip"),
-            AvatarAttachmentPoint::RightHip => write!(f, "Right Hip"),
-            AvatarAttachmentPoint::LeftUpperLeg => write!(f, "L Upper Leg"),
-            AvatarAttachmentPoint::RightUpperLeg => write!(f, "R Upper Leg"),
-            AvatarAttachmentPoint::LeftLowerLeg => write!(f, "L Lower Leg"),
-            AvatarAttachmentPoint::RightLowerLeg => write!(f, "R Lower Leg"),
-            AvatarAttachmentPoint::LeftFoot => write!(f, "Left Foot"),
-            AvatarAttachmentPoint::RightFoot => write!(f, "Right Foot"),
-            AvatarAttachmentPoint::LeftHindFoot => write!(f, "Left Hind Foot"),
-            AvatarAttachmentPoint::RightHindFoot => write!(f, "Right Hind Foot"),
+            Self::Skull => write!(f, "Skull"),
+            Self::Nose => write!(f, "Nose"),
+            Self::Mouth => write!(f, "Mouth"),
+            Self::Tongue => write!(f, "Tongue"),
+            Self::Chin => write!(f, "Chin"),
+            Self::Jaw => write!(f, "Jaw"),
+            Self::LeftEar => write!(f, "Left Ear"),
+            Self::RightEar => write!(f, "Right Ear"),
+            Self::AltLeftEar => write!(f, "Alt Left Ear"),
+            Self::AltRightEar => write!(f, "Alt Right Ear"),
+            Self::LeftEye => write!(f, "Left Eye"),
+            Self::RightEye => write!(f, "Right Eye"),
+            Self::AltLeftEye => write!(f, "Alt Left Eye"),
+            Self::AltRightEye => write!(f, "Alt Right Eye"),
+            Self::Neck => write!(f, "Neck"),
+            Self::LeftShoulder => write!(f, "Left Shoulder"),
+            Self::RightShoulder => write!(f, "Right Shoulder"),
+            Self::LeftUpperArm => write!(f, "L Upper Arm"),
+            Self::RightUpperArm => write!(f, "R Upper Arm"),
+            Self::LeftLowerArm => write!(f, "L Lower Arm"),
+            Self::RightLowerArm => write!(f, "R Lower Arm"),
+            Self::LeftHand => write!(f, "Left Hand"),
+            Self::RightHand => write!(f, "Right Hand"),
+            Self::LeftRingFinger => write!(f, "Left Ring Finger"),
+            Self::RightRingFinger => write!(f, "Right Ring Finger"),
+            Self::LeftWing => write!(f, "Left Wing"),
+            Self::RightWing => write!(f, "Right Wing"),
+            Self::Chest => write!(f, "Chest"),
+            Self::LeftPec => write!(f, "Left Pec"),
+            Self::RightPec => write!(f, "Right Pec"),
+            Self::Stomach => write!(f, "Stomach"),
+            Self::Spine => write!(f, "Spine"),
+            Self::TailBase => write!(f, "Tail Base"),
+            Self::TailTip => write!(f, "Tail Tip"),
+            Self::AvatarCenter => write!(f, "Avatar Center"),
+            Self::Pelvis => write!(f, "Pelvis"),
+            Self::Groin => write!(f, "Groin"),
+            Self::LeftHip => write!(f, "Left Hip"),
+            Self::RightHip => write!(f, "Right Hip"),
+            Self::LeftUpperLeg => write!(f, "L Upper Leg"),
+            Self::RightUpperLeg => write!(f, "R Upper Leg"),
+            Self::LeftLowerLeg => write!(f, "L Lower Leg"),
+            Self::RightLowerLeg => write!(f, "R Lower Leg"),
+            Self::LeftFoot => write!(f, "Left Foot"),
+            Self::RightFoot => write!(f, "Right Foot"),
+            Self::LeftHindFoot => write!(f, "Left Hind Foot"),
+            Self::RightHindFoot => write!(f, "Right Hind Foot"),
         }
     }
 }
@@ -205,99 +205,63 @@ impl std::str::FromStr for AvatarAttachmentPoint {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "ATTACH_HEAD" | "Skull" | "head" => Ok(AvatarAttachmentPoint::Skull),
-            "ATTACH_NOSE" | "Nose" | "nose" => Ok(AvatarAttachmentPoint::Nose),
-            "ATTACH_MOUTH" | "Mouth" | "mouth" => Ok(AvatarAttachmentPoint::Mouth),
-            "ATTACH_FACE_TONGUE" | "Tongue" | "tongue" => Ok(AvatarAttachmentPoint::Tongue),
-            "ATTACH_CHIN" | "Chin" | "chin" => Ok(AvatarAttachmentPoint::Chin),
-            "ATTACH_FACE_JAW" | "Jaw" | "jaw" => Ok(AvatarAttachmentPoint::Jaw),
-            "ATTACH_LEAR" | "Left Ear" | "left ear" => Ok(AvatarAttachmentPoint::LeftEar),
-            "ATTACH_REAR" | "Right Ear" | "right ear" => Ok(AvatarAttachmentPoint::RightEar),
-            "ATTACH_FACE_LEAR" | "Alt Left Ear" | "left ear (extended)" => {
-                Ok(AvatarAttachmentPoint::AltLeftEar)
-            }
-            "ATTACH_FACE_REAR" | "Alt Right Ear" | "right ear (extended)" => {
-                Ok(AvatarAttachmentPoint::AltRightEar)
-            }
-            "ATTACH_LEYE" | "Left Eye" | "left eye" => Ok(AvatarAttachmentPoint::LeftEye),
-            "ATTACH_REYE" | "Right Eye" | "right eye" => Ok(AvatarAttachmentPoint::RightEye),
-            "ATTACH_FACE_LEYE" | "Alt Left Eye" | "left eye (extended)" => {
-                Ok(AvatarAttachmentPoint::AltLeftEye)
-            }
-            "ATTACH_FACE_REYE" | "Alt Right Eye" | "right eye (extended)" => {
-                Ok(AvatarAttachmentPoint::AltRightEye)
-            }
-            "ATTACH_NECK" | "Neck" | "neck" => Ok(AvatarAttachmentPoint::Neck),
-            "ATTACH_LSHOULDER" | "Left Shoulder" | "left shoulder" => {
-                Ok(AvatarAttachmentPoint::LeftShoulder)
-            }
-            "ATTACH_RSHOULDER" | "Right Shoulder" | "right shoulder" => {
-                Ok(AvatarAttachmentPoint::RightShoulder)
-            }
-            "ATTACH_LUARM" | "L Upper Arm" | "left upper arm" => {
-                Ok(AvatarAttachmentPoint::LeftUpperArm)
-            }
-            "ATTACH_RUARM" | "R Upper Arm" | "right upper arm" => {
-                Ok(AvatarAttachmentPoint::RightUpperArm)
-            }
-            "ATTACH_LLARM" | "L Lower Arm" | "left lower arm" => {
-                Ok(AvatarAttachmentPoint::LeftLowerArm)
-            }
-            "ATTACH_RLARM" | "R Lower Arm" | "right lower arm" => {
-                Ok(AvatarAttachmentPoint::RightLowerArm)
-            }
-            "ATTACH_LHAND" | "Left Hand" | "left hand" => Ok(AvatarAttachmentPoint::LeftHand),
-            "ATTACH_RHAND" | "Right Hand" | "right hand" => Ok(AvatarAttachmentPoint::RightHand),
+            "ATTACH_HEAD" | "Skull" | "head" => Ok(Self::Skull),
+            "ATTACH_NOSE" | "Nose" | "nose" => Ok(Self::Nose),
+            "ATTACH_MOUTH" | "Mouth" | "mouth" => Ok(Self::Mouth),
+            "ATTACH_FACE_TONGUE" | "Tongue" | "tongue" => Ok(Self::Tongue),
+            "ATTACH_CHIN" | "Chin" | "chin" => Ok(Self::Chin),
+            "ATTACH_FACE_JAW" | "Jaw" | "jaw" => Ok(Self::Jaw),
+            "ATTACH_LEAR" | "Left Ear" | "left ear" => Ok(Self::LeftEar),
+            "ATTACH_REAR" | "Right Ear" | "right ear" => Ok(Self::RightEar),
+            "ATTACH_FACE_LEAR" | "Alt Left Ear" | "left ear (extended)" => Ok(Self::AltLeftEar),
+            "ATTACH_FACE_REAR" | "Alt Right Ear" | "right ear (extended)" => Ok(Self::AltRightEar),
+            "ATTACH_LEYE" | "Left Eye" | "left eye" => Ok(Self::LeftEye),
+            "ATTACH_REYE" | "Right Eye" | "right eye" => Ok(Self::RightEye),
+            "ATTACH_FACE_LEYE" | "Alt Left Eye" | "left eye (extended)" => Ok(Self::AltLeftEye),
+            "ATTACH_FACE_REYE" | "Alt Right Eye" | "right eye (extended)" => Ok(Self::AltRightEye),
+            "ATTACH_NECK" | "Neck" | "neck" => Ok(Self::Neck),
+            "ATTACH_LSHOULDER" | "Left Shoulder" | "left shoulder" => Ok(Self::LeftShoulder),
+            "ATTACH_RSHOULDER" | "Right Shoulder" | "right shoulder" => Ok(Self::RightShoulder),
+            "ATTACH_LUARM" | "L Upper Arm" | "left upper arm" => Ok(Self::LeftUpperArm),
+            "ATTACH_RUARM" | "R Upper Arm" | "right upper arm" => Ok(Self::RightUpperArm),
+            "ATTACH_LLARM" | "L Lower Arm" | "left lower arm" => Ok(Self::LeftLowerArm),
+            "ATTACH_RLARM" | "R Lower Arm" | "right lower arm" => Ok(Self::RightLowerArm),
+            "ATTACH_LHAND" | "Left Hand" | "left hand" => Ok(Self::LeftHand),
+            "ATTACH_RHAND" | "Right Hand" | "right hand" => Ok(Self::RightHand),
             "ATTACH_LHAND_RING1" | "Left Ring Finger" | "left ring finger" => {
-                Ok(AvatarAttachmentPoint::LeftRingFinger)
+                Ok(Self::LeftRingFinger)
             }
             "ATTACH_RHAND_RING1" | "Right Ring Finger" | "right ring finger" => {
-                Ok(AvatarAttachmentPoint::RightRingFinger)
+                Ok(Self::RightRingFinger)
             }
-            "ATTACH_LWING" | "Left Wing" | "left wing" => Ok(AvatarAttachmentPoint::LeftWing),
-            "ATTACH_RWING" | "Right Wing" | "right wing" => Ok(AvatarAttachmentPoint::RightWing),
-            "ATTACH_CHEST" | "Chest" | "chest/sternum" | "chest" | "sternum" => {
-                Ok(AvatarAttachmentPoint::Chest)
-            }
-            "ATTACH_LEFT_PEC" | "Left Pec" | "left pectoral" => Ok(AvatarAttachmentPoint::LeftPec),
-            "ATTACH_RIGHT_PEC" | "Right Pec" | "right pectoral" => {
-                Ok(AvatarAttachmentPoint::RightPec)
-            }
+            "ATTACH_LWING" | "Left Wing" | "left wing" => Ok(Self::LeftWing),
+            "ATTACH_RWING" | "Right Wing" | "right wing" => Ok(Self::RightWing),
+            "ATTACH_CHEST" | "Chest" | "chest/sternum" | "chest" | "sternum" => Ok(Self::Chest),
+            "ATTACH_LEFT_PEC" | "Left Pec" | "left pectoral" => Ok(Self::LeftPec),
+            "ATTACH_RIGHT_PEC" | "Right Pec" | "right pectoral" => Ok(Self::RightPec),
             "ATTACH_BELLY" | "Stomach" | "belly/stomach/tummy" | "belly" | "stomach" | "tummy" => {
-                Ok(AvatarAttachmentPoint::Stomach)
+                Ok(Self::Stomach)
             }
-            "ATTACH_BACK" | "Spine" | "back" => Ok(AvatarAttachmentPoint::Spine),
-            "ATTACH_TAIL_BASE" | "Tail Base" | "tail base" => Ok(AvatarAttachmentPoint::TailBase),
-            "ATTACH_TAIL_TIP" | "Tail Tip" | "tail tip" => Ok(AvatarAttachmentPoint::TailTip),
+            "ATTACH_BACK" | "Spine" | "back" => Ok(Self::Spine),
+            "ATTACH_TAIL_BASE" | "Tail Base" | "tail base" => Ok(Self::TailBase),
+            "ATTACH_TAIL_TIP" | "Tail Tip" | "tail tip" => Ok(Self::TailTip),
             "ATTACH_AVATAR_CENTER"
             | "Avatar Center"
             | "avatar center/root"
             | "avatar center"
-            | "root" => Ok(AvatarAttachmentPoint::AvatarCenter),
-            "ATTACH_PELVIS" | "Pelvis" | "pelvis" => Ok(AvatarAttachmentPoint::Pelvis),
-            "ATTACH_GROIN" | "Groin" | "groin" => Ok(AvatarAttachmentPoint::Groin),
-            "ATTACH_LHIP" | "Left Hip" | "left hip" => Ok(AvatarAttachmentPoint::LeftHip),
-            "ATTACH_RHIP" | "Right Hip" | "right hip" => Ok(AvatarAttachmentPoint::RightHip),
-            "ATTACH_LULEG" | "L Upper Leg" | "left upper leg" => {
-                Ok(AvatarAttachmentPoint::LeftUpperLeg)
-            }
-            "ATTACH_RULEG" | "R Upper Leg" | "right upper leg" => {
-                Ok(AvatarAttachmentPoint::RightUpperLeg)
-            }
-            "ATTACH_RLLEG" | "R Lower Leg" | "right lower leg" => {
-                Ok(AvatarAttachmentPoint::LeftLowerLeg)
-            }
-            "ATTACH_LLLEG" | "L Lower Leg" | "left lower leg" => {
-                Ok(AvatarAttachmentPoint::RightLowerLeg)
-            }
-            "ATTACH_LFOOT" | "Left Foot" | "left foot" => Ok(AvatarAttachmentPoint::LeftFoot),
-            "ATTACH_RFOOT" | "Right Foot" | "right foot" => Ok(AvatarAttachmentPoint::RightFoot),
-            "ATTACH_HIND_LFOOT" | "Left Hind Foot" | "left hind foot" => {
-                Ok(AvatarAttachmentPoint::LeftHindFoot)
-            }
-            "ATTACH_HIND_RFOOT" | "Right Hind Foot" | "right hind foot" => {
-                Ok(AvatarAttachmentPoint::RightHindFoot)
-            }
+            | "root" => Ok(Self::AvatarCenter),
+            "ATTACH_PELVIS" | "Pelvis" | "pelvis" => Ok(Self::Pelvis),
+            "ATTACH_GROIN" | "Groin" | "groin" => Ok(Self::Groin),
+            "ATTACH_LHIP" | "Left Hip" | "left hip" => Ok(Self::LeftHip),
+            "ATTACH_RHIP" | "Right Hip" | "right hip" => Ok(Self::RightHip),
+            "ATTACH_LULEG" | "L Upper Leg" | "left upper leg" => Ok(Self::LeftUpperLeg),
+            "ATTACH_RULEG" | "R Upper Leg" | "right upper leg" => Ok(Self::RightUpperLeg),
+            "ATTACH_RLLEG" | "R Lower Leg" | "right lower leg" => Ok(Self::LeftLowerLeg),
+            "ATTACH_LLLEG" | "L Lower Leg" | "left lower leg" => Ok(Self::RightLowerLeg),
+            "ATTACH_LFOOT" | "Left Foot" | "left foot" => Ok(Self::LeftFoot),
+            "ATTACH_RFOOT" | "Right Foot" | "right foot" => Ok(Self::RightFoot),
+            "ATTACH_HIND_LFOOT" | "Left Hind Foot" | "left hind foot" => Ok(Self::LeftHindFoot),
+            "ATTACH_HIND_RFOOT" | "Right Hind Foot" | "right hind foot" => Ok(Self::RightHindFoot),
             _ => Err(AvatarAttachmentPointParseError {
                 value: s.to_string(),
             }),
@@ -312,8 +276,8 @@ impl std::str::FromStr for AvatarAttachmentPoint {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn avatar_attachment_point_parser(
-) -> impl Parser<char, AvatarAttachmentPoint, Error = Simple<char>> {
+pub fn avatar_attachment_point_parser()
+-> impl Parser<char, AvatarAttachmentPoint, Error = Simple<char>> {
     choice([
         just("ATTACH_HEAD")
             .or(just("Skull"))
@@ -584,14 +548,14 @@ pub enum HudAttachmentPoint {
 impl std::fmt::Display for HudAttachmentPoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HudAttachmentPoint::Center2 => write!(f, "HUD Center 2"),
-            HudAttachmentPoint::TopRight => write!(f, "HUD Top Right"),
-            HudAttachmentPoint::Top => write!(f, "HUD Top"),
-            HudAttachmentPoint::TopLeft => write!(f, "HUD Top Left"),
-            HudAttachmentPoint::Center => write!(f, "HUD Center"),
-            HudAttachmentPoint::BottomLeft => write!(f, "HUD Bottom Left"),
-            HudAttachmentPoint::Bottom => write!(f, "HUD Bottom"),
-            HudAttachmentPoint::BottomRight => write!(f, "HUD Bottom Right"),
+            Self::Center2 => write!(f, "HUD Center 2"),
+            Self::TopRight => write!(f, "HUD Top Right"),
+            Self::Top => write!(f, "HUD Top"),
+            Self::TopLeft => write!(f, "HUD Top Left"),
+            Self::Center => write!(f, "HUD Center"),
+            Self::BottomLeft => write!(f, "HUD Bottom Left"),
+            Self::Bottom => write!(f, "HUD Bottom"),
+            Self::BottomRight => write!(f, "HUD Bottom Right"),
         }
     }
 }
@@ -614,19 +578,15 @@ impl std::str::FromStr for HudAttachmentPoint {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "ATTACH_HUD_CENTER_2" | "HUD Center 2" | "Center 2" => Ok(HudAttachmentPoint::Center2),
-            "ATTACH_HUD_TOP_RIGHT" | "HUD Top Right" | "Top Right" => {
-                Ok(HudAttachmentPoint::TopRight)
-            }
-            "ATTACH_HUD_TOP_CENTER" | "HUD Top" | "Top" => Ok(HudAttachmentPoint::Top),
-            "ATTACH_HUD_TOP_LEFT" | "HUD Top Left" | "Top Left" => Ok(HudAttachmentPoint::TopLeft),
-            "ATTACH_HUD_CENTER_1" | "HUD Center" | "Center" => Ok(HudAttachmentPoint::Center),
-            "ATTACH_HUD_BOTTOM_LEFT" | "HUD Bottom Left" | "Bottom Left" => {
-                Ok(HudAttachmentPoint::BottomLeft)
-            }
-            "ATTACH_HUD_BOTTOM" | "HUD Bottom" | "Bottom" => Ok(HudAttachmentPoint::Bottom),
+            "ATTACH_HUD_CENTER_2" | "HUD Center 2" | "Center 2" => Ok(Self::Center2),
+            "ATTACH_HUD_TOP_RIGHT" | "HUD Top Right" | "Top Right" => Ok(Self::TopRight),
+            "ATTACH_HUD_TOP_CENTER" | "HUD Top" | "Top" => Ok(Self::Top),
+            "ATTACH_HUD_TOP_LEFT" | "HUD Top Left" | "Top Left" => Ok(Self::TopLeft),
+            "ATTACH_HUD_CENTER_1" | "HUD Center" | "Center" => Ok(Self::Center),
+            "ATTACH_HUD_BOTTOM_LEFT" | "HUD Bottom Left" | "Bottom Left" => Ok(Self::BottomLeft),
+            "ATTACH_HUD_BOTTOM" | "HUD Bottom" | "Bottom" => Ok(Self::Bottom),
             "ATTACH_HUD_BOTTOM_RIGHT" | "HUD Bottom Right " | "Bottom Right" => {
-                Ok(HudAttachmentPoint::BottomRight)
+                Ok(Self::BottomRight)
             }
             _ => Err(HudAttachmentPointParseError {
                 value: s.to_string(),
@@ -682,6 +642,10 @@ pub fn hud_attachment_point_parser() -> impl Parser<char, HudAttachmentPoint, Er
 
 /// avatar and HUD attachment points
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside of the module"
+)]
 pub enum AttachmentPoint {
     /// avatar attachment point
     Avatar(AvatarAttachmentPoint),
@@ -696,7 +660,7 @@ impl AttachmentPoint {
     /// <https://wiki.secondlife.com/wiki/Category:LSL_Attachment>
     ///
     #[must_use]
-    pub fn from_repr(repr: usize) -> Option<AttachmentPoint> {
+    pub fn from_repr(repr: usize) -> Option<Self> {
         AvatarAttachmentPoint::from_repr(repr)
             .map(Self::Avatar)
             .or_else(|| HudAttachmentPoint::from_repr(repr).map(Self::Hud))
@@ -706,16 +670,20 @@ impl AttachmentPoint {
 impl std::fmt::Display for AttachmentPoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AttachmentPoint::Avatar(avatar_attachment_point) => {
-                write!(f, "{}", avatar_attachment_point)
+            Self::Avatar(avatar_attachment_point) => {
+                write!(f, "{avatar_attachment_point}")
             }
-            AttachmentPoint::Hud(hud_attachment_point) => write!(f, "{}", hud_attachment_point),
+            Self::Hud(hud_attachment_point) => write!(f, "{hud_attachment_point}"),
         }
     }
 }
 
 /// Error deserializing AttachmentPoint from String
 #[derive(Debug, Clone)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the error is going to be used outside of the module"
+)]
 pub struct AttachmentPointParseError {
     /// the value that could not be parsed
     value: String,
@@ -754,6 +722,10 @@ impl std::str::FromStr for AttachmentPoint {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the parser is going to be used outside of the module"
+)]
 pub fn attachment_point_parser() -> impl Parser<char, AttachmentPoint, Error = Simple<char>> {
     avatar_attachment_point_parser()
         .map(AttachmentPoint::Avatar)
@@ -763,7 +735,7 @@ pub fn attachment_point_parser() -> impl Parser<char, AttachmentPoint, Error = S
 #[cfg(test)]
 mod test {
     #[cfg(feature = "chumsky")]
-    use super::{attachment_point_parser, AttachmentPoint, HudAttachmentPoint};
+    use super::{AttachmentPoint, HudAttachmentPoint, attachment_point_parser};
     #[cfg(feature = "chumsky")]
     use chumsky::Parser as _;
     #[cfg(feature = "chumsky")]
@@ -775,7 +747,7 @@ mod test {
         assert_eq!(
             attachment_point_parser().parse("Bottom Left"),
             Ok(AttachmentPoint::Hud(HudAttachmentPoint::BottomLeft)),
-        )
+        );
     }
 
     #[cfg(feature = "chumsky")]
@@ -784,7 +756,7 @@ mod test {
         assert_eq!(
             attachment_point_parser().parse("Bottom"),
             Ok(AttachmentPoint::Hud(HudAttachmentPoint::Bottom)),
-        )
+        );
     }
 
     #[cfg(feature = "chumsky")]
@@ -793,6 +765,6 @@ mod test {
         assert_eq!(
             attachment_point_parser().parse("Bottom Right"),
             Ok(AttachmentPoint::Hud(HudAttachmentPoint::BottomRight)),
-        )
+        );
     }
 }

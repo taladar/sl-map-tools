@@ -2,8 +2,8 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    prelude::{just, Simple},
     Parser,
+    prelude::{Simple, just},
 };
 
 /// represents a Second Life area of significance

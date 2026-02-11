@@ -4,11 +4,11 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    prelude::{just, Simple},
     Parser,
+    prelude::{Simple, just},
 };
 #[cfg(feature = "chumsky")]
-use std::ops::Deref;
+use std::ops::Deref as _;
 
 #[cfg(feature = "chumsky")]
 use crate::utils::url_text_component_parser;
@@ -45,10 +45,10 @@ pub fn script_trigger_mode_parser() -> impl Parser<char, ScriptTriggerMode, Erro
 impl std::fmt::Display for ScriptTriggerMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ScriptTriggerMode::FirstPerson => write!(f, "first_person"),
-            ScriptTriggerMode::ThirdPerson => write!(f, "third_person"),
-            ScriptTriggerMode::EditAvatar => write!(f, "edit_avatar"),
-            ScriptTriggerMode::Sitting => write!(f, "sitting"),
+            Self::FirstPerson => write!(f, "first_person"),
+            Self::ThirdPerson => write!(f, "third_person"),
+            Self::EditAvatar => write!(f, "edit_avatar"),
+            Self::Sitting => write!(f, "sitting"),
         }
     }
 }
@@ -73,14 +73,10 @@ impl std::str::FromStr for ScriptTriggerMode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "first_person" => Ok(Self::FirstPerson),
-            "0" => Ok(Self::FirstPerson),
-            "third_person" => Ok(Self::ThirdPerson),
-            "1" => Ok(Self::ThirdPerson),
-            "edit_aatar" => Ok(Self::EditAvatar),
-            "2" => Ok(Self::EditAvatar),
-            "sitting" => Ok(Self::Sitting),
-            "3" => Ok(Self::Sitting),
+            "first_person" | "0" => Ok(Self::FirstPerson),
+            "third_person" | "1" => Ok(Self::ThirdPerson),
+            "edit_avatar" | "2" => Ok(Self::EditAvatar),
+            "sitting" | "3" => Ok(Self::Sitting),
             _ => Err(ScriptTriggerModeParseError {
                 value: s.to_owned(),
             }),
@@ -308,15 +304,15 @@ impl ViewerUri {
     /// this returns whether the given ViewerUri can only be called from internal
     /// browsers/chat/... or if external programs (like browsers) can use them too
     #[must_use]
-    pub fn internal_only(&self) -> bool {
-        matches!(self, ViewerUri::Location(_) | ViewerUri::Login { .. })
+    pub const fn internal_only(&self) -> bool {
+        matches!(self, Self::Location(_) | Self::Login { .. })
     }
 }
 
 impl std::fmt::Display for ViewerUri {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ViewerUri::Location(location) => {
+            Self::Location(location) => {
                 write!(
                     f,
                     "secondlife:///{}/{}/{}/{}",
@@ -329,46 +325,46 @@ impl std::fmt::Display for ViewerUri {
                     location.z()
                 )
             }
-            ViewerUri::AgentAbout(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/about", agent_key)
+            Self::AgentAbout(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/about")
             }
-            ViewerUri::AgentInspect(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/inspect", agent_key)
+            Self::AgentInspect(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/inspect")
             }
-            ViewerUri::AgentInstantMessage(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/im", agent_key)
+            Self::AgentInstantMessage(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/im")
             }
-            ViewerUri::AgentOfferTeleport(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/offerteleport", agent_key)
+            Self::AgentOfferTeleport(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/offerteleport")
             }
-            ViewerUri::AgentPay(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/pay", agent_key)
+            Self::AgentPay(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/pay")
             }
-            ViewerUri::AgentRequestFriend(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/requestfriend", agent_key)
+            Self::AgentRequestFriend(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/requestfriend")
             }
-            ViewerUri::AgentMute(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/mute", agent_key)
+            Self::AgentMute(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/mute")
             }
-            ViewerUri::AgentUnmute(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/unmute", agent_key)
+            Self::AgentUnmute(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/unmute")
             }
-            ViewerUri::AgentCompleteName(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/completename", agent_key)
+            Self::AgentCompleteName(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/completename")
             }
-            ViewerUri::AgentDisplayName(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/displayname", agent_key)
+            Self::AgentDisplayName(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/displayname")
             }
-            ViewerUri::AgentUsername(agent_key) => {
-                write!(f, "secondlife:///app/agent/{}/username", agent_key)
+            Self::AgentUsername(agent_key) => {
+                write!(f, "secondlife:///app/agent/{agent_key}/username")
             }
-            ViewerUri::AppearanceShow => {
+            Self::AppearanceShow => {
                 write!(f, "secondlife:///app/appearance/show")
             }
-            ViewerUri::BalanceRequest => {
+            Self::BalanceRequest => {
                 write!(f, "secondlife:///app/balance/request")
             }
-            ViewerUri::Chat { channel, text } => {
+            Self::Chat { channel, text } => {
                 write!(
                     f,
                     "secondlife:///app/chat/{}/{}",
@@ -379,28 +375,28 @@ impl std::fmt::Display for ViewerUri {
                     )
                 )
             }
-            ViewerUri::ClassifiedAbout(classified_key) => {
-                write!(f, "secondlife:///app/classified/{}/about", classified_key)
+            Self::ClassifiedAbout(classified_key) => {
+                write!(f, "secondlife:///app/classified/{classified_key}/about")
             }
-            ViewerUri::EventAbout(event_key) => {
-                write!(f, "secondlife:///app/event/{}/about", event_key)
+            Self::EventAbout(event_key) => {
+                write!(f, "secondlife:///app/event/{event_key}/about")
             }
-            ViewerUri::ExperienceProfile(experience_key) => {
-                write!(f, "secondlife:///app/experience/{}/profile", experience_key)
+            Self::ExperienceProfile(experience_key) => {
+                write!(f, "secondlife:///app/experience/{experience_key}/profile")
             }
-            ViewerUri::GroupAbout(group_key) => {
-                write!(f, "secondlife:///app/group/{}/about", group_key)
+            Self::GroupAbout(group_key) => {
+                write!(f, "secondlife:///app/group/{group_key}/about")
             }
-            ViewerUri::GroupInspect(group_key) => {
-                write!(f, "secondlife:///app/group/{}/inspect", group_key)
+            Self::GroupInspect(group_key) => {
+                write!(f, "secondlife:///app/group/{group_key}/inspect")
             }
-            ViewerUri::GroupCreate => {
+            Self::GroupCreate => {
                 write!(f, "secondlife:///app/group/create")
             }
-            ViewerUri::GroupListShow => {
+            Self::GroupListShow => {
                 write!(f, "secondlife:///app/group/list/show")
             }
-            ViewerUri::Help { help_query } => {
+            Self::Help { help_query } => {
                 if let Some(help_query) = help_query {
                     write!(
                         f,
@@ -414,176 +410,175 @@ impl std::fmt::Display for ViewerUri {
                     write!(f, "secondlife:///app/help")
                 }
             }
-            ViewerUri::InventorySelect(inventory_key) => {
-                write!(f, "secondlife:///app/inventory/{}/select", inventory_key)
+            Self::InventorySelect(inventory_key) => {
+                write!(f, "secondlife:///app/inventory/{inventory_key}/select")
             }
-            ViewerUri::InventoryShow => {
+            Self::InventoryShow => {
                 write!(f, "secondlife:///app/inventory/show")
             }
-            ViewerUri::KeyBindingMovementWalkTo => {
+            Self::KeyBindingMovementWalkTo => {
                 write!(f, "secondlife:///app/keybinding/walk_to")
             }
-            ViewerUri::KeyBindingMovementTeleportTo => {
+            Self::KeyBindingMovementTeleportTo => {
                 write!(f, "secondlife:///app/keybinding/teleport_to")
             }
-            ViewerUri::KeyBindingMovementPushForward => {
+            Self::KeyBindingMovementPushForward => {
                 write!(f, "secondlife:///app/keybinding/push_forward")
             }
-            ViewerUri::KeyBindingMovementPushBackward => {
+            Self::KeyBindingMovementPushBackward => {
                 write!(f, "secondlife:///app/keybinding/push_backward")
             }
-            ViewerUri::KeyBindingMovementTurnLeft => {
+            Self::KeyBindingMovementTurnLeft => {
                 write!(f, "secondlife:///app/keybinding/turn_left")
             }
-            ViewerUri::KeyBindingMovementTurnRight => {
+            Self::KeyBindingMovementTurnRight => {
                 write!(f, "secondlife:///app/keybinding/turn_right")
             }
-            ViewerUri::KeyBindingMovementSlideLeft => {
+            Self::KeyBindingMovementSlideLeft => {
                 write!(f, "secondlife:///app/keybinding/slide_left")
             }
-            ViewerUri::KeyBindingMovementSlideRight => {
+            Self::KeyBindingMovementSlideRight => {
                 write!(f, "secondlife:///app/keybinding/slide_right")
             }
-            ViewerUri::KeyBindingMovementJump => {
+            Self::KeyBindingMovementJump => {
                 write!(f, "secondlife:///app/keybinding/jump")
             }
-            ViewerUri::KeyBindingMovementPushDown => {
+            Self::KeyBindingMovementPushDown => {
                 write!(f, "secondlife:///app/keybinding/push_down")
             }
-            ViewerUri::KeyBindingMovementRunForward => {
+            Self::KeyBindingMovementRunForward => {
                 write!(f, "secondlife:///app/keybinding/run_forward")
             }
-            ViewerUri::KeyBindingMovementRunBackward => {
+            Self::KeyBindingMovementRunBackward => {
                 write!(f, "secondlife:///app/keybinding/run_backward")
             }
-            ViewerUri::KeyBindingMovementRunLeft => {
+            Self::KeyBindingMovementRunLeft => {
                 write!(f, "secondlife:///app/keybinding/run_left")
             }
-            ViewerUri::KeyBindingMovementRunRight => {
+            Self::KeyBindingMovementRunRight => {
                 write!(f, "secondlife:///app/keybinding/run_right")
             }
-            ViewerUri::KeyBindingMovementToggleRun => {
+            Self::KeyBindingMovementToggleRun => {
                 write!(f, "secondlife:///app/keybinding/toggle_run")
             }
-            ViewerUri::KeyBindingMovementToggleFly => {
+            Self::KeyBindingMovementToggleFly => {
                 write!(f, "secondlife:///app/keybinding/toggle_fly")
             }
-            ViewerUri::KeyBindingMovementToggleSit => {
+            Self::KeyBindingMovementToggleSit => {
                 write!(f, "secondlife:///app/keybinding/toggle_sit")
             }
-            ViewerUri::KeyBindingMovementStopMoving => {
+            Self::KeyBindingMovementStopMoving => {
                 write!(f, "secondlife:///app/keybinding/stop_moving")
             }
-            ViewerUri::KeyBindingCameraLookUp => {
+            Self::KeyBindingCameraLookUp => {
                 write!(f, "secondlife:///app/keybinding/look_up")
             }
-            ViewerUri::KeyBindingCameraLookDown => {
+            Self::KeyBindingCameraLookDown => {
                 write!(f, "secondlife:///app/keybinding/look_down")
             }
-            ViewerUri::KeyBindingCameraMoveForward => {
+            Self::KeyBindingCameraMoveForward => {
                 write!(f, "secondlife:///app/keybinding/move_forward")
             }
-            ViewerUri::KeyBindingCameraMoveBackward => {
+            Self::KeyBindingCameraMoveBackward => {
                 write!(f, "secondlife:///app/keybinding/move_backward")
             }
-            ViewerUri::KeyBindingCameraMoveForwardFast => {
+            Self::KeyBindingCameraMoveForwardFast => {
                 write!(f, "secondlife:///app/keybinding/move_forward_fast")
             }
-            ViewerUri::KeyBindingCameraMoveBackwardFast => {
+            Self::KeyBindingCameraMoveBackwardFast => {
                 write!(f, "secondlife:///app/keybinding/move_backward_fast")
             }
-            ViewerUri::KeyBindingCameraSpinOver => {
+            Self::KeyBindingCameraSpinOver => {
                 write!(f, "secondlife:///app/keybinding/spin_over")
             }
-            ViewerUri::KeyBindingCameraSpinUnder => {
+            Self::KeyBindingCameraSpinUnder => {
                 write!(f, "secondlife:///app/keybinding/spin_under")
             }
-            ViewerUri::KeyBindingCameraPanUp => {
+            Self::KeyBindingCameraPanUp => {
                 write!(f, "secondlife:///app/keybinding/pan_up")
             }
-            ViewerUri::KeyBindingCameraPanDown => {
+            Self::KeyBindingCameraPanDown => {
                 write!(f, "secondlife:///app/keybinding/pan_down")
             }
-            ViewerUri::KeyBindingCameraPanLeft => {
+            Self::KeyBindingCameraPanLeft => {
                 write!(f, "secondlife:///app/keybinding/pan_left")
             }
-            ViewerUri::KeyBindingCameraPanRight => {
+            Self::KeyBindingCameraPanRight => {
                 write!(f, "secondlife:///app/keybinding/pan_right")
             }
-            ViewerUri::KeyBindingCameraPanIn => {
+            Self::KeyBindingCameraPanIn => {
                 write!(f, "secondlife:///app/keybinding/pan_in")
             }
-            ViewerUri::KeyBindingCameraPanOut => {
+            Self::KeyBindingCameraPanOut => {
                 write!(f, "secondlife:///app/keybinding/pan_out")
             }
-            ViewerUri::KeyBindingCameraSpinAroundCounterClockwise => {
+            Self::KeyBindingCameraSpinAroundCounterClockwise => {
                 write!(f, "secondlife:///app/keybinding/spin_around_ccw")
             }
-            ViewerUri::KeyBindingCameraSpinAroundClockwise => {
+            Self::KeyBindingCameraSpinAroundClockwise => {
                 write!(f, "secondlife:///app/keybinding/spin_around_cw")
             }
-            ViewerUri::KeyBindingCameraMoveForwardSitting => {
+            Self::KeyBindingCameraMoveForwardSitting => {
                 write!(f, "secondlife:///app/keybinding/move_forward_sitting")
             }
-            ViewerUri::KeyBindingCameraMoveBackwardSitting => {
+            Self::KeyBindingCameraMoveBackwardSitting => {
                 write!(f, "secondlife:///app/keybinding/move_backward_sitting")
             }
-            ViewerUri::KeyBindingCameraSpinOverSitting => {
+            Self::KeyBindingCameraSpinOverSitting => {
                 write!(f, "secondlife:///app/keybinding/spin_over_sitting")
             }
-            ViewerUri::KeyBindingCameraSpinUnderSitting => {
+            Self::KeyBindingCameraSpinUnderSitting => {
                 write!(f, "secondlife:///app/keybinding/spin_under_sitting")
             }
-            ViewerUri::KeyBindingCameraSpinAroundCounterClockwiseSitting => {
+            Self::KeyBindingCameraSpinAroundCounterClockwiseSitting => {
                 write!(f, "secondlife:///app/keybinding/spin_around_ccw_sitting")
             }
-            ViewerUri::KeyBindingCameraSpinAroundClockwiseSitting => {
+            Self::KeyBindingCameraSpinAroundClockwiseSitting => {
                 write!(f, "secondlife:///app/keybinding/spin_around_cw_sitting")
             }
-            ViewerUri::KeyBindingEditingAvatarSpinCounterClockwise => {
+            Self::KeyBindingEditingAvatarSpinCounterClockwise => {
                 write!(f, "secondlife:///app/keybinding/avatar_spin_ccw")
             }
-            ViewerUri::KeyBindingEditingAvatarSpinClockwise => {
+            Self::KeyBindingEditingAvatarSpinClockwise => {
                 write!(f, "secondlife:///app/keybinding/avatar_spin_cw")
             }
-            ViewerUri::KeyBindingEditingAvatarSpinOver => {
+            Self::KeyBindingEditingAvatarSpinOver => {
                 write!(f, "secondlife:///app/keybinding/avatar_spin_over")
             }
-            ViewerUri::KeyBindingEditingAvatarSpinUnder => {
+            Self::KeyBindingEditingAvatarSpinUnder => {
                 write!(f, "secondlife:///app/keybinding/avatar_spin_under")
             }
-            ViewerUri::KeyBindingEditingAvatarMoveForward => {
+            Self::KeyBindingEditingAvatarMoveForward => {
                 write!(f, "secondlife:///app/keybinding/avatar_move_forward")
             }
-            ViewerUri::KeyBindingEditingAvatarMoveBackward => {
+            Self::KeyBindingEditingAvatarMoveBackward => {
                 write!(f, "secondlife:///app/keybinding/avatar_move_backward")
             }
-            ViewerUri::KeyBindingSoundAndMediaTogglePauseMedia => {
+            Self::KeyBindingSoundAndMediaTogglePauseMedia => {
                 write!(f, "secondlife:///app/keybinding/toggle_pause_media")
             }
-            ViewerUri::KeyBindingSoundAndMediaToggleEnableMedia => {
+            Self::KeyBindingSoundAndMediaToggleEnableMedia => {
                 write!(f, "secondlife:///app/keybinding/toggle_enable_media")
             }
-            ViewerUri::KeyBindingSoundAndMediaVoiceFollowKey => {
+            Self::KeyBindingSoundAndMediaVoiceFollowKey => {
                 write!(f, "secondlife:///app/keybinding/voice_follow_key")
             }
-            ViewerUri::KeyBindingSoundAndMediaToggleVoice => {
+            Self::KeyBindingSoundAndMediaToggleVoice => {
                 write!(f, "secondlife:///app/keybinding/toggle_voice")
             }
-            ViewerUri::KeyBindingStartChat => {
+            Self::KeyBindingStartChat => {
                 write!(f, "secondlife:///app/keybinding/start_chat")
             }
-            ViewerUri::KeyBindingStartGesture => {
+            Self::KeyBindingStartGesture => {
                 write!(f, "secondlife:///app/keybinding/start_gesture")
             }
-            ViewerUri::KeyBindingScriptTriggerLButton(script_trigger_mode) => {
+            Self::KeyBindingScriptTriggerLButton(script_trigger_mode) => {
                 write!(
                     f,
-                    "secondlife:///app/keybinding/script_trigger_lbutton?mode={}",
-                    script_trigger_mode
+                    "secondlife:///app/keybinding/script_trigger_lbutton?mode={script_trigger_mode}"
                 )
             }
-            ViewerUri::Login {
+            Self::Login {
                 first_name,
                 last_name,
                 session,
@@ -614,10 +609,10 @@ impl std::fmt::Display for ViewerUri {
                     },
                 )
             }
-            ViewerUri::MapTrackAvatar(friend_key) => {
-                write!(f, "secondlife:///app/maptrackavatar/{}", friend_key)
+            Self::MapTrackAvatar(friend_key) => {
+                write!(f, "secondlife:///app/maptrackavatar/{friend_key}")
             }
-            ViewerUri::ObjectInstantMessage {
+            Self::ObjectInstantMessage {
                 object_key,
                 object_name,
                 owner,
@@ -633,10 +628,10 @@ impl std::fmt::Display for ViewerUri {
                     ),
                     match owner {
                         crate::key::OwnerKey::Agent(agent_key) => {
-                            format!("owner={}", agent_key)
+                            format!("owner={agent_key}")
                         }
                         crate::key::OwnerKey::Group(group_key) => {
-                            format!("owner={}?groupowned=true", group_key)
+                            format!("owner={group_key}?groupowned=true")
                         }
                     },
                     percent_encoding::percent_encode(
@@ -648,7 +643,7 @@ impl std::fmt::Display for ViewerUri {
                     location.z,
                 )
             }
-            ViewerUri::OpenFloater(floater_name) => {
+            Self::OpenFloater(floater_name) => {
                 write!(
                     f,
                     "secondlife:///app/openfloater/{}",
@@ -658,10 +653,10 @@ impl std::fmt::Display for ViewerUri {
                     )
                 )
             }
-            ViewerUri::Parcel(parcel_key) => {
-                write!(f, "secondlife:///app/parcel/{}/about", parcel_key)
+            Self::Parcel(parcel_key) => {
+                write!(f, "secondlife:///app/parcel/{parcel_key}/about")
             }
-            ViewerUri::Search {
+            Self::Search {
                 category,
                 search_term,
             } => {
@@ -675,10 +670,10 @@ impl std::fmt::Display for ViewerUri {
                     )
                 )
             }
-            ViewerUri::ShareWithAvatar(agent_key) => {
-                write!(f, "secondlife::///app/sharewithavatar/{}", agent_key)
+            Self::ShareWithAvatar(agent_key) => {
+                write!(f, "secondlife::///app/sharewithavatar/{agent_key}")
             }
-            ViewerUri::Teleport(location) => {
+            Self::Teleport(location) => {
                 write!(
                     f,
                     "secondlife:///teleport/{}/{}/{}/{}",
@@ -691,17 +686,16 @@ impl std::fmt::Display for ViewerUri {
                     location.z()
                 )
             }
-            ViewerUri::VoiceCallAvatar(agent_key) => {
-                write!(f, "secondlife:///app/voicecallavatar/{}", agent_key)
+            Self::VoiceCallAvatar(agent_key) => {
+                write!(f, "secondlife:///app/voicecallavatar/{agent_key}")
             }
-            ViewerUri::WearFolderByInventoryFolderKey(inventory_folder_key) => {
+            Self::WearFolderByInventoryFolderKey(inventory_folder_key) => {
                 write!(
                     f,
-                    "secondlife:///app/wear_folder?folder_id={}",
-                    inventory_folder_key
+                    "secondlife:///app/wear_folder?folder_id={inventory_folder_key}"
                 )
             }
-            ViewerUri::WearFolderByLibraryFolderName(library_folder_name) => {
+            Self::WearFolderByLibraryFolderName(library_folder_name) => {
                 write!(
                     f,
                     "secondlife:///app/wear_folder?folder_name={}",
@@ -711,7 +705,7 @@ impl std::fmt::Display for ViewerUri {
                     ),
                 )
             }
-            ViewerUri::WorldMap(location) => {
+            Self::WorldMap(location) => {
                 write!(
                     f,
                     "secondlife:///app/worldmap/{}/{}/{}/{}",
@@ -980,10 +974,7 @@ pub fn viewer_app_keybinding_uri_parser() -> impl Parser<char, ViewerUri, Error 
                 "toggle_voice" => Ok(ViewerUri::KeyBindingSoundAndMediaToggleVoice),
                 "start_chat" => Ok(ViewerUri::KeyBindingStartChat),
                 "start_gesture" => Ok(ViewerUri::KeyBindingStartGesture),
-                _ => Err(Simple::custom(
-                    span,
-                    format!("Not a valid keybinding: {}", s),
-                )),
+                _ => Err(Simple::custom(span, format!("Not a valid keybinding: {s}"))),
             })
             .or(just("/script_trigger_lbutton")
                 .ignore_then(script_trigger_mode_parser())
@@ -1224,6 +1215,10 @@ pub fn viewer_location_uri_parser() -> impl Parser<char, ViewerUri, Error = Simp
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the parse is used outside this module"
+)]
 pub fn viewer_uri_parser() -> impl Parser<char, ViewerUri, Error = Simple<char>> {
     viewer_app_uri_parser().or(viewer_location_uri_parser())
 }

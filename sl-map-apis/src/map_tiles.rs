@@ -47,11 +47,51 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
         if !self.contains(grid_coordinates) {
             return None;
         }
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "this should never underflow since we already checked with contains that the grid coordinates are inside the map"
+        )]
         let grid_offset = *grid_coordinates - self.lower_left_corner();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "since we are dealing with image sizes here the numbers never get anywhere near the maximum values of either type"
+        )]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "since we are dealing with image sizes here the numbers never get anywhere near the maximum values of either type"
+        )]
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "Since grid_offset is the difference between the lower left corner and a coordinate inside the map it is always positive"
+        )]
+        #[expect(
+            clippy::as_conversions,
+            reason = "For the reasons mentioned in the other expects this should be safe here"
+        )]
         let x = (self.pixels_per_region() * grid_offset.x() as f32
             + self.pixels_per_meter() * region_coordinates.x()) as u32;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "since we are dealing with image sizes here the numbers never get anywhere near the maximum values of either type"
+        )]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "since we are dealing with image sizes here the numbers never get anywhere near the maximum values of either type"
+        )]
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "Since grid_offset is the difference between the lower left corner and a coordinate inside the map it is always positive"
+        )]
+        #[expect(
+            clippy::as_conversions,
+            reason = "For the reasons mentioned in the other expects this should be safe here"
+        )]
         let y = (self.pixels_per_region() * grid_offset.y() as f32
             + self.pixels_per_meter() * region_coordinates.y()) as u32;
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "since y is a coordinate within the image it should always be less than or equal to height and thus this subtraction should never underflow"
+        )]
         let y = self.height() - y;
         Some((x, y))
     }
@@ -63,15 +103,43 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
         x: u32,
         y: u32,
     ) -> Option<(GridCoordinates, RegionCoordinates)> {
-        if !(x <= self.dimensions().0 && y <= self.dimensions().1) {
+        if !(x <= self.width() && y <= self.height()) {
             return None;
         }
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "we just checked that y is less than or equal to height so this can not underflow"
+        )]
         let y = self.height() - y;
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "we just checked that x and y are less than width and height of this rectangle so this should not overflow if the upper right corner value did not"
+        )]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "we are dealing with grid coordinates so integers are fine"
+        )]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "our pixel coordinates are not going to be anywhere near 2^23 or we should rethink our choices of types anyway"
+        )]
         let grid_result = self.lower_left_corner()
             + GridCoordinateOffset::new(
                 (x as f32 / self.pixels_per_region()) as i32,
                 (y as f32 / self.pixels_per_region()) as i32,
             );
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "pixels_per_region are always an integer, even if they are represented as f32"
+        )]
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "pixels_per_region is always positive"
+        )]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "x % pixels_per_region should be no larger than 255 (the largest pixels_per_region value is 256)"
+        )]
         let region_result = RegionCoordinates::new(
             (x % self.pixels_per_region() as u32) as f32 / self.pixels_per_meter(),
             (y % self.pixels_per_region() as u32) as f32 / self.pixels_per_meter(),
@@ -110,6 +178,10 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
 
     /// draw a waypoint at the given coordinates
     fn draw_waypoint(&mut self, x: u32, y: u32, color: image::Rgba<u8>) {
+        #[expect(
+            clippy::cast_possible_wrap,
+            reason = "our pixel coordinates should be nowhere near i32::MAX"
+        )]
         imageproc::drawing::draw_filled_rect_mut(
             self.image_mut(),
             imageproc::rect::Rect::at(x as i32 - 5i32, y as i32 - 5i32).of_size(10, 10),
@@ -126,14 +198,39 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
         to_y: u32,
         color: image::Rgba<u8>,
     ) {
+        if from_x == to_x && from_y == to_y {
+            // if the start and the end of the line are identical we do not need to draw anything
+            // also, the division for normalizing below would be a division by 0 in that case
+            return;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "if our pixel coordinates get anywhere near 2^23 we probably should reconsider all types anyway"
+        )]
         let from_x = from_x as f32;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "if our pixel coordinates get anywhere near 2^23 we probably should reconsider all types anyway"
+        )]
         let from_y = from_y as f32;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "if our pixel coordinates get anywhere near 2^23 we probably should reconsider all types anyway"
+        )]
         let to_x = to_x as f32;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "if our pixel coordinates get anywhere near 2^23 we probably should reconsider all types anyway"
+        )]
         let to_y = to_y as f32;
         let diff = (to_x - from_x, to_y - from_y);
         let perpendicular = (-diff.1, diff.0);
         let magnitude = (diff.0.powi(2) + diff.1.powi(2)).sqrt();
         let perpendicular_normalized = (perpendicular.0 / magnitude, perpendicular.1 / magnitude);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "we want integer coordinates for use in Points"
+        )]
         let points = vec![
             imageproc::point::Point::new(
                 (from_x + perpendicular_normalized.0 * 5.0) as i32,
@@ -163,6 +260,14 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
     /// draw an arrow from the direction of the first point with the
     /// tip at the second point
     fn draw_arrow(&mut self, from: (f32, f32), tip: (f32, f32), color: image::Rgba<u8>) {
+        /// length of the arrow at each waypoint from tip to base
+        const ARROW_LENGTH: f32 = 15f32;
+        /// width of the arrow from the center line (double this to get the length of the base side of the triangle)
+        const ARROW_HALF_WIDTH: f32 = 5f32;
+        if from == tip {
+            // do not try to draw arrows from a point to itself
+            return;
+        }
         let arrow_direction = (tip.0 - from.0, tip.1 - from.1);
         let arrow_direction_magnitude =
             (arrow_direction.0.powf(2f32) + arrow_direction.1.powf(2f32)).sqrt();
@@ -170,10 +275,6 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
             arrow_direction.0 / arrow_direction_magnitude,
             arrow_direction.1 / arrow_direction_magnitude,
         );
-        /// length of the arrow at each waypoint from tip to base
-        const ARROW_LENGTH: f32 = 15f32;
-        /// width of the arrow from the center line (double this to get the length of the base side of the triangle)
-        const ARROW_HALF_WIDTH: f32 = 5f32;
         let arrow_base_middle = (
             tip.0 - (ARROW_LENGTH * arrow_direction.0),
             tip.1 - (ARROW_LENGTH * arrow_direction.1),
@@ -186,7 +287,18 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
             arrow_base_middle.0 - (ARROW_HALF_WIDTH * arrow_direction.1),
             arrow_base_middle.1 + (ARROW_HALF_WIDTH * arrow_direction.0),
         );
-        tracing::debug!("Painting arrow with arrow direction {:?}, arrow tip {:?}, arrow base middle {:?}, arrow_base_side1 {:?}, arrow_base_side2 {:?} ", arrow_direction, tip, arrow_base_middle, arrow_base_side1, arrow_base_side2);
+        tracing::debug!(
+            "Painting arrow with arrow direction {:?}, arrow tip {:?}, arrow base middle {:?}, arrow_base_side1 {:?}, arrow_base_side2 {:?} ",
+            arrow_direction,
+            tip,
+            arrow_base_middle,
+            arrow_base_side1,
+            arrow_base_side2
+        );
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "we want integer coordinates for use in Points"
+        )]
         imageproc::drawing::draw_polygon_mut(
             self.image_mut(),
             &[
@@ -212,7 +324,7 @@ pub struct MapTile {
 impl MapTile {
     /// the descriptor of the map tile
     #[must_use]
-    pub fn descriptor(&self) -> &MapTileDescriptor {
+    pub const fn descriptor(&self) -> &MapTileDescriptor {
         &self.descriptor
     }
 }
@@ -237,17 +349,23 @@ impl image::GenericImageView for MapTile {
 
 impl image::GenericImage for MapTile {
     fn get_pixel_mut(&mut self, x: u32, y: u32) -> &mut Self::Pixel {
-        #[allow(deprecated)]
+        #[expect(
+            deprecated,
+            reason = "we need to use this deprecated function to implement the deprecated function when passing it through"
+        )]
         self.image.get_pixel_mut(x, y)
     }
 
     fn put_pixel(&mut self, x: u32, y: u32, pixel: Self::Pixel) {
-        self.image.put_pixel(x, y, pixel)
+        self.image.put_pixel(x, y, pixel);
     }
 
     fn blend_pixel(&mut self, x: u32, y: u32, pixel: Self::Pixel) {
-        #[allow(deprecated)]
-        self.image.blend_pixel(x, y, pixel)
+        #[expect(
+            deprecated,
+            reason = "we need to use this deprecated function to implement the deprecated function when passing it through"
+        )]
+        self.image.blend_pixel(x, y, pixel);
     }
 }
 
@@ -350,14 +468,12 @@ impl http_cache_semantics::ResponseLike for MapTileNegativeResponse {
 
 impl MapTileCache {
     /// creates a new `MapTileCache`
-    #[allow(clippy::missing_panics_doc)]
+    #[expect(clippy::missing_panics_doc, reason = "we know 16 is non-zero")]
     #[must_use]
     pub fn new(cache_directory: PathBuf, ratelimiter: Option<ratelimit::Ratelimiter>) -> Self {
-        // unwrap is okay here because we know that the literal 16 is non-zero
-        // same reason for missing_panics_doc above
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used, reason = "we know 16 is non-zero")]
         let cache = lru::LruCache::new(std::num::NonZeroUsize::new(16).unwrap());
-        MapTileCache {
+        Self {
             client: reqwest::Client::new(),
             ratelimiter,
             cache_directory,
@@ -367,7 +483,7 @@ impl MapTileCache {
 
     /// the file name of a map tile cache file
     #[must_use]
-    fn map_tile_file_name(&self, map_tile_descriptor: &MapTileDescriptor) -> String {
+    fn map_tile_file_name(map_tile_descriptor: &MapTileDescriptor) -> String {
         format!(
             "map-{}-{}-{}-objects.jpg",
             map_tile_descriptor.zoom_level(),
@@ -380,7 +496,7 @@ impl MapTileCache {
     #[must_use]
     fn map_tile_cache_file_name(&self, map_tile_descriptor: &MapTileDescriptor) -> PathBuf {
         self.cache_directory
-            .join(self.map_tile_file_name(map_tile_descriptor))
+            .join(Self::map_tile_file_name(map_tile_descriptor))
     }
 
     /// the file name marking a negative response in the cache directory
@@ -391,7 +507,7 @@ impl MapTileCache {
     ) -> PathBuf {
         self.cache_directory.join(format!(
             "{}.does-not-exist",
-            self.map_tile_file_name(map_tile_descriptor)
+            Self::map_tile_file_name(map_tile_descriptor)
         ))
     }
 
@@ -400,16 +516,16 @@ impl MapTileCache {
     fn cache_policy_file_name(&self, map_tile_descriptor: &MapTileDescriptor) -> PathBuf {
         self.cache_directory.join(format!(
             "{}.cache-policy.json",
-            self.map_tile_file_name(map_tile_descriptor)
+            Self::map_tile_file_name(map_tile_descriptor)
         ))
     }
 
     /// the URL of a map tile on the Second Life main map server
     #[must_use]
-    fn map_tile_url(&self, map_tile_descriptor: &MapTileDescriptor) -> String {
+    fn map_tile_url(map_tile_descriptor: &MapTileDescriptor) -> String {
         format!(
             "https://secondlife-maps-cdn.akamaized.net/{}",
-            self.map_tile_file_name(map_tile_descriptor),
+            Self::map_tile_file_name(map_tile_descriptor),
         )
     }
 
@@ -425,12 +541,13 @@ impl MapTileCache {
                 .exists(),
         ) {
             (false, false, false) => Ok(MapTileCacheEntryStatus::Missing),
-            (true, true, false) => Ok(MapTileCacheEntryStatus::Valid),
-            (true, false, true) => Ok(MapTileCacheEntryStatus::Valid),
+            (true, true, false) | (true, false, true) => Ok(MapTileCacheEntryStatus::Valid),
             (cp, tile, neg) => {
                 tracing::warn!(
                     "cache entry status is invalid: cache policy file: {}, map tile file: {}, negative response file: {}",
-                    cp, tile, neg
+                    cp,
+                    tile,
+                    neg
                 );
                 Ok(MapTileCacheEntryStatus::Invalid)
             }
@@ -571,7 +688,9 @@ impl MapTileCache {
             self.cache
                 .put(map_tile_descriptor.clone(), (None, cache_policy));
         } else {
-            tracing::warn!("Absence of map tile {map_tile_descriptor:?} not storable according to cache policy");
+            tracing::warn!(
+                "Absence of map tile {map_tile_descriptor:?} not storable according to cache policy"
+            );
         }
         Ok(())
     }
@@ -620,7 +739,7 @@ impl MapTileCache {
         map_tile_descriptor: &MapTileDescriptor,
     ) -> Result<Option<MapTile>, MapTileCacheError> {
         tracing::debug!("Map tile {map_tile_descriptor:?} requested");
-        let url = self.map_tile_url(map_tile_descriptor);
+        let url = Self::map_tile_url(map_tile_descriptor);
         let request = self.client.get(&url).build()?;
         let now = std::time::SystemTime::now();
         if let Some((cached_map_tile, cache_policy)) =
@@ -668,7 +787,9 @@ impl MapTileCache {
             if response.status() == reqwest::StatusCode::FORBIDDEN {
                 // FORBIDDEN (403) is returned when the file does not exist
                 // which likely means there is no region/map tile
-                tracing::debug!("Received 403 FORBIDDEN response, interpreting as no map tile for these grid coordinates");
+                tracing::debug!(
+                    "Received 403 FORBIDDEN response, interpreting as no map tile for these grid coordinates"
+                );
                 let cache_policy = http_cache_semantics::CachePolicy::new(
                     &request,
                     &MapTileNegativeResponse(response),
@@ -711,7 +832,7 @@ impl MapTileCache {
         &mut self,
         map_tile_descriptor: &MapTileDescriptor,
     ) -> Result<bool, MapTileCacheError> {
-        let url = self.map_tile_url(map_tile_descriptor);
+        let url = Self::map_tile_url(map_tile_descriptor);
         if let Some((map_tile, cache_policy)) = self.cache.get(map_tile_descriptor) {
             let request = self.client.get(&url).build()?;
             let now = std::time::SystemTime::now();
@@ -721,21 +842,21 @@ impl MapTileCache {
                 return Ok(map_tile.is_some());
             }
         }
-        if self.cache_entry_status(map_tile_descriptor).await? == MapTileCacheEntryStatus::Valid {
-            if let Some(cache_policy) = self.load_cache_policy(map_tile_descriptor).await? {
-                let request = self.client.get(&url).build()?;
-                let now = std::time::SystemTime::now();
-                if let http_cache_semantics::BeforeRequest::Fresh(_) =
-                    cache_policy.before_request(&request, now)
+        if self.cache_entry_status(map_tile_descriptor).await? == MapTileCacheEntryStatus::Valid
+            && let Some(cache_policy) = self.load_cache_policy(map_tile_descriptor).await?
+        {
+            let request = self.client.get(&url).build()?;
+            let now = std::time::SystemTime::now();
+            if let http_cache_semantics::BeforeRequest::Fresh(_) =
+                cache_policy.before_request(&request, now)
+            {
+                if self
+                    .map_tile_cache_negative_response_file_name(map_tile_descriptor)
+                    .exists()
                 {
-                    if self
-                        .map_tile_cache_negative_response_file_name(map_tile_descriptor)
-                        .exists()
-                    {
-                        return Ok(false);
-                    }
-                    return Ok(true);
+                    return Ok(false);
                 }
+                return Ok(true);
             }
         }
         Ok(self.get_map_tile(map_tile_descriptor).await?.is_some())
@@ -752,7 +873,9 @@ impl MapTileCache {
         grid_coordinates: &GridCoordinates,
     ) -> Result<bool, MapTileCacheError> {
         for zoom_level in (1..=8).rev() {
-            tracing::debug!("Checking if zoom level {zoom_level} map tile exists for region {grid_coordinates:?}");
+            tracing::debug!(
+                "Checking if zoom level {zoom_level} map tile exists for region {grid_coordinates:?}"
+            );
             let map_tile_descriptor = MapTileDescriptor::new(
                 ZoomLevel::try_new(zoom_level)?,
                 grid_coordinates.to_owned(),
@@ -790,7 +913,9 @@ pub enum MapError {
     MapTileCacheError(#[from] MapTileCacheError),
     /// an error occurred when trying to calculate the zoom level that fits the
     /// map grid rectangle into the output image
-    #[error("error when trying to calculate zoom level that fits the map grid rectangle into the output image: {0}")]
+    #[error(
+        "error when trying to calculate zoom level that fits the map grid rectangle into the output image: {0}"
+    )]
     ZoomFitError(#[from] ZoomFitError),
     /// failed to crop a map tile to the required size
     #[error("error when cropping a map tile to the required size")]
@@ -824,7 +949,7 @@ impl Map {
     ///
     /// if we choose not to fill the missing regions they appear in a color
     /// similar to water but filling them in has some performance impact since
-    /// we need to check if the region exists by fetching higher resolutio
+    /// we need to check if the region exists by fetching higher resolution
     /// map tiles for it.
     ///
     /// # Errors
@@ -855,7 +980,9 @@ impl Map {
             * <u16 as Into<u32>>::into(grid_rectangle.size_x());
         let actual_y = <u16 as Into<u32>>::into(zoom_level.pixels_per_region())
             * <u16 as Into<u32>>::into(grid_rectangle.size_y());
-        tracing::debug!("Determined max zoom level for map of size ({x}, {y}) for {grid_rectangle:?} to be {zoom_level:?}, actual map size will be ({actual_x}, {actual_y})");
+        tracing::debug!(
+            "Determined max zoom level for map of size ({x}, {y}) for {grid_rectangle:?} to be {zoom_level:?}, actual map size will be ({actual_x}, {actual_y})"
+        );
         let x = actual_x;
         let y = actual_y;
         let image = image::DynamicImage::new_rgb8(x, y);
@@ -926,7 +1053,7 @@ impl Map {
                                     {
                                         for x in min_x..max_x {
                                             for y in min_y..max_y {
-                                                <Map as image::GenericImage>::put_pixel(
+                                                <Self as image::GenericImage>::put_pixel(
                                                     &mut result,
                                                     x,
                                                     y,
@@ -947,12 +1074,12 @@ impl Map {
                         )
                         .ok_or(MapError::MapCoordinateError)?;
                     let pixel_size_x =
-                        overlap.size_x() as u32 * zoom_level.pixels_per_region() as u32;
+                        u32::from(overlap.size_x()) * u32::from(zoom_level.pixels_per_region());
                     let pixel_size_y =
-                        overlap.size_y() as u32 * zoom_level.pixels_per_region() as u32;
+                        u32::from(overlap.size_y()) * u32::from(zoom_level.pixels_per_region());
                     for x in replace_x..replace_x + pixel_size_x {
                         for y in replace_y..replace_y + pixel_size_y {
-                            <Map as image::GenericImage>::put_pixel(&mut result, x, y, fill_color);
+                            <Self as image::GenericImage>::put_pixel(&mut result, x, y, fill_color);
                         }
                     }
                 }
@@ -995,21 +1122,36 @@ impl Map {
                 waypoint.location()
             );
             //self.draw_waypoint(x, y, color);
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "if our pixel coordinates get anywhere near 2^23 we probably should reconsider all types anyway"
+            )]
             pixel_waypoints.push((x as f32, y as f32));
         }
         let waypoint_count = pixel_waypoints.len();
-        if waypoint_count < 2 {
+        let Some((first, pixel_waypoints_all_but_first)) = pixel_waypoints.split_first() else {
+            // no route if there are no waypoints
+            return Ok(());
+        };
+        let Some((second, _pixel_waypoints_rest)) = pixel_waypoints_all_but_first.split_first()
+        else {
             // no route if there is only one waypoint
             return Ok(());
-        }
-        let first = pixel_waypoints[0];
-        let second = pixel_waypoints[1];
+        };
         let extra_before_start = (
             first.0 - (second.0 - first.0),
             first.1 - (second.1 - first.1),
         );
-        let last = pixel_waypoints[pixel_waypoints.len() - 1];
-        let second_to_last = pixel_waypoints[pixel_waypoints.len() - 2];
+        let Some((last, pixel_waypoints_all_but_last)) = pixel_waypoints.split_last() else {
+            // no route if there are no waypoints (but this should never happen since we already returned at the first split_first() above)
+            return Ok(());
+        };
+        let Some((second_to_last, _pixel_waypoints_rest)) =
+            pixel_waypoints_all_but_last.split_last()
+        else {
+            // no route if there is only one waypoint (but this should never happen since we already returned at the second split_first() above)
+            return Ok(());
+        };
         let extra_after_end = (
             last.0 + (last.0 - second_to_last.0),
             last.1 + (last.1 - second_to_last.1),
@@ -1029,6 +1171,10 @@ impl Map {
                 )?;
             Ok((point_x, point_y))
         };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "if our waypoint counts get anywhere near 2^23 routes probably will not be finished anyway"
+        )]
         let spline_value_for_waypoint =
             |i: usize| -> f32 { i as f32 / (waypoint_count as f32 - 2f32) };
         let spline_value_between_waypoints = spline_value_for_waypoint(1);
@@ -1037,32 +1183,48 @@ impl Map {
         };
         let mut last_point: Option<(f32, f32)> = None;
         for (i, waypoint) in pixel_waypoints.iter().enumerate().take(waypoint_count - 1) {
+            /// size of rectangles to use to draw the spline, should be odd
+            /// or it won't be centered properly
+            const SPLINE_RECT_SIZE: u8 = 3;
             tracing::debug!("Waypoint {}: {:?}", i, waypoint);
             let v = spline_value_for_waypoint(i);
             let point = sample(v)?;
             tracing::debug!("Sampled Catmull Rom curve {i} at point {v}: {point:?} for route");
-            /// size of rectangles to use to draw the spline, should be odd
-            /// or it won't be centered properly
-            const SPLINE_RECT_SIZE: u32 = 3;
             if let Some(last_point) = last_point {
                 let distance_from_last_point = distance_between_points(point, last_point);
                 tracing::debug!(
                     "Waypoint {i} is {:?} from last waypoint",
                     distance_from_last_point
                 );
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "we want an integer count for the number of samples"
+                )]
+                #[expect(
+                    clippy::cast_sign_loss,
+                    reason = "we want a positive count for the number of samples"
+                )]
                 let samples_between_last_waypoint_and_this_one =
-                    (0.5f32 * distance_from_last_point / SPLINE_RECT_SIZE as f32) as u32;
+                    (0.5f32 * distance_from_last_point / f32::from(SPLINE_RECT_SIZE)) as u32;
                 for j in (0..samples_between_last_waypoint_and_this_one).rev() {
+                    #[expect(
+                        clippy::cast_precision_loss,
+                        reason = "if our waypoints are so far apart that we end up with 2^23 or more samples between two waypoints something is very broken anyway"
+                    )]
                     let v = v - spline_value_between_waypoints
                         * (j as f32 / (samples_between_last_waypoint_and_this_one as f32 - 2f32));
                     let sample_point = sample(v)?;
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "we want integer pixel coordinates for use in the image library"
+                    )]
                     imageproc::drawing::draw_filled_rect_mut(
                         self.image_mut(),
                         imageproc::rect::Rect::at(
-                            sample_point.0 as i32 - ((SPLINE_RECT_SIZE as i32 - 1) / 2),
-                            sample_point.1 as i32 - ((SPLINE_RECT_SIZE as i32 - 1) / 2),
+                            sample_point.0 as i32 - ((i32::from(SPLINE_RECT_SIZE) - 1) / 2),
+                            sample_point.1 as i32 - ((i32::from(SPLINE_RECT_SIZE) - 1) / 2),
                         )
-                        .of_size(SPLINE_RECT_SIZE, SPLINE_RECT_SIZE),
+                        .of_size(u32::from(SPLINE_RECT_SIZE), u32::from(SPLINE_RECT_SIZE)),
                         color,
                     );
                 }
@@ -1108,17 +1270,23 @@ impl image::GenericImageView for Map {
 
 impl image::GenericImage for Map {
     fn get_pixel_mut(&mut self, x: u32, y: u32) -> &mut Self::Pixel {
-        #[allow(deprecated)]
+        #[expect(
+            deprecated,
+            reason = "we need to use this deprecated function to implement the deprecated function when passing it through"
+        )]
         self.image.get_pixel_mut(x, y)
     }
 
     fn put_pixel(&mut self, x: u32, y: u32, pixel: Self::Pixel) {
-        self.image.put_pixel(x, y, pixel)
+        self.image.put_pixel(x, y, pixel);
     }
 
     fn blend_pixel(&mut self, x: u32, y: u32, pixel: Self::Pixel) {
-        #[allow(deprecated)]
-        self.image.blend_pixel(x, y, pixel)
+        #[expect(
+            deprecated,
+            reason = "we need to use this deprecated function to implement the deprecated function when passing it through"
+        )]
+        self.image.blend_pixel(x, y, pixel);
     }
 }
 
@@ -1138,8 +1306,7 @@ impl MapLike for Map {
 
 #[cfg(test)]
 mod test {
-    use image::GenericImageView;
-    use sl_types::map::{GridCoordinates, ZoomLevel};
+    use image::GenericImageView as _;
     use tracing_test::traced_test;
 
     use super::*;
@@ -1289,9 +1456,9 @@ mod test {
 
     #[traced_test]
     #[tokio::test]
-    #[allow(clippy::panic)]
-    async fn test_map_tile_pixel_coordinates_for_coordinates_single_region(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    #[expect(clippy::panic, reason = "panic in test is intentional")]
+    async fn test_map_tile_pixel_coordinates_for_coordinates_single_region()
+    -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
         let mut map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
         let Some(map_tile) = map_tile_cache
@@ -1306,6 +1473,10 @@ mod test {
         for in_region_x in 0..=256 {
             for in_region_y in 0..=256 {
                 let grid_coordinates = GridCoordinates::new(1136, 1075);
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "in_region_x and in_region_y are between 0 and 256, nowhere near 2^23"
+                )]
                 let region_coordinates =
                     RegionCoordinates::new(in_region_x as f32, in_region_y as f32, 0f32);
                 tracing::debug!("Now checking {grid_coordinates:?}, {region_coordinates:?}");
@@ -1321,8 +1492,8 @@ mod test {
 
     #[traced_test]
     #[tokio::test]
-    async fn test_map_pixel_coordinates_for_coordinates_four_regions(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_map_pixel_coordinates_for_coordinates_four_regions()
+    -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
         let ratelimiter =
             ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
@@ -1346,8 +1517,11 @@ mod test {
                     for in_region_y in 0..=256 {
                         let grid_coordinates =
                             GridCoordinates::new(1136 + region_offset_x, 1074 + region_offset_y);
-                        let region_coordinates =
-                            RegionCoordinates::new(in_region_x as f32, in_region_y as f32, 0f32);
+                        let region_coordinates = RegionCoordinates::new(
+                            f32::from(in_region_x),
+                            f32::from(in_region_y),
+                            0f32,
+                        );
                         tracing::debug!(
                             "Now checking {grid_coordinates:?}, {region_coordinates:?}"
                         );
@@ -1357,8 +1531,8 @@ mod test {
                                 &region_coordinates,
                             ),
                             Some((
-                                (region_offset_x * 256 + in_region_x) as u32,
-                                (512 - (region_offset_y * 256 + in_region_y)) as u32
+                                u32::from(region_offset_x * 256 + in_region_x),
+                                u32::from(512 - (region_offset_y * 256 + in_region_y))
                             )),
                         );
                     }
@@ -1370,9 +1544,9 @@ mod test {
 
     #[traced_test]
     #[tokio::test]
-    #[allow(clippy::panic)]
-    async fn test_map_tile_coordinates_for_pixel_coordinates_single_region(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    #[expect(clippy::panic, reason = "panic in test is intentional")]
+    async fn test_map_tile_coordinates_for_pixel_coordinates_single_region()
+    -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
         let mut map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
         let Some(map_tile) = map_tile_cache
@@ -1385,6 +1559,10 @@ mod test {
             panic!("Expected there to be a region at this location");
         };
         tracing::debug!("Dimensions of map tile are {:?}", map_tile.dimensions());
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "in_region_x and in_region_y are between 0 and 256, nowhere near 2^23"
+        )]
         for in_region_x in 0..=256 {
             for in_region_y in 0..=256 {
                 let pixel_x = in_region_x;
@@ -1411,8 +1589,8 @@ mod test {
 
     #[traced_test]
     #[tokio::test]
-    async fn test_map_coordinates_for_pixel_coordinates_four_regions(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_map_coordinates_for_pixel_coordinates_four_regions()
+    -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
         let ratelimiter =
             ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
@@ -1435,8 +1613,8 @@ mod test {
             for region_offset_y in 0..=1 {
                 for in_region_x in 0..=256 {
                     for in_region_y in 0..=256 {
-                        let pixel_x = (region_offset_x * 256 + in_region_x) as u32;
-                        let pixel_y = (512 - (region_offset_y * 256 + in_region_y)) as u32;
+                        let pixel_x = u32::from(region_offset_x * 256 + in_region_x);
+                        let pixel_y = u32::from(512 - (region_offset_y * 256 + in_region_y));
                         tracing::debug!("Now checking ({pixel_x}, {pixel_y})");
                         assert_eq!(
                             map.coordinates_for_pixel_coordinates(pixel_x, pixel_y,),
@@ -1446,8 +1624,8 @@ mod test {
                                     1074 + region_offset_y + if in_region_y == 256 { 1 } else { 0 }
                                 ),
                                 RegionCoordinates::new(
-                                    (in_region_x % 256) as f32,
-                                    (in_region_y % 256) as f32,
+                                    f32::from(in_region_x % 256),
+                                    f32::from(in_region_y % 256),
                                     0f32
                                 ),
                             )),

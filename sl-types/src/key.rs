@@ -1,11 +1,11 @@
 //! Second Life key (UUID) related types
 
-use uuid::{uuid, Uuid};
+use uuid::{Uuid, uuid};
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    prelude::{just, one_of, Simple},
     Parser,
+    prelude::{Simple, just, one_of},
 };
 
 /// parse a UUID
@@ -49,8 +49,8 @@ pub fn uuid_parser() -> impl Parser<char, uuid::Uuid, Error = Simple<char>> {
                 .collect::<String>(),
         )
         .try_map(|((((a, b), c), d), e), span: std::ops::Range<usize>| {
-            uuid::Uuid::parse_str(&format!("{}-{}-{}-{}-{}", a, b, c, d, e))
-                .map_err(|e| Simple::custom(span.clone(), format!("{:?}", e)))
+            uuid::Uuid::parse_str(&format!("{a}-{b}-{c}-{d}-{e}"))
+                .map_err(|e| Simple::custom(span.clone(), format!("{e:?}")))
         })
 }
 
@@ -72,6 +72,10 @@ impl std::fmt::Display for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the parser is going to be used outside this module"
+)]
 pub fn key_parser() -> impl Parser<char, Key, Error = Simple<char>> {
     uuid_parser().map(Key)
 }
@@ -85,6 +89,10 @@ pub const COMBAT_LOG_ID: Key = Key(uuid!("45e0fcfa-2268-4490-a51c-3e51bdfe80d1")
 
 /// represents a Second Life key for an agent (avatar)
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct AgentKey(pub Key);
 
 impl std::fmt::Display for AgentKey {
@@ -128,6 +136,10 @@ pub fn app_agent_uri_as_agent_key_parser() -> impl Parser<char, AgentKey, Error 
 
 /// represents a Second Life key for a classified ad
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct ClassifiedKey(pub Key);
 
 impl std::fmt::Display for ClassifiedKey {
@@ -155,6 +167,10 @@ pub fn classified_key_parser() -> impl Parser<char, ClassifiedKey, Error = Simpl
 
 /// represents a Second Life key for an event
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct EventKey(pub Key);
 
 impl std::fmt::Display for EventKey {
@@ -182,6 +198,10 @@ pub fn event_key_parser() -> impl Parser<char, EventKey, Error = Simple<char>> {
 
 /// represents a Second Life key for an experience
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct ExperienceKey(pub Key);
 
 impl std::fmt::Display for ExperienceKey {
@@ -209,6 +229,10 @@ pub fn experience_key_parser() -> impl Parser<char, ExperienceKey, Error = Simpl
 
 /// represents a Second Life key for an agent who is a friend
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct FriendKey(pub Key);
 
 impl std::fmt::Display for FriendKey {
@@ -225,7 +249,7 @@ impl From<FriendKey> for Key {
 
 impl From<FriendKey> for AgentKey {
     fn from(val: FriendKey) -> Self {
-        AgentKey(val.0)
+        Self(val.0)
     }
 }
 
@@ -242,6 +266,10 @@ pub fn friend_key_parser() -> impl Parser<char, FriendKey, Error = Simple<char>>
 
 /// represents a Second Life key for a group
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct GroupKey(pub Key);
 
 impl std::fmt::Display for GroupKey {
@@ -285,6 +313,10 @@ pub fn app_group_uri_as_group_key_parser() -> impl Parser<char, GroupKey, Error 
 
 /// represents a Second Life key for an inventory item
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct InventoryKey(pub Key);
 
 impl std::fmt::Display for InventoryKey {
@@ -312,6 +344,10 @@ pub fn inventory_key_parser() -> impl Parser<char, InventoryKey, Error = Simple<
 
 /// represents a Second Life key for an object
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct ObjectKey(pub Key);
 
 impl std::fmt::Display for ObjectKey {
@@ -339,6 +375,10 @@ pub fn object_key_parser() -> impl Parser<char, ObjectKey, Error = Simple<char>>
 
 /// represents a Second Life key for a parcel
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct ParcelKey(pub Key);
 
 impl std::fmt::Display for ParcelKey {
@@ -366,6 +406,10 @@ pub fn parcel_key_parser() -> impl Parser<char, ParcelKey, Error = Simple<char>>
 
 /// represents a Second Life key for a texture
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct TextureKey(pub Key);
 
 impl std::fmt::Display for TextureKey {
@@ -393,6 +437,10 @@ pub fn texture_key_parser() -> impl Parser<char, TextureKey, Error = Simple<char
 
 /// represents a Second Life key for an inventory folder
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub struct InventoryFolderKey(pub Key);
 
 impl std::fmt::Display for InventoryFolderKey {
@@ -421,6 +469,10 @@ pub fn inventory_folder_key_parser() -> impl Parser<char, InventoryFolderKey, Er
 
 /// represents s Second Life key for an owner (e.g. of an object)
 #[derive(Debug, Clone, PartialEq, Eq, strum::EnumIs)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
 pub enum OwnerKey {
     /// the owner is an agent
     Agent(AgentKey),
@@ -431,8 +483,8 @@ pub enum OwnerKey {
 impl std::fmt::Display for OwnerKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OwnerKey::Agent(agent_key) => write!(f, "{}", agent_key),
-            OwnerKey::Group(group_key) => write!(f, "{}", group_key),
+            Self::Agent(agent_key) => write!(f, "{agent_key}"),
+            Self::Group(group_key) => write!(f, "{group_key}"),
         }
     }
 }
@@ -452,8 +504,8 @@ impl TryInto<AgentKey> for OwnerKey {
 
     fn try_into(self) -> Result<AgentKey, Self::Error> {
         match self {
-            OwnerKey::Agent(agent_key) => Ok(agent_key),
-            OwnerKey::Group(group_key) => Err(OwnerIsGroupError(group_key)),
+            Self::Agent(agent_key) => Ok(agent_key),
+            Self::Group(group_key) => Err(OwnerIsGroupError(group_key)),
         }
     }
 }
@@ -473,8 +525,8 @@ impl TryInto<GroupKey> for OwnerKey {
 
     fn try_into(self) -> Result<GroupKey, Self::Error> {
         match self {
-            OwnerKey::Agent(agent_key) => Err(OwnerIsAgentError(agent_key)),
-            OwnerKey::Group(group_key) => Ok(group_key),
+            Self::Agent(agent_key) => Err(OwnerIsAgentError(agent_key)),
+            Self::Group(group_key) => Ok(group_key),
         }
     }
 }
@@ -496,8 +548,8 @@ impl From<OwnerKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn app_agent_or_group_uri_as_owner_key_parser(
-) -> impl Parser<char, OwnerKey, Error = Simple<char>> {
+pub fn app_agent_or_group_uri_as_owner_key_parser()
+-> impl Parser<char, OwnerKey, Error = Simple<char>> {
     app_agent_uri_as_agent_key_parser()
         .map(OwnerKey::Agent)
         .or(app_group_uri_as_group_key_parser().map(OwnerKey::Group))

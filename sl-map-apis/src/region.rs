@@ -3,6 +3,10 @@ use redb::ReadableDatabase as _;
 use sl_types::map::{GridCoordinates, GridRectangle, RegionName, RegionNameError, USBNotecard};
 
 /// Represents the possible errors that can occur when converting a region name to grid coordinates
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside the module"
+)]
 #[derive(Debug, thiserror::Error)]
 pub enum RegionNameToGridCoordinatesError {
     /// HTTP error
@@ -34,6 +38,10 @@ pub enum RegionNameToGridCoordinatesError {
 ///
 /// returns an error if the HTTP request fails or if the result couldn't
 /// be parsed properly
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the function is going to be used outside the module"
+)]
 pub async fn region_name_to_grid_coordinates(
     client: &reqwest::Client,
     region_name: &RegionName,
@@ -49,7 +57,10 @@ pub async fn region_name_to_grid_coordinates(
         "Looking up grid coordinates for region name {}",
         region_name
     );
-    let url = format!("https://cap.secondlife.com/cap/0/d661249b-2b5a-4436-966a-3d3b8d7a574f?var=coords&sim_name={}", region_name.to_string().replace(" ", "%20"));
+    let url = format!(
+        "https://cap.secondlife.com/cap/0/d661249b-2b5a-4436-966a-3d3b8d7a574f?var=coords&sim_name={}",
+        region_name.to_string().replace(' ', "%20")
+    );
     let request = client.get(&url).build()?;
     if let Some((cached_value, cache_policy)) = cached_value_with_cache_policy {
         let now = std::time::SystemTime::now();
@@ -84,17 +95,17 @@ pub async fn region_name_to_grid_coordinates(
         ));
     };
     let parts = response.split(", 'y' : ").collect::<Vec<_>>();
-    if parts.len() != 2 {
+    let [x, y] = parts.as_slice() else {
         return Err(RegionNameToGridCoordinatesError::UnexpectedInfix(
             response.to_owned(),
         ));
-    }
-    let x = parts[0]
+    };
+    let x = x
         .parse::<u16>()
-        .map_err(|err| RegionNameToGridCoordinatesError::X(parts[0].to_owned(), err))?;
-    let y = parts[1]
+        .map_err(|err| RegionNameToGridCoordinatesError::X(x.to_string(), err))?;
+    let y = y
         .parse::<u16>()
-        .map_err(|err| RegionNameToGridCoordinatesError::Y(parts[1].to_owned(), err))?;
+        .map_err(|err| RegionNameToGridCoordinatesError::Y(y.to_string(), err))?;
     let grid_coordinates = GridCoordinates::new(x, y);
     tracing::debug!("Received response: {:?}", grid_coordinates);
     Ok((Some(grid_coordinates), cache_policy))
@@ -136,7 +147,11 @@ pub async fn grid_coordinates_to_region_name(
         "Looking up region name for grid coordinates {:?}",
         grid_coordinates
     );
-    let url = format!("https://cap.secondlife.com/cap/0/b713fe80-283b-4585-af4d-a3b7d9a32492?var=region&grid_x={}&grid_y={}", grid_coordinates.x(), grid_coordinates.y());
+    let url = format!(
+        "https://cap.secondlife.com/cap/0/b713fe80-283b-4585-af4d-a3b7d9a32492?var=region&grid_x={}&grid_y={}",
+        grid_coordinates.x(),
+        grid_coordinates.y()
+    );
     let request = client.get(&url).build()?;
     if let Some((cached_value, cache_policy)) = cached_value_with_cache_policy {
         let now = std::time::SystemTime::now();
@@ -178,6 +193,10 @@ pub async fn grid_coordinates_to_region_name(
 
 /// a cache for region names to grid coordinates
 /// that allows lookups in both directions
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside the module"
+)]
 #[derive(Debug)]
 pub struct RegionNameToGridCoordinatesCache {
     /// the reqwest Client used to lookup data not cached locally
@@ -544,7 +563,9 @@ impl RegionNameToGridCoordinatesCache {
 pub enum USBNotecardToGridRectangleError {
     /// there were no waypoints in the USB notecards so we could not determine
     /// a grid rectangle for it
-    #[error("There were no waypoints in the USB notecards which made determining a grid rectangle for it impossible")]
+    #[error(
+        "There were no waypoints in the USB notecards which made determining a grid rectangle for it impossible"
+    )]
     NoUSBNotecardWaypoints,
     /// there were errors when converting region names to grid coordinates
     #[error("error converting region name to grid coordinates: {0}")]
@@ -661,8 +682,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cache_region_name_to_grid_coordinates_twice(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_cache_region_name_to_grid_coordinates_twice()
+    -> Result<(), Box<dyn std::error::Error>> {
         let tempdir = tempfile::tempdir()?;
         let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
         assert_eq!(
@@ -681,8 +702,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cache_region_name_to_grid_coordinates_negative_twice(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_cache_region_name_to_grid_coordinates_negative_twice()
+    -> Result<(), Box<dyn std::error::Error>> {
         let tempdir = tempfile::tempdir()?;
         let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
         assert_eq!(
@@ -715,8 +736,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cache_grid_coordinates_to_region_name_twice(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_cache_grid_coordinates_to_region_name_twice()
+    -> Result<(), Box<dyn std::error::Error>> {
         let tempdir = tempfile::tempdir()?;
         let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
         assert_eq!(
@@ -735,8 +756,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cache_grid_coordinates_to_region_name_negative_twice(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_cache_grid_coordinates_to_region_name_negative_twice()
+    -> Result<(), Box<dyn std::error::Error>> {
         let tempdir = tempfile::tempdir()?;
         let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
         assert_eq!(

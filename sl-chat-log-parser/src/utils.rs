@@ -1,10 +1,10 @@
 //! Parsing utilities and general parsers
 
 #[cfg(test)]
-use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
+use ariadne::{Color, Fmt as _, Label, Report, ReportKind, Source};
+use chumsky::Parser;
 use chumsky::error::Simple;
 use chumsky::prelude::{just, one_of};
-use chumsky::Parser;
 
 /// parse an iso8601 timestamp into a time::OffsetDateTime
 ///
@@ -62,16 +62,13 @@ pub fn offset_datetime_parser() -> impl Parser<char, time::OffsetDateTime, Error
         .then_ignore(just('Z'))
         .try_map(
             |((((((year, month), day), hour), minute), second), microsecond), span| {
-                let input = format!(
-                    "{}-{}-{}T{}:{}:{}.{}Z",
-                    year, month, day, hour, minute, second, microsecond
-                );
+                let input = format!("{year}-{month}-{day}T{hour}:{minute}:{second}.{microsecond}Z");
                 let format = time::macros::format_description!(
                     "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z"
                 );
                 time::PrimitiveDateTime::parse(&input, format)
                     .map(time::PrimitiveDateTime::assume_utc)
-                    .map_err(|e| Simple::custom(span, format!("{:?}", e)))
+                    .map_err(|e| Simple::custom(span, format!("{e:?}")))
             },
         )
 }
@@ -103,7 +100,7 @@ impl std::fmt::Display for ChumskyError {
                     "Unexpected end of input"
                 },
                 if let Some(label) = e.label() {
-                    format!(" while parsing {}", label)
+                    format!(" while parsing {label}")
                 } else {
                     String::new()
                 },
@@ -127,9 +124,10 @@ impl std::fmt::Display for ChumskyError {
                     Label::new(e.span())
                         .with_message(format!(
                             "Unexpected {}",
-                            e.found()
-                                .map(|c| format!("token {}", c.fg(Color::Red)))
-                                .unwrap_or_else(|| "end of input".to_string())
+                            e.found().map_or_else(
+                                || "end of input".to_string(),
+                                |c| format!("token {}", c.fg(Color::Red))
+                            )
                         ))
                         .with_color(Color::Red),
                 );
@@ -155,12 +153,12 @@ impl std::fmt::Display for ChumskyError {
             report
                 .finish()
                 .write(Source::from(&self.source), &mut s)
-                .map_err(|_| <std::fmt::Error as std::default::Default>::default())?;
+                .map_err(|_err| <std::fmt::Error as std::default::Default>::default())?;
             let Ok(s) = std::str::from_utf8(&s) else {
                 tracing::error!("Expected ariadne to produce valid UTF-8");
                 return Err(std::fmt::Error);
             };
-            write!(f, "{}", s)?;
+            write!(f, "{s}")?;
         }
         Ok(())
     }

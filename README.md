@@ -64,7 +64,7 @@ It is possible to change the fill color for missing map tiles with the
 It is also possible to fill the missing regions within map tiles though
 determining which regions exist there has some performance impact.
 
-To use this you can use the  --missing-region-color option.
+To use this you can use the --missing-region-color option.
 
 ```shell
 sl_map_cli --cache-dir cache \

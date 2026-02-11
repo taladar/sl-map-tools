@@ -271,6 +271,11 @@ pub enum SystemMessage {
         /// the avatar who declined our voice call
         avatar_name: String,
     },
+    /// avatar is not available for voice call
+    AvatarUnavailableForVoice {
+        /// the avatar who was unavailable for our voice call
+        avatar_name: String,
+    },
     /// audio from a specific domain will always be played (on the audio stream)
     AudioFromDomainWillAlwaysBePlayed {
         /// the domain whose audio will always be played
@@ -1362,6 +1367,22 @@ pub fn avatar_declined_voice_call_message_parser()
     })
 }
 
+/// parse a system message about an avatar being unavailable to take our voice call
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[must_use]
+pub fn avatar_unavailable_for_voice_call_message_parser()
+-> impl Parser<char, SystemMessage, Error = Simple<char>> {
+    take_until(just(
+        "is not available to take your call.  You will now be reconnected to Nearby Voice Chat.",
+    ))
+    .map(|(vc, _)| SystemMessage::AvatarUnavailableForVoice {
+        avatar_name: vc.into_iter().collect::<String>(),
+    })
+}
+
 /// parse a system message about audio from a domain always being played
 ///
 /// # Errors
@@ -2165,6 +2186,7 @@ pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
         region_script_count_change_message_parser().boxed(),
         chat_message_still_being_processed_message_parser().boxed(),
         avatar_declined_voice_call_message_parser().boxed(),
+        avatar_unavailable_for_voice_call_message_parser().boxed(),
         audio_from_domain_will_always_be_played_message_parser().boxed(),
         object_not_for_sale_message_parser().boxed(),
         can_not_create_requested_inventory_message_parser().boxed(),

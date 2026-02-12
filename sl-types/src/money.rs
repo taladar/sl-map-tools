@@ -1,11 +1,7 @@
 //! Money related data types
 
 #[cfg(feature = "chumsky")]
-use chumsky::{
-    Parser,
-    prelude::{Simple, just},
-    text::digits,
-};
+use chumsky::{IterParser as _, Parser, prelude::just, text::digits};
 
 /// represents a L$ amount
 #[derive(
@@ -213,12 +209,14 @@ impl std::ops::Rem<u64> for LindenAmount {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn linden_amount_parser() -> impl Parser<char, LindenAmount, Error = Simple<char>> {
+pub fn linden_amount_parser<'src>()
+-> impl Parser<'src, &'src str, LindenAmount, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("L$")
-        .ignore_then(digits(10))
-        .try_map(|x: String, span: std::ops::Range<usize>| {
+        .ignore_then(digits(10).collect::<String>())
+        .try_map(|x: String, span: chumsky::span::SimpleSpan| {
             Ok(LindenAmount(x.parse().map_err(|e| {
-                Simple::custom(span.clone(), format!("{e:?}"))
+                chumsky::error::Rich::custom(span, format!("{e:?}"))
             })?))
         })
 }

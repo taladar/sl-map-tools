@@ -2,8 +2,8 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    Parser,
-    prelude::{Simple, filter, just, one_of},
+    IterParser as _, Parser,
+    prelude::{any, just, one_of},
     text::digits,
 };
 
@@ -14,19 +14,21 @@ use chumsky::{
 /// returns and error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn url_text_component_parser() -> impl Parser<char, String, Error = Simple<char>> {
-    filter::<char, _, Simple<char>>(|c| {
-        c.is_alphabetic() || c.is_numeric() || *c == '%' || *c == '-' || *c == '~'
-    })
-    .repeated()
-    .at_least(1)
-    .try_map(|s, span| {
-        let s = s.into_iter().collect::<String>();
-        percent_encoding::percent_decode(s.as_bytes())
-            .decode_utf8()
-            .map(|s| s.into_owned())
-            .map_err(|e| Simple::custom(span, format!("{e:?}")))
-    })
+pub fn url_text_component_parser<'src>()
+-> impl Parser<'src, &'src str, String, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    any()
+        .filter(|c: &char| {
+            c.is_alphabetic() || c.is_numeric() || *c == '%' || *c == '-' || *c == '~' || *c == '.'
+        })
+        .repeated()
+        .at_least(1)
+        .collect::<String>()
+        .try_map(|s, span| {
+            percent_encoding::percent_decode(s.as_bytes())
+                .decode_utf8()
+                .map(|s| s.into_owned())
+                .map_err(|e| chumsky::error::Rich::custom(span, format!("{e:?}")))
+        })
 }
 
 /// parse a usize
@@ -36,10 +38,12 @@ pub fn url_text_component_parser() -> impl Parser<char, String, Error = Simple<c
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn usize_parser() -> impl Parser<char, usize, Error = Simple<char>> {
-    digits(10).try_map(|c: String, span| {
-        c.parse()
-            .map_err(|err| Simple::custom(span, format!("failed to parse {c} as usize: {err:?}")))
+pub fn usize_parser<'src>()
+-> impl Parser<'src, &'src str, usize, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    digits(10).collect::<String>().try_map(|c: String, span| {
+        c.parse().map_err(|err| {
+            chumsky::error::Rich::custom(span, format!("failed to parse {c} as usize: {err:?}"))
+        })
     })
 }
 
@@ -50,10 +54,11 @@ pub fn usize_parser() -> impl Parser<char, usize, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn isize_parser() -> impl Parser<char, isize, Error = Simple<char>> {
+pub fn isize_parser<'src>()
+-> impl Parser<'src, &'src str, isize, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     one_of("+-")
         .or_not()
-        .then(digits(10))
+        .then(digits(10).collect::<String>())
         .try_map(|(sign, c): (Option<char>, String), span| {
             let c = if let Some(sign) = sign {
                 format!("{sign}{c}")
@@ -61,7 +66,7 @@ pub fn isize_parser() -> impl Parser<char, isize, Error = Simple<char>> {
                 c
             };
             c.parse().map_err(|err| {
-                Simple::custom(span, format!("failed to parse {c} as isize: {err:?}"))
+                chumsky::error::Rich::custom(span, format!("failed to parse {c} as isize: {err:?}"))
             })
         })
 }
@@ -73,10 +78,12 @@ pub fn isize_parser() -> impl Parser<char, isize, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn u8_parser() -> impl Parser<char, u8, Error = Simple<char>> {
-    digits(10).try_map(|c: String, span| {
-        c.parse()
-            .map_err(|err| Simple::custom(span, format!("failed to parse {c} as u8: {err:?}")))
+pub fn u8_parser<'src>()
+-> impl Parser<'src, &'src str, u8, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    digits(10).collect::<String>().try_map(|c: String, span| {
+        c.parse().map_err(|err| {
+            chumsky::error::Rich::custom(span, format!("failed to parse {c} as u8: {err:?}"))
+        })
     })
 }
 
@@ -87,10 +94,12 @@ pub fn u8_parser() -> impl Parser<char, u8, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn u16_parser() -> impl Parser<char, u16, Error = Simple<char>> {
-    digits(10).try_map(|c: String, span| {
-        c.parse()
-            .map_err(|err| Simple::custom(span, format!("failed to parse {c} as u16: {err:?}")))
+pub fn u16_parser<'src>()
+-> impl Parser<'src, &'src str, u16, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    digits(10).collect::<String>().try_map(|c: String, span| {
+        c.parse().map_err(|err| {
+            chumsky::error::Rich::custom(span, format!("failed to parse {c} as u16: {err:?}"))
+        })
     })
 }
 
@@ -101,10 +110,12 @@ pub fn u16_parser() -> impl Parser<char, u16, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn u32_parser() -> impl Parser<char, u32, Error = Simple<char>> {
-    digits(10).try_map(|c: String, span| {
-        c.parse()
-            .map_err(|err| Simple::custom(span, format!("failed to parse {c} as u32: {err:?}")))
+pub fn u32_parser<'src>()
+-> impl Parser<'src, &'src str, u32, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    digits(10).collect::<String>().try_map(|c: String, span| {
+        c.parse().map_err(|err| {
+            chumsky::error::Rich::custom(span, format!("failed to parse {c} as u32: {err:?}"))
+        })
     })
 }
 
@@ -115,10 +126,12 @@ pub fn u32_parser() -> impl Parser<char, u32, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn u64_parser() -> impl Parser<char, u64, Error = Simple<char>> {
-    digits(10).try_map(|c: String, span| {
-        c.parse()
-            .map_err(|err| Simple::custom(span, format!("failed to parse {c} as u64: {err:?}")))
+pub fn u64_parser<'src>()
+-> impl Parser<'src, &'src str, u64, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    digits(10).collect::<String>().try_map(|c: String, span| {
+        c.parse().map_err(|err| {
+            chumsky::error::Rich::custom(span, format!("failed to parse {c} as u64: {err:?}"))
+        })
     })
 }
 
@@ -129,18 +142,20 @@ pub fn u64_parser() -> impl Parser<char, u64, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn i8_parser() -> impl Parser<char, i8, Error = Simple<char>> {
+pub fn i8_parser<'src>()
+-> impl Parser<'src, &'src str, i8, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     one_of("+-")
         .or_not()
-        .then(digits(10))
+        .then(digits(10).collect::<String>())
         .try_map(|(sign, c): (Option<char>, String), span| {
             let c = if let Some(sign) = sign {
                 format!("{sign}{c}")
             } else {
                 c
             };
-            c.parse()
-                .map_err(|err| Simple::custom(span, format!("failed to parse {c} as i8: {err:?}")))
+            c.parse().map_err(|err| {
+                chumsky::error::Rich::custom(span, format!("failed to parse {c} as i8: {err:?}"))
+            })
         })
 }
 
@@ -151,18 +166,20 @@ pub fn i8_parser() -> impl Parser<char, i8, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn i16_parser() -> impl Parser<char, i16, Error = Simple<char>> {
+pub fn i16_parser<'src>()
+-> impl Parser<'src, &'src str, i16, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     one_of("+-")
         .or_not()
-        .then(digits(10))
+        .then(digits(10).collect::<String>())
         .try_map(|(sign, c): (Option<char>, String), span| {
             let c = if let Some(sign) = sign {
                 format!("{sign}{c}")
             } else {
                 c
             };
-            c.parse()
-                .map_err(|err| Simple::custom(span, format!("failed to parse {c} as i16: {err:?}")))
+            c.parse().map_err(|err| {
+                chumsky::error::Rich::custom(span, format!("failed to parse {c} as i16: {err:?}"))
+            })
         })
 }
 
@@ -173,18 +190,20 @@ pub fn i16_parser() -> impl Parser<char, i16, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn i32_parser() -> impl Parser<char, i32, Error = Simple<char>> {
+pub fn i32_parser<'src>()
+-> impl Parser<'src, &'src str, i32, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     one_of("+-")
         .or_not()
-        .then(digits(10))
+        .then(digits(10).collect::<String>())
         .try_map(|(sign, c): (Option<char>, String), span| {
             let c = if let Some(sign) = sign {
                 format!("{sign}{c}")
             } else {
                 c
             };
-            c.parse()
-                .map_err(|err| Simple::custom(span, format!("failed to parse {c} as i32: {err:?}")))
+            c.parse().map_err(|err| {
+                chumsky::error::Rich::custom(span, format!("failed to parse {c} as i32: {err:?}"))
+            })
         })
 }
 
@@ -195,39 +214,19 @@ pub fn i32_parser() -> impl Parser<char, i32, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn i64_parser() -> impl Parser<char, i64, Error = Simple<char>> {
+pub fn i64_parser<'src>()
+-> impl Parser<'src, &'src str, i64, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     one_of("+-")
         .or_not()
-        .then(digits(10))
+        .then(digits(10).collect::<String>())
         .try_map(|(sign, c): (Option<char>, String), span| {
             let c = if let Some(sign) = sign {
                 format!("{sign}{c}")
             } else {
                 c
             };
-            c.parse()
-                .map_err(|err| Simple::custom(span, format!("failed to parse {c} as i64: {err:?}")))
-        })
-}
-
-/// parse a float without a sign
-///
-/// # Errors
-///
-/// returns an error if the string could not be parsed
-#[cfg(feature = "chumsky")]
-#[must_use]
-pub fn unsigned_f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
-    digits(10)
-        .then(just('.').ignore_then(digits(10)).or_not())
-        .try_map(|(before_point, after_point), span| {
-            let raw_float = format!(
-                "{}.{}",
-                before_point,
-                after_point.unwrap_or_else(|| "0".to_string())
-            );
-            raw_float.parse().map_err(|err| {
-                Simple::custom(span, format!("Could not parse {raw_float} as f32: {err:?}"))
+            c.parse().map_err(|err| {
+                chumsky::error::Rich::custom(span, format!("failed to parse {c} as i64: {err:?}"))
             })
         })
 }
@@ -239,9 +238,15 @@ pub fn unsigned_f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn unsigned_f64_parser() -> impl Parser<char, f64, Error = Simple<char>> {
+pub fn unsigned_f32_parser<'src>()
+-> impl Parser<'src, &'src str, f32, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     digits(10)
-        .then(just('.').ignore_then(digits(10)).or_not())
+        .collect::<String>()
+        .then(
+            just('.')
+                .ignore_then(digits(10).collect::<String>())
+                .or_not(),
+        )
         .try_map(|(before_point, after_point), span| {
             let raw_float = format!(
                 "{}.{}",
@@ -249,7 +254,41 @@ pub fn unsigned_f64_parser() -> impl Parser<char, f64, Error = Simple<char>> {
                 after_point.unwrap_or_else(|| "0".to_string())
             );
             raw_float.parse().map_err(|err| {
-                Simple::custom(span, format!("Could not parse {raw_float} as f64: {err:?}"))
+                chumsky::error::Rich::custom(
+                    span,
+                    format!("Could not parse {raw_float} as f32: {err:?}"),
+                )
+            })
+        })
+}
+
+/// parse a float without a sign
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn unsigned_f64_parser<'src>()
+-> impl Parser<'src, &'src str, f64, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    digits(10)
+        .collect::<String>()
+        .then(
+            just('.')
+                .ignore_then(digits(10).collect::<String>())
+                .or_not(),
+        )
+        .try_map(|(before_point, after_point), span| {
+            let raw_float = format!(
+                "{}.{}",
+                before_point,
+                after_point.unwrap_or_else(|| "0".to_string())
+            );
+            raw_float.parse().map_err(|err| {
+                chumsky::error::Rich::custom(
+                    span,
+                    format!("Could not parse {raw_float} as f64: {err:?}"),
+                )
             })
         })
 }
@@ -261,7 +300,8 @@ pub fn unsigned_f64_parser() -> impl Parser<char, f64, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
+pub fn f32_parser<'src>()
+-> impl Parser<'src, &'src str, f32, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     one_of("+-")
         .or_not()
         .then(unsigned_f32_parser())
@@ -279,7 +319,8 @@ pub fn f32_parser() -> impl Parser<char, f32, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn f64_parser() -> impl Parser<char, f64, Error = Simple<char>> {
+pub fn f64_parser<'src>()
+-> impl Parser<'src, &'src str, f64, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     one_of("+-")
         .or_not()
         .then(unsigned_f64_parser())

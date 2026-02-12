@@ -1,10 +1,7 @@
 //! Search related types
 
 #[cfg(feature = "chumsky")]
-use chumsky::{
-    Parser,
-    prelude::{Simple, just},
-};
+use chumsky::{Parser, prelude::just};
 
 /// Search categories
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, strum::EnumIs)]
@@ -42,7 +39,9 @@ pub enum SearchCategory {
     clippy::module_name_repetitions,
     reason = "the parser is used outside this module"
 )]
-pub fn search_category_parser() -> impl Parser<char, SearchCategory, Error = Simple<char>> {
+pub fn search_category_parser<'src>()
+-> impl Parser<'src, &'src str, SearchCategory, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("all")
         .to(SearchCategory::All)
         .or(just("people").to(SearchCategory::People))

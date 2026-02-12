@@ -1,11 +1,7 @@
 //! LSL types and parsers/printers to use LSL format for them
 
 #[cfg(feature = "chumsky")]
-use chumsky::{
-    Parser,
-    prelude::{Simple, just},
-    text::whitespace,
-};
+use chumsky::{Parser, prelude::just, text::whitespace};
 
 #[cfg(feature = "chumsky")]
 use crate::utils::f32_parser;
@@ -30,7 +26,8 @@ pub struct Vector {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn vector_parser() -> impl Parser<char, Vector, Error = Simple<char>> {
+pub fn vector_parser<'src>()
+-> impl Parser<'src, &'src str, Vector, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     just('<')
         .then(whitespace().or_not())
         .ignore_then(f32_parser())
@@ -79,7 +76,8 @@ pub struct Rotation {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn rotation_parser() -> impl Parser<char, Rotation, Error = Simple<char>> {
+pub fn rotation_parser<'src>()
+-> impl Parser<'src, &'src str, Rotation, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     just('<')
         .then(whitespace().or_not())
         .ignore_then(f32_parser())

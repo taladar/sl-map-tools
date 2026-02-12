@@ -2,8 +2,8 @@
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    Parser,
-    prelude::{Simple, filter, just},
+    IterParser as _, Parser,
+    prelude::{any, just},
     text::whitespace,
 };
 
@@ -175,7 +175,8 @@ impl std::ops::Rem<f64> for Distance {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn distance_parser() -> impl Parser<char, Distance, Error = Simple<char>> {
+pub fn distance_parser<'src>()
+-> impl Parser<'src, &'src str, Distance, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     crate::utils::unsigned_f64_parser()
         .then_ignore(whitespace().or_not())
         .then_ignore(just('m'))
@@ -559,7 +560,9 @@ pub struct RegionCoordinates {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn region_coordinates_parser() -> impl Parser<char, RegionCoordinates, Error = Simple<char>> {
+pub fn region_coordinates_parser<'src>()
+-> impl Parser<'src, &'src str, RegionCoordinates, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just('{')
         .ignore_then(whitespace().or_not())
         .ignore_then(f32_parser())
@@ -648,9 +651,10 @@ pub struct RegionName(String);
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn url_region_name_parser() -> impl Parser<char, RegionName, Error = Simple<char>> {
+pub fn url_region_name_parser<'src>()
+-> impl Parser<'src, &'src str, RegionName, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     url_text_component_parser().try_map(|region_name, span| {
-        RegionName::try_new(region_name).map_err(|err| Simple::custom(span, err))
+        RegionName::try_new(region_name).map_err(|err| chumsky::error::Rich::custom(span, err))
     })
 }
 
@@ -661,16 +665,18 @@ pub fn url_region_name_parser() -> impl Parser<char, RegionName, Error = Simple<
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn region_name_parser() -> impl Parser<char, RegionName, Error = Simple<char>> {
-    filter::<char, _, Simple<char>>(|c| {
-        c.is_alphabetic() || c.is_numeric() || *c == ' ' || *c == '\'' || *c == '-'
-    })
-    .repeated()
-    .at_least(2)
-    .collect::<String>()
-    .try_map(|region_name, span| {
-        RegionName::try_new(region_name).map_err(|err| Simple::custom(span, err))
-    })
+pub fn region_name_parser<'src>()
+-> impl Parser<'src, &'src str, RegionName, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    any()
+        .filter(|c: &char| {
+            c.is_alphabetic() || c.is_numeric() || *c == ' ' || *c == '\'' || *c == '-'
+        })
+        .repeated()
+        .at_least(2)
+        .collect::<String>()
+        .try_map(|region_name, span| {
+            RegionName::try_new(region_name).map_err(|err| chumsky::error::Rich::custom(span, err))
+        })
 }
 
 /// A location inside Second Life the way it is usually represented in
@@ -695,7 +701,8 @@ pub struct Location {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
+pub fn location_parser<'src>()
+-> impl Parser<'src, &'src str, Location, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     region_name_parser()
         .then_ignore(just('/'))
         .then(u8_parser())
@@ -714,7 +721,8 @@ pub fn location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn url_location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
+pub fn url_location_parser<'src>()
+-> impl Parser<'src, &'src str, Location, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     url_region_name_parser()
         .then_ignore(just('/'))
         .then(u8_parser())
@@ -733,10 +741,11 @@ pub fn url_location_parser() -> impl Parser<char, Location, Error = Simple<char>
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn url_encoded_location_parser() -> impl Parser<char, Location, Error = Simple<char>> {
+pub fn url_encoded_location_parser<'src>()
+-> impl Parser<'src, &'src str, Location, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     url_text_component_parser().try_map(|s, span| {
-        location_parser().parse(s.clone()).map_err(|err| {
-            Simple::custom(
+        location_parser().parse(&s).into_result().map_err(|err| {
+            chumsky::error::Rich::custom(
                 span,
                 format!("Parsing {s} as location failed with: {err:#?}"),
             )
@@ -966,8 +975,12 @@ impl UnconstrainedLocation {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn unconstrained_location_parser()
--> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
+pub fn unconstrained_location_parser<'src>() -> impl Parser<
+    'src,
+    &'src str,
+    UnconstrainedLocation,
+    chumsky::extra::Err<chumsky::error::Rich<'src, char>>,
+> {
     region_name_parser()
         .then_ignore(just('/'))
         .then(i16_parser())
@@ -986,8 +999,12 @@ pub fn unconstrained_location_parser()
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn url_unconstrained_location_parser()
--> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
+pub fn url_unconstrained_location_parser<'src>() -> impl Parser<
+    'src,
+    &'src str,
+    UnconstrainedLocation,
+    chumsky::extra::Err<chumsky::error::Rich<'src, char>>,
+> {
     url_region_name_parser()
         .then_ignore(just('/'))
         .then(i16_parser())
@@ -1006,8 +1023,12 @@ pub fn url_unconstrained_location_parser()
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn urlencoded_unconstrained_location_parser()
--> impl Parser<char, UnconstrainedLocation, Error = Simple<char>> {
+pub fn urlencoded_unconstrained_location_parser<'src>() -> impl Parser<
+    'src,
+    &'src str,
+    UnconstrainedLocation,
+    chumsky::extra::Err<chumsky::error::Rich<'src, char>>,
+> {
     url_region_name_parser()
         .then_ignore(just('/'))
         .then(i16_parser())
@@ -1540,7 +1561,7 @@ mod test {
     fn test_url_region_name_parser_no_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Viterbo";
         assert_eq!(
-            url_region_name_parser().parse(region_name),
+            url_region_name_parser().parse(region_name).into_result(),
             Ok(RegionName::try_new(region_name)?)
         );
         Ok(())
@@ -1550,8 +1571,9 @@ mod test {
     #[test]
     fn test_url_region_name_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Da Boom";
+        let input = region_name.replace(' ', "%20");
         assert_eq!(
-            url_region_name_parser().parse(region_name.replace(' ', "%20")),
+            url_region_name_parser().parse(&input).into_result(),
             Ok(RegionName::try_new(region_name)?)
         );
         Ok(())
@@ -1562,7 +1584,7 @@ mod test {
     fn test_region_name_parser_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Da Boom";
         assert_eq!(
-            region_name_parser().parse(region_name),
+            region_name_parser().parse(region_name).into_result(),
             Ok(RegionName::try_new(region_name)?)
         );
         Ok(())
@@ -1572,8 +1594,9 @@ mod test {
     #[test]
     fn test_url_location_parser_no_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Viterbo";
+        let input = format!("{region_name}/1/2/300");
         assert_eq!(
-            url_location_parser().parse(format!("{region_name}/1/2/300")),
+            url_location_parser().parse(&input).into_result(),
             Ok(Location {
                 region_name: RegionName::try_new(region_name)?,
                 x: 1,
@@ -1588,8 +1611,9 @@ mod test {
     #[test]
     fn test_url_location_parser_url_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Da Boom";
+        let input = format!("{}/1/2/300", region_name.replace(' ', "%20"));
         assert_eq!(
-            url_location_parser().parse(format!("{}/1/2/300", region_name.replace(' ', "%20"))),
+            url_location_parser().parse(&input).into_result(),
             Ok(Location {
                 region_name: RegionName::try_new(region_name)?,
                 x: 1,
@@ -1605,8 +1629,9 @@ mod test {
     fn test_url_location_parser_url_whitespace_single_digit_after_space()
     -> Result<(), Box<dyn std::error::Error>> {
         let region_name = "Foo Bar 3";
+        let input = format!("{}/1/2/300", region_name.replace(' ', "%20"));
         assert_eq!(
-            url_location_parser().parse(format!("{}/1/2/300", region_name.replace(' ', "%20"))),
+            url_location_parser().parse(&input).into_result(),
             Ok(Location {
                 region_name: RegionName::try_new(region_name)?,
                 x: 1,
@@ -1621,7 +1646,9 @@ mod test {
     #[test]
     fn test_region_coordinates_parser() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
-            region_coordinates_parser().parse("{ 63.0486, 45.2515, 1501.08 }"),
+            region_coordinates_parser()
+                .parse("{ 63.0486, 45.2515, 1501.08 }")
+                .into_result(),
             Ok(RegionCoordinates {
                 x: 63.0486,
                 y: 45.2515,

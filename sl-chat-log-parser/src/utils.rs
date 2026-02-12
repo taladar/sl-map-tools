@@ -2,8 +2,8 @@
 
 #[cfg(test)]
 use ariadne::{Color, Fmt as _, Label, Report, ReportKind, Source};
+use chumsky::IterParser as _;
 use chumsky::Parser;
-use chumsky::error::Simple;
 use chumsky::prelude::{just, one_of};
 
 /// parse an iso8601 timestamp into a time::OffsetDateTime
@@ -12,7 +12,12 @@ use chumsky::prelude::{just, one_of};
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn offset_datetime_parser() -> impl Parser<char, time::OffsetDateTime, Error = Simple<char>> {
+pub fn offset_datetime_parser<'src>() -> impl Parser<
+    'src,
+    &'src str,
+    time::OffsetDateTime,
+    chumsky::extra::Err<chumsky::error::Rich<'src, char>>,
+> {
     one_of("0123456789")
         .repeated()
         .exactly(4)
@@ -68,7 +73,7 @@ pub fn offset_datetime_parser() -> impl Parser<char, time::OffsetDateTime, Error
                 );
                 time::PrimitiveDateTime::parse(&input, format)
                     .map(time::PrimitiveDateTime::assume_utc)
-                    .map_err(|e| Simple::custom(span, format!("{e:?}")))
+                    .map_err(|e| chumsky::error::Rich::custom(span, format!("{e:?}")))
             },
         )
 }
@@ -78,17 +83,17 @@ pub fn offset_datetime_parser() -> impl Parser<char, time::OffsetDateTime, Error
 /// implementations
 #[cfg(test)]
 #[derive(Debug)]
-pub struct ChumskyError {
+pub struct ChumskyError<E> {
     /// description of the object we were trying to parse
     pub description: String,
     /// source string for parsing
     pub source: String,
     /// errors encountered during parsing
-    pub errors: Vec<chumsky::error::Simple<char>>,
+    pub errors: Vec<E>,
 }
 
 #[cfg(test)]
-impl std::fmt::Display for ChumskyError {
+impl std::fmt::Display for ChumskyError<chumsky::error::Rich<'static, char>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for e in &self.errors {
             let msg = format!(
@@ -99,29 +104,22 @@ impl std::fmt::Display for ChumskyError {
                 } else {
                     "Unexpected end of input"
                 },
-                if let Some(label) = e.label() {
-                    format!(" while parsing {label}")
-                } else {
-                    String::new()
-                },
+                format_args!(" while parsing {:?}", e.contexts().collect::<Vec<_>>()),
                 if e.expected().len() == 0 {
                     "end of input".to_string()
                 } else {
                     e.expected()
-                        .map(|expected| match expected {
-                            Some(expected) => expected.to_string(),
-                            None => "end of input".to_string(),
-                        })
+                        .map(|rich_pattern| rich_pattern.to_string())
                         .collect::<Vec<_>>()
                         .join(", ")
                 },
             );
 
-            let report = Report::build(ReportKind::Error, e.span())
+            let report = Report::build(ReportKind::Error, e.span().start..e.span().end)
                 .with_code(3)
                 .with_message(msg)
                 .with_label(
-                    Label::new(e.span())
+                    Label::new(e.span().start..e.span().end)
                         .with_message(format!(
                             "Unexpected {}",
                             e.found().map_or_else(
@@ -133,17 +131,12 @@ impl std::fmt::Display for ChumskyError {
                 );
 
             let report = match e.reason() {
-                chumsky::error::SimpleReason::Unclosed { span, delimiter } => report.with_label(
-                    Label::new(span.clone())
-                        .with_message(format!(
-                            "Unclosed delimiter {}",
-                            delimiter.fg(Color::Yellow)
-                        ))
-                        .with_color(Color::Yellow),
-                ),
-                chumsky::error::SimpleReason::Unexpected => report,
-                chumsky::error::SimpleReason::Custom(msg) => report.with_label(
-                    Label::new(e.span())
+                chumsky::error::RichReason::ExpectedFound {
+                    expected: _,
+                    found: _,
+                } => report,
+                chumsky::error::RichReason::Custom(msg) => report.with_label(
+                    Label::new(e.span().start..e.span().end)
                         .with_message(format!("{}", msg.fg(Color::Yellow)))
                         .with_color(Color::Yellow),
                 ),
@@ -154,10 +147,8 @@ impl std::fmt::Display for ChumskyError {
                 .finish()
                 .write(Source::from(&self.source), &mut s)
                 .map_err(|_err| <std::fmt::Error as std::default::Default>::default())?;
-            let Ok(s) = std::str::from_utf8(&s) else {
-                tracing::error!("Expected ariadne to produce valid UTF-8");
-                return Err(std::fmt::Error);
-            };
+            let s = std::str::from_utf8(&s)
+                .map_err(|_err| <std::fmt::Error as std::default::Default>::default())?;
             write!(f, "{s}")?;
         }
         Ok(())
@@ -165,7 +156,11 @@ impl std::fmt::Display for ChumskyError {
 }
 
 #[cfg(test)]
-impl std::error::Error for ChumskyError {
+impl<E> std::error::Error for ChumskyError<E>
+where
+    E: std::fmt::Debug,
+    Self: std::fmt::Display,
+{
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
     }

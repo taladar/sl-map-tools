@@ -1,7 +1,7 @@
 //! Avatar related messages (those sent by an avatar as well as some system messages about an avatar like coming online or entering chat range)
 
+use chumsky::IterParser as _;
 use chumsky::Parser;
-use chumsky::error::Simple;
 use chumsky::prelude::{any, choice, just};
 
 /// represents a Second Life avatar related message
@@ -44,11 +44,13 @@ pub enum AvatarMessage {
 /// # Errors
 ///
 /// returns an error if the parser fails
-fn avatar_chat_message_parser() -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+fn avatar_chat_message_parser<'src>()
+-> impl Parser<'src, &'src str, AvatarMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     any()
         .repeated()
         .collect::<String>()
-        .try_map(|s, _span: std::ops::Range<usize>| {
+        .try_map(|s, _span: chumsky::span::SimpleSpan| {
             let (v, s) = sl_types::chat::ChatVolume::volume_and_message(s.to_string());
             Ok(AvatarMessage::Chat {
                 volume: v,
@@ -62,10 +64,12 @@ fn avatar_chat_message_parser() -> impl Parser<char, AvatarMessage, Error = Simp
 /// # Errors
 ///
 /// returns an error if the parser fails
-fn avatar_emote_message_parser() -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+fn avatar_emote_message_parser<'src>()
+-> impl Parser<'src, &'src str, AvatarMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("/me ")
         .ignore_then(any().repeated().collect::<String>())
-        .try_map(|s, _span: std::ops::Range<usize>| {
+        .try_map(|s, _span: chumsky::span::SimpleSpan| {
             let (v, s) = sl_types::chat::ChatVolume::volume_and_message(s);
             Ok(AvatarMessage::Emote {
                 volume: v,
@@ -79,8 +83,10 @@ fn avatar_emote_message_parser() -> impl Parser<char, AvatarMessage, Error = Sim
 /// # Errors
 ///
 /// returns an error if the parser fails
-pub(crate) fn avatar_came_online_message_parser()
--> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+#[must_use]
+pub fn avatar_came_online_message_parser<'src>()
+-> impl Parser<'src, &'src str, AvatarMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("is online.").map(|_| AvatarMessage::CameOnline)
 }
 
@@ -89,8 +95,10 @@ pub(crate) fn avatar_came_online_message_parser()
 /// # Errors
 ///
 /// returns an error if the parser fails
-pub(crate) fn avatar_went_offline_message_parser()
--> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+#[must_use]
+pub fn avatar_went_offline_message_parser<'src>()
+-> impl Parser<'src, &'src str, AvatarMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("is offline.").map(|_| AvatarMessage::WentOffline)
 }
 
@@ -99,8 +107,10 @@ pub(crate) fn avatar_went_offline_message_parser()
 /// # Errors
 ///
 /// returns an error if the parser fails
-pub(crate) fn avatar_entered_area_message_parser()
--> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+#[must_use]
+pub fn avatar_entered_area_message_parser<'src>()
+-> impl Parser<'src, &'src str, AvatarMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("entered ")
         .ignore_then(sl_types::radar::area_parser())
         .then(
@@ -110,7 +120,7 @@ pub(crate) fn avatar_entered_area_message_parser()
                 .or_not(),
         )
         .then_ignore(just("."))
-        .try_map(|(area, distance), _span: std::ops::Range<usize>| {
+        .try_map(|(area, distance), _span: chumsky::span::SimpleSpan| {
             Ok(AvatarMessage::EnteredArea { area, distance })
         })
 }
@@ -120,12 +130,14 @@ pub(crate) fn avatar_entered_area_message_parser()
 /// # Errors
 ///
 /// returns an error if the parser fails
-pub(crate) fn avatar_left_area_message_parser()
--> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+#[must_use]
+pub fn avatar_left_area_message_parser<'src>()
+-> impl Parser<'src, &'src str, AvatarMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("left ")
         .ignore_then(sl_types::radar::area_parser())
         .then_ignore(just("."))
-        .try_map(|area, _span: std::ops::Range<usize>| Ok(AvatarMessage::LeftArea { area }))
+        .try_map(|area, _span: chumsky::span::SimpleSpan| Ok(AvatarMessage::LeftArea { area }))
 }
 
 /// parse a Second Life avatar message
@@ -134,7 +146,9 @@ pub(crate) fn avatar_left_area_message_parser()
 ///
 /// returns an error if the parser fails
 #[must_use]
-pub fn avatar_message_parser() -> impl Parser<char, AvatarMessage, Error = Simple<char>> {
+pub fn avatar_message_parser<'src>()
+-> impl Parser<'src, &'src str, AvatarMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     choice([
         avatar_came_online_message_parser().boxed(),
         avatar_went_offline_message_parser().boxed(),

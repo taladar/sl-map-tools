@@ -1,7 +1,7 @@
 //! Types related to SL chat
 
 #[cfg(feature = "chumsky")]
-use chumsky::{Parser, prelude::Simple, text::digits};
+use chumsky::{IterParser as _, Parser, text::digits};
 
 /// represents a Second Life chat channel
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -22,11 +22,13 @@ pub struct ChatChannel(pub i32);
     clippy::module_name_repetitions,
     reason = "this parser is used outside of this module"
 )]
-pub fn chat_channel_parser() -> impl Parser<char, ChatChannel, Error = Simple<char>> {
-    digits(10).try_map(|d: <char as chumsky::text::Character>::Collection, span| {
+pub fn chat_channel_parser<'src>()
+-> impl Parser<'src, &'src str, ChatChannel, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    digits(10).collect::<String>().try_map(|d, span| {
         let d: i32 = d
             .parse()
-            .map_err(|e| Simple::custom(span, format!("{e:?}")))?;
+            .map_err(|e| chumsky::error::Rich::custom(span, format!("{e:?}")))?;
         Ok(ChatChannel(d))
     })
 }

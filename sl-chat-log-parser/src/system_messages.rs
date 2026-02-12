@@ -1,10 +1,12 @@
 //! Types and parsers for system messages in the chat log
 
+use chumsky::IterParser as _;
 use chumsky::Parser;
-use chumsky::error::Simple;
-use chumsky::prelude::{any, choice, end, just, one_of, take_until};
+use chumsky::prelude::{any, choice, end, just, one_of};
 use chumsky::text::{digits, newline, whitespace};
 use sl_types::utils::{i64_parser, u64_parser, unsigned_f32_parser, usize_parser};
+
+use crate::take_until;
 
 /// represents a Second Life system message
 #[derive(Debug, Clone, PartialEq)]
@@ -416,7 +418,7 @@ pub enum SystemMessage {
         /// creator
         creator: sl_types::key::AgentKey,
         /// owner
-        owner: sl_types::key::OwnerKey,
+        owner: Option<sl_types::key::OwnerKey>,
         /// previous owner
         previous_owner: Option<sl_types::key::OwnerKey>,
         /// rezzed by
@@ -529,7 +531,9 @@ pub enum SystemMessage {
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn snapshot_saved_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn snapshot_saved_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Snapshot saved: ")
         .ignore_then(
             any()
@@ -539,17 +543,15 @@ pub fn snapshot_saved_message_parser() -> impl Parser<char, SystemMessage, Error
         )
         .map(|filename| SystemMessage::SavedSnapshot { filename })
         .or(just("Failed to save snapshot to ").ignore_then(
-            take_until(just(": Directory does not exist.").ignored()).map(|(folder, ())| {
+            take_until!(just(": Directory does not exist.").ignored()).map(|(folder, ())| {
                 SystemMessage::FailedToSaveSnapshotDueToMissingDestinationFolder {
-                    folder: std::path::PathBuf::from(folder.into_iter().collect::<String>()),
+                    folder: std::path::PathBuf::from(folder),
                 }
             }),
         ))
         .or(just("Failed to save snapshot to ").ignore_then(
-            take_until(just(": Disk is full. ").ignored())
-                .map(|(folder, ())| {
-                    std::path::PathBuf::from(folder.into_iter().collect::<String>())
-                })
+            take_until!(just(": Disk is full. ").ignored())
+                .map(|(folder, ())| std::path::PathBuf::from(folder))
                 .then(u64_parser())
                 .then_ignore(just("KB is required but only "))
                 .then(u64_parser())
@@ -572,12 +574,14 @@ pub fn snapshot_saved_message_parser() -> impl Parser<char, SystemMessage, Error
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn draw_distance_set_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn draw_distance_set_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
     just("Draw Distance set to ")
         .ignore_then(sl_types::map::distance_parser())
         .then_ignore(just('.'))
         .map(|distance| SystemMessage::DrawDistanceSet { distance })
+        .labelled("draw distance set")
 }
 
 /// parse a system message about the home position being set
@@ -586,9 +590,12 @@ pub fn draw_distance_set_message_parser() -> impl Parser<char, SystemMessage, Er
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn home_position_set_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn home_position_set_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
-    just("Home position set.").to(SystemMessage::HomePositionSet)
+    just("Home position set.")
+        .to(SystemMessage::HomePositionSet)
+        .labelled("home position set")
 }
 
 /// parse a system message about land being divided
@@ -597,8 +604,12 @@ pub fn home_position_set_message_parser() -> impl Parser<char, SystemMessage, Er
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn land_divided_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Land has been divided.").to(SystemMessage::LandDivided)
+pub fn land_divided_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Land has been divided.")
+        .to(SystemMessage::LandDivided)
+        .labelled("land has been divided")
 }
 
 /// parse a system message about a failure to join land due to a region boundary
@@ -607,12 +618,14 @@ pub fn land_divided_message_parser() -> impl Parser<char, SystemMessage, Error =
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn failed_to_join_land_due_to_region_boundary_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn failed_to_join_land_due_to_region_boundary_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Selected land is not all in the same region.")
         .ignore_then(newline())
         .ignore_then(just(" Try selecting a smaller piece of land."))
         .to(SystemMessage::FailedToJoinLandDueToRegionBoundary)
+        .labelled("selected labe is not all in the same region")
 }
 
 /// parse a system message about offering a calling card to an avatar
@@ -621,13 +634,17 @@ pub fn failed_to_join_land_due_to_region_boundary_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn offered_calling_card_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn offered_calling_card_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("You have offered a calling card to ")
-        .ignore_then(take_until(just('.')).map(|(vc, _)| vc.into_iter().collect::<String>()))
-        .map(|recipient_avatar_name| SystemMessage::OfferedCallingCard {
-            recipient_avatar_name,
-        })
+        .ignore_then(take_until!(just('.')))
+        .map(
+            |(recipient_avatar_name, _)| SystemMessage::OfferedCallingCard {
+                recipient_avatar_name,
+            },
+        )
+        .labelled("offered calling card")
 }
 
 /// parse a system message about a saved attachment
@@ -636,8 +653,12 @@ pub fn offered_calling_card_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn attachment_saved_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Attachment has been saved").to(SystemMessage::AttachmentSavedMessage)
+pub fn attachment_saved_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Attachment has been saved.")
+        .to(SystemMessage::AttachmentSavedMessage)
+        .labelled("attachment has been saved")
 }
 
 /// parse a system message about a sent payment
@@ -646,21 +667,23 @@ pub fn attachment_saved_message_parser() -> impl Parser<char, SystemMessage, Err
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn you_paid_for_object_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn you_paid_for_object_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
     just("You paid ")
         .ignore_then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
         .then_ignore(whitespace())
         .then(sl_types::money::linden_amount_parser())
         .then_ignore(just(" for "))
-        .then(take_until(just(".")).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .then(take_until!(just(".").ignore_then(end())))
         .map(
-            |((seller, amount), object_name)| SystemMessage::YouPaidForObject {
+            |((seller, amount), (object_name, ()))| SystemMessage::YouPaidForObject {
                 seller,
                 amount,
                 object_name,
             },
         )
+        .labelled("you paid for object")
 }
 
 /// parse a system message about a sent payment
@@ -669,25 +692,29 @@ pub fn you_paid_for_object_message_parser() -> impl Parser<char, SystemMessage, 
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn sent_payment_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("You paid ").ignore_then(
-        sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
-            .then_ignore(whitespace())
-            .then(sl_types::money::linden_amount_parser())
-            .then(
-                just(": ")
-                    .ignore_then(any().repeated().collect::<String>())
-                    .ignore_then(take_until(newline().or(end())).map(|(n, ())| Some(n)))
-                    .or(just(".").map(|_| None)),
-            )
-            .map(
-                |((recipient_key, amount), message)| SystemMessage::SentPayment {
-                    recipient_key,
-                    amount,
-                    message: message.map(|n| n.into_iter().collect()),
-                },
-            ),
-    )
+pub fn sent_payment_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("You paid ")
+        .ignore_then(
+            sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
+                .then_ignore(whitespace())
+                .then(sl_types::money::linden_amount_parser())
+                .then(
+                    just(": ")
+                        .ignore_then(any().repeated().collect::<String>())
+                        .ignore_then(take_until!(newline().or(end())).map(|(n, ())| Some(n)))
+                        .or(just(".").map(|_| None)),
+                )
+                .map(
+                    |((recipient_key, amount), message)| SystemMessage::SentPayment {
+                        recipient_key,
+                        amount,
+                        message,
+                    },
+                ),
+        )
+        .labelled("you paid avatar")
 }
 
 /// parse a system message about a received payment
@@ -696,23 +723,26 @@ pub fn sent_payment_message_parser() -> impl Parser<char, SystemMessage, Error =
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn received_payment_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn received_payment_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
         .then_ignore(just(" paid you "))
         .then(sl_types::money::linden_amount_parser())
         .then(
             just(": ")
                 .ignore_then(any().repeated().collect::<String>())
-                .ignore_then(take_until(newline().or(end())).map(|(n, ())| Some(n)))
+                .ignore_then(take_until!(newline().or(end())).map(|(n, ())| Some(n)))
                 .or(just(".").map(|_| None)),
         )
         .map(
             |((sender_key, amount), message)| SystemMessage::ReceivedPayment {
                 sender_key,
                 amount,
-                message: message.map(|n| n.into_iter().collect()),
+                message,
             },
         )
+        .labelled("received payment")
 }
 
 /// parse a system message about paying to create a group
@@ -721,8 +751,9 @@ pub fn received_payment_message_parser() -> impl Parser<char, SystemMessage, Err
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn you_paid_to_create_a_group_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn you_paid_to_create_a_group_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("You paid ")
         .ignore_then(sl_types::key::app_agent_uri_as_agent_key_parser())
         .then_ignore(whitespace())
@@ -734,6 +765,7 @@ pub fn you_paid_to_create_a_group_message_parser()
                 amount,
             },
         )
+        .labelled("you paid to create a group")
 }
 
 /// parse a system message about paying to join a group
@@ -742,8 +774,9 @@ pub fn you_paid_to_create_a_group_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn you_paid_to_join_group_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn you_paid_to_join_group_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("You paid ")
         .ignore_then(sl_types::key::app_group_uri_as_group_key_parser())
         .then_ignore(whitespace())
@@ -755,6 +788,7 @@ pub fn you_paid_to_join_group_message_parser()
                 join_fee,
             },
         )
+        .labelled("you paid to join a group")
 }
 
 /// parse a system message about paying for land
@@ -763,7 +797,8 @@ pub fn you_paid_to_join_group_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn you_paid_for_land_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn you_paid_for_land_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
     just("You paid ")
         .ignore_then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
@@ -776,6 +811,7 @@ pub fn you_paid_for_land_message_parser() -> impl Parser<char, SystemMessage, Er
                 amount,
             },
         )
+        .labelled("you paid for a parcel of land")
 }
 
 /// parse a system message about a failure to pay
@@ -784,7 +820,9 @@ pub fn you_paid_for_land_message_parser() -> impl Parser<char, SystemMessage, Er
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn failed_to_pay_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn failed_to_pay_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("You failed to pay ")
         .ignore_then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
         .then_ignore(whitespace())
@@ -794,6 +832,7 @@ pub fn failed_to_pay_message_parser() -> impl Parser<char, SystemMessage, Error 
             payment_recipient,
             amount,
         })
+        .labelled("you failed to pay")
 }
 
 /// parse a system message about an object being granted permission to take L$
@@ -802,24 +841,24 @@ pub fn failed_to_pay_message_parser() -> impl Parser<char, SystemMessage, Error 
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn object_granted_permission_to_take_money_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn object_granted_permission_to_take_money_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just('\'')
-        .ignore_then(
-            take_until(just("', an object owned by '"))
-                .map(|(vc, _)| vc.into_iter().collect::<String>()),
-        )
-        .then(take_until(just("', located in ")).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .ignore_then(take_until!(just("', an object owned by '")))
+        .then(take_until!(just("', located in ")))
         .then(
             just("(unknown region) at ")
                 .to(None)
-                .or(take_until(just(" at ")).try_map(|(vc, _), span| {
-                    Ok(Some(
-                        sl_types::map::RegionName::try_new(vc.into_iter().collect::<String>())
-                            .map_err(|err| {
-                                Simple::custom(span, format!("Error creating region name: {err:?}"))
-                            })?,
-                    ))
+                .or(take_until!(just(" at ")).try_map(|(vc, _), span| {
+                    Ok(Some(sl_types::map::RegionName::try_new(vc).map_err(
+                        |err| {
+                            chumsky::error::Rich::custom(
+                                span,
+                                format!("Error creating region name: {err:?}"),
+                            )
+                        },
+                    )?))
                 })),
         )
         .then(
@@ -836,7 +875,7 @@ pub fn object_granted_permission_to_take_money_parser()
             ", has been granted permission to: Take Linden dollars (L$) from you.",
         ))
         .map(
-            |(((object_name, owner_name), object_region), object_location)| {
+            |((((object_name, _), (owner_name, _)), object_region), object_location)| {
                 SystemMessage::ObjectGrantedPermissionToTakeMoney {
                     object_name,
                     owner_name,
@@ -845,6 +884,7 @@ pub fn object_granted_permission_to_take_money_parser()
                 }
             },
         )
+        .labelled("object granted permission to take money")
 }
 
 /// parse a system message about being added or leaving a group
@@ -853,12 +893,15 @@ pub fn object_granted_permission_to_take_money_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn group_membership_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn group_membership_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("You have been added to the group.")
         .to(SystemMessage::AddedToGroup)
         .or(just("You have left the group '")
-            .ignore_then(take_until(just("'.")).map(|(vc, _)| vc.into_iter().collect::<String>()))
-            .map(|group_name| SystemMessage::LeftGroup { group_name }))
+            .ignore_then(take_until!(just("'.")))
+            .map(|(group_name, _)| SystemMessage::LeftGroup { group_name }))
+        .labelled("you have been added to the group")
 }
 
 /// parse a system message about the inability to invite a user to a group
@@ -868,10 +911,12 @@ pub fn group_membership_message_parser() -> impl Parser<char, SystemMessage, Err
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn unable_to_invite_user_due_to_missing_group_membership_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn unable_to_invite_user_due_to_missing_group_membership_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Unable to invite user because you are not in that group.")
         .to(SystemMessage::UnableToInviteUserDueToMissingGroupMembership)
+        .labelled("unable to invite user because you are not in that group")
 }
 
 /// parse a system message about the inability to invite a user to a group
@@ -881,12 +926,14 @@ pub fn unable_to_invite_user_due_to_missing_group_membership_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn unable_to_invite_user_due_to_differing_limited_estate_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn unable_to_invite_user_due_to_differing_limited_estate_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Unable to invite users because at least one user is in a different")
         .ignore_then(newline())
-        .ignore_then(just(" limited estate than the group."))
+        .ignore_then(just(" limited estate than the group.").then_ignore(whitespace().then(end())))
         .to(SystemMessage::UnableToInviteUserToGroupDueToDifferingLimitedEstate)
+        .labelled("unable to invite users because of differing limited estate")
 }
 
 /// parse a system message about the inability to load a notecard
@@ -895,13 +942,15 @@ pub fn unable_to_invite_user_due_to_differing_limited_estate_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn unable_to_load_notecard_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn unable_to_load_notecard_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Unable to load the notecard.")
         .then_ignore(newline())
         .then_ignore(whitespace())
         .then(just("Please try again."))
         .to(SystemMessage::UnableToLoadNotecard)
+        .labelled("unable to load notecard")
 }
 
 /// parse a system message about the inability to load a gesture
@@ -910,13 +959,13 @@ pub fn unable_to_load_notecard_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn unable_to_load_gesture_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn unable_to_load_gesture_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Unable to load gesture ")
-        .ignore_then(
-            take_until(just('.').then(end())).map(|(vc, _)| vc.into_iter().collect::<String>()),
-        )
-        .map(|gesture_name| SystemMessage::UnableToLoadGesture { gesture_name })
+        .ignore_then(take_until!(just('.').then(end())))
+        .map(|(gesture_name, _)| SystemMessage::UnableToLoadGesture { gesture_name })
+        .labelled("unable to load gesture")
 }
 
 /// parse a system message about a completed teleport
@@ -925,13 +974,15 @@ pub fn unable_to_load_gesture_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn teleport_completed_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn teleport_completed_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
     just("Teleport completed from http://maps.secondlife.com/secondlife/")
         .ignore_then(sl_types::map::url_unconstrained_location_parser())
-        .try_map(|origin, _span: std::ops::Range<usize>| {
+        .try_map(|origin, _span: chumsky::span::SimpleSpan| {
             Ok(SystemMessage::TeleportCompleted { origin })
         })
+        .labelled("teleport completed")
 }
 
 /// parse a system message about a now playing song
@@ -940,12 +991,15 @@ pub fn teleport_completed_message_parser() -> impl Parser<char, SystemMessage, E
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn now_playing_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn now_playing_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Now playing: ")
         .ignore_then(any().repeated().collect::<String>())
-        .try_map(|song_name, _span: std::ops::Range<usize>| {
+        .try_map(|song_name, _span: chumsky::span::SimpleSpan| {
             Ok(SystemMessage::NowPlaying { song_name })
         })
+        .labelled("now playing")
 }
 
 /// parse a system message about a region restart
@@ -954,11 +1008,14 @@ pub fn now_playing_message_parser() -> impl Parser<char, SystemMessage, Error = 
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn region_restart_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn region_restart_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("The region you are in now is about to restart. If you stay in this region you will be logged out.")
-        .try_map(|_, _span: std::ops::Range<usize>| {
-            Ok(SystemMessage::RegionRestart)
-        })
+    .try_map(|_, _span: chumsky::span::SimpleSpan| {
+        Ok(SystemMessage::RegionRestart)
+    })
+    .labelled("region about to restart")
 }
 
 /// parse a system message about an object giving the current avatar an object
@@ -967,36 +1024,38 @@ pub fn region_restart_message_parser() -> impl Parser<char, SystemMessage, Error
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn object_gave_object_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn object_gave_object_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
-    take_until(just(" owned by "))
+    take_until!(just(" owned by "))
         .then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
         .then_ignore(
             whitespace()
                 .or_not()
                 .ignore_then(just("gave you ").then(just("<nolink>'").or_not())),
         )
-        .then(take_until(
+        .then(take_until!(
             just("</nolink>'")
                 .or_not()
                 .then(whitespace())
-                .then(just("( http://slurl.com/secondlife/")),
+                .then(just("( http://slurl.com/secondlife/"))
         ))
         .then(sl_types::map::url_unconstrained_location_parser())
-        .then_ignore(just(" )."))
+        .then_ignore(just(" ).").ignore_then(end()))
         .map(
             |(
                 (((giving_object_name, _), giving_object_owner), (given_object_name, _)),
                 giving_object_location,
             )| {
                 SystemMessage::ObjectGaveObject {
-                    giving_object_name: giving_object_name.into_iter().collect(),
+                    giving_object_name,
                     giving_object_owner,
-                    given_object_name: given_object_name.into_iter().collect(),
+                    given_object_name,
                     giving_object_location,
                 }
             },
         )
+        .labelled("object gave you object")
 }
 
 /// parse a system message about an object giving the current avatar a folder
@@ -1005,18 +1064,16 @@ pub fn object_gave_object_message_parser() -> impl Parser<char, SystemMessage, E
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn object_gave_folder_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn object_gave_folder_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
     just("An object named [")
         .ignore_then(sl_types::viewer_uri::viewer_app_objectim_uri_parser())
         .then_ignore(whitespace())
-        .then(
-            take_until(just("] gave you this folder: '"))
-                .map(|(vc, _)| vc.into_iter().collect::<String>()),
-        )
-        .then(take_until(just('\'')).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .then(take_until!(just("] gave you this folder: '")))
+        .then(take_until!(just('\'').ignore_then(end())))
         .try_map(
-            |((app_objectim_uri, giving_object_link_label), folder_name), span| {
+            |((app_objectim_uri, (giving_object_link_label, _)), (folder_name, ())), span| {
                 match app_objectim_uri {
                     sl_types::viewer_uri::ViewerUri::ObjectInstantMessage {
                         object_key,
@@ -1031,13 +1088,14 @@ pub fn object_gave_folder_message_parser() -> impl Parser<char, SystemMessage, E
                         giving_object_link_label,
                         folder_name,
                     }),
-                    _ => Err(Simple::custom(
+                    _ => Err(chumsky::error::Rich::custom(
                         span,
                         "Unexpected type of viewer URI in object gave folder message parser",
                     )),
                 }
             },
         )
+        .labelled("object gave you folder")
 }
 
 /// parse a system message about an avatar giving the current avatar an object
@@ -1046,22 +1104,24 @@ pub fn object_gave_folder_message_parser() -> impl Parser<char, SystemMessage, E
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn avatar_gave_object_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn avatar_gave_object_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
     just("A group member named ")
         .or_not()
-        .then(take_until(just(" gave you ")))
-        .then(take_until(just(".")))
+        .then(take_until!(just(" gave you ")))
+        .then(take_until!(just(".").ignore_then(end())))
         .try_map(
-            |((group_member, (giving_avatar_name, _)), (given_object_name, _)),
-             _span: std::ops::Range<usize>| {
+            |((group_member, (giving_avatar_name, _)), (given_object_name, ())),
+             _span: chumsky::span::SimpleSpan| {
                 Ok(SystemMessage::AvatarGaveObject {
                     is_group_member: group_member.is_some(),
-                    giving_avatar_name: giving_avatar_name.into_iter().collect(),
-                    given_object_name: given_object_name.into_iter().collect(),
+                    giving_avatar_name,
+                    given_object_name,
                 })
             },
         )
+        .labelled("group member gave you object")
 }
 
 /// parse a system message about declining an object given to you
@@ -1070,13 +1130,13 @@ pub fn avatar_gave_object_message_parser() -> impl Parser<char, SystemMessage, E
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn declined_given_object_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn declined_given_object_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("You decline '")
-        .ignore_then(
-            take_until(just("'  ( http://slurl.com/secondlife/").ignored())
-                .map(|(vc, ())| vc.into_iter().collect::<String>()),
-        )
+        .ignore_then(take_until!(
+            just("'  ( http://slurl.com/secondlife/").ignored()
+        ))
         .then(sl_types::map::url_unconstrained_location_parser())
         .then_ignore(just(" ) from "))
         .then(
@@ -1085,13 +1145,14 @@ pub fn declined_given_object_message_parser()
                 .collect::<String>()
                 .map(|s| s.strip_suffix(".").map(|s| s.to_string()).unwrap_or(s)),
         )
-        .map(
-            |((object_name, giver_location), giver_name)| SystemMessage::DeclinedGivenObject {
+        .map(|(((object_name, ()), giver_location), giver_name)| {
+            SystemMessage::DeclinedGivenObject {
                 object_name,
                 giver_location,
                 giver_name,
-            },
-        )
+            }
+        })
+        .labelled("you decline given object")
 }
 
 /// parse a system message asking to select residents to share with
@@ -1100,9 +1161,12 @@ pub fn declined_given_object_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn select_residents_to_share_with_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Select residents to share with.").to(SystemMessage::SelectResidentsToShareWith)
+pub fn select_residents_to_share_with_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Select residents to share with.")
+        .to(SystemMessage::SelectResidentsToShareWith)
+        .labelled("select residents to share with")
 }
 
 /// parse a system message about items being successfully shared
@@ -1111,9 +1175,12 @@ pub fn select_residents_to_share_with_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn items_successfully_shared_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Items successfully shared.").to(SystemMessage::ItemsSuccessfullyShared)
+pub fn items_successfully_shared_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Items successfully shared.")
+        .to(SystemMessage::ItemsSuccessfullyShared)
+        .labelled("items successfully shared")
 }
 
 /// parse a system message about a modified search query
@@ -1122,16 +1189,18 @@ pub fn items_successfully_shared_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn modified_search_query_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn modified_search_query_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Your search query was modified and the words that were too short were removed.")
         .ignore_then(whitespace())
         .ignore_then(just("Searched for:"))
         .ignore_then(whitespace())
         .ignore_then(any().repeated().collect::<String>())
-        .try_map(|query, _span: std::ops::Range<usize>| {
+        .try_map(|query, _span: chumsky::span::SimpleSpan| {
             Ok(SystemMessage::ModifiedSearchQuery { query })
         })
+        .labelled("your search query was modified")
 }
 
 /// parse a system message about a different simulator version
@@ -1140,26 +1209,28 @@ pub fn modified_search_query_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn simulator_version_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn simulator_version_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
     just("The region you have entered is running a different simulator version.")
         .ignore_then(whitespace())
         .ignore_then(just("Current simulator:"))
         .ignore_then(whitespace())
-        .ignore_then(take_until(just("\n")).map(|(s, _): (Vec<char>, _)| s.into_iter().collect()))
+        .ignore_then(take_until!(just("\n")))
         .then_ignore(whitespace())
         .then_ignore(just("Previous simulator:"))
         .then_ignore(whitespace())
         .then(any().repeated().collect::<String>())
         .try_map(
-            |(current_region_simulator_version, previous_region_simulator_version),
-             _span: std::ops::Range<usize>| {
+            |((current_region_simulator_version, _), previous_region_simulator_version),
+             _span: chumsky::span::SimpleSpan| {
                 Ok(SystemMessage::SimulatorVersion {
                     previous_region_simulator_version,
                     current_region_simulator_version,
                 })
             },
         )
+        .labelled("region running different simulator version")
 }
 
 /// parse a system message about a renamed avatar
@@ -1168,14 +1239,18 @@ pub fn simulator_version_message_parser() -> impl Parser<char, SystemMessage, Er
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn renamed_avatar_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    take_until(just(" is now known as"))
-        .map(|(s, _)| s.into_iter().collect())
+pub fn renamed_avatar_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    take_until!(just(" is now known as"))
         .then_ignore(whitespace())
-        .then(take_until(just(".")).map(|(s, _): (Vec<char>, _)| s.into_iter().collect()))
-        .try_map(|(old_name, new_name), _span: std::ops::Range<usize>| {
-            Ok(SystemMessage::RenamedAvatar { old_name, new_name })
-        })
+        .then(take_until!(just(".").ignore_then(end())))
+        .try_map(
+            |((old_name, _), (new_name, ())), _span: chumsky::span::SimpleSpan| {
+                Ok(SystemMessage::RenamedAvatar { old_name, new_name })
+            },
+        )
+        .labelled("avatar is now known as")
 }
 
 /// parse a system message about enabling or disabling of double-click teleports
@@ -1184,12 +1259,14 @@ pub fn renamed_avatar_message_parser() -> impl Parser<char, SystemMessage, Error
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn doubleclick_teleport_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn doubleclick_teleport_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("DoubleClick Teleport enabled.")
         .to(SystemMessage::DoubleClickTeleport { enabled: true })
         .or(just("DoubleClick Teleport disabled.")
             .to(SystemMessage::DoubleClickTeleport { enabled: false }))
+        .labelled("double click teleport enabled/disabled")
 }
 
 /// parse a system message about enabling or disabling of always run
@@ -1198,10 +1275,13 @@ pub fn doubleclick_teleport_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn always_run_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn always_run_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Always Run enabled.")
         .to(SystemMessage::AlwaysRun { enabled: true })
         .or(just("Always Run disabled.").to(SystemMessage::AlwaysRun { enabled: false }))
+        .labelled("always run enabled/disabled")
 }
 
 /// parse a system message about being added as an estate manager
@@ -1210,9 +1290,12 @@ pub fn always_run_message_parser() -> impl Parser<char, SystemMessage, Error = S
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn added_as_estate_manager_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("You have been added as an estate manager.").to(SystemMessage::AddedAsEstateManager)
+pub fn added_as_estate_manager_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("You have been added as an estate manager.")
+        .to(SystemMessage::AddedAsEstateManager)
+        .labelled("you have been added as estate manager")
 }
 
 /// parse a system message about the LSL viewer bridge
@@ -1221,19 +1304,21 @@ pub fn added_as_estate_manager_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn bridge_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn bridge_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     choice([
-        just("Creating the bridge. This might take a moment, please wait.").to(SystemMessage::CreatingBridge).boxed(),
-        just("Creating the bridge. This might take a few moments, please wait").to(SystemMessage::CreatingBridge).boxed(),
-        just("Bridge created.").to(SystemMessage::BridgeCreated).boxed(),
-        just("Bridge creation in process, cannot start another. Please wait a few minutes before trying again.").to(SystemMessage::BridgeCreationInProgress).boxed(),
-        just("Bridge object not found. Can't proceed with creation, exiting.").to(SystemMessage::BridgeObjectNotFoundCantProceedWithCreation).boxed(),
-        just("Bridge failed to attach. This is not the current bridge version. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeFailedToAttach).boxed(),
-        just("Bridge failed to attach. Something else was using the bridge attachment point. Please try to recreate the bridge.").to(SystemMessage::BridgeFailedToAttachDueToBridgeAttachmentPointInUse).boxed(),
-        just("Bridge failed to attach. Something else was using the bridge attachment point. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeFailedToAttachDueToBridgeAttachmentPointInUse).boxed(),
-        just("Bridge not created. The bridge couldn't be found in inventory. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeNotCreated).boxed(),
-        just("Bridge detached.").to(SystemMessage::BridgeDetached).boxed(),
-    ])
+    just("Creating the bridge. This might take a moment, please wait.").to(SystemMessage::CreatingBridge).boxed(),
+    just("Creating the bridge. This might take a few moments, please wait").to(SystemMessage::CreatingBridge).boxed(),
+    just("Bridge created.").to(SystemMessage::BridgeCreated).boxed(),
+    just("Bridge creation in process, cannot start another. Please wait a few minutes before trying again.").to(SystemMessage::BridgeCreationInProgress).boxed(),
+    just("Bridge object not found. Can't proceed with creation, exiting.").to(SystemMessage::BridgeObjectNotFoundCantProceedWithCreation).boxed(),
+    just("Bridge failed to attach. This is not the current bridge version. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeFailedToAttach).boxed(),
+    just("Bridge failed to attach. Something else was using the bridge attachment point. Please try to recreate the bridge.").to(SystemMessage::BridgeFailedToAttachDueToBridgeAttachmentPointInUse).boxed(),
+    just("Bridge failed to attach. Something else was using the bridge attachment point. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeFailedToAttachDueToBridgeAttachmentPointInUse).boxed(),
+    just("Bridge not created. The bridge couldn't be found in inventory. Please use the Firestorm 'Avatar/Avatar Health/Recreate Bridge' menu option to recreate the bridge.").to(SystemMessage::BridgeNotCreated).boxed(),
+    just("Bridge detached.").to(SystemMessage::BridgeDetached).labelled("bridge message").boxed(),
+])
 }
 
 /// parse a system message about a failure to place an object a a specified
@@ -1243,10 +1328,12 @@ pub fn bridge_message_parser() -> impl Parser<char, SystemMessage, Error = Simpl
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn failed_to_place_object_at_specified_location_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn failed_to_place_object_at_specified_location_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Failed to place object at specified location.  Please try again.")
         .to(SystemMessage::FailedToPlaceObjectAtSpecifiedLocation)
+        .labelled("failed to place object at specified location")
 }
 
 /// parse a system message about a changed script count in the current region
@@ -1255,73 +1342,63 @@ pub fn failed_to_place_object_at_specified_location_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn region_script_count_change_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn region_script_count_change_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Total scripts in region ")
-        .ignore_then(just("jumped from ").or(just("dropped from ")))
-        .ignore_then(
-            digits(10)
-                .then_ignore(just(" to "))
-                .then(digits(10))
-                .then_ignore(just(" ("))
-                .then(one_of("+-"))
-                .then(digits(10))
-                .then_ignore(just(")."))
-                .try_map(
-                    |(((previous_script_count, current_script_count), sign), diff): (
-                        ((String, String), char),
-                        String,
-                    ),
-                     span: std::ops::Range<usize>| {
-                        let previous_span = span.clone();
-                        let previous_script_count =
-                            previous_script_count.parse().map_err(|err| {
-                                Simple::custom(
-                                    previous_span,
-                                    format!(
-                                        "Could not parse previous script count ({previous_script_count}) as u32: {err:?}"
-                                    ),
-                                )
-                            })?;
-                        let current_span = span.clone();
-                        let current_script_count = current_script_count.parse().map_err(|err| {
-                            Simple::custom(
-                                current_span,
-                                format!(
-                                    "Could not parse current script count ({current_script_count}) as u32: {err:?}"
-                                ),
-                            )
-                        })?;
-                        let diff_span = span.clone();
-                        let diff: i32 = diff.parse().map_err(|err| {
-                            Simple::custom(
-                                diff_span,
-                                format!(
-                                    "Could not parse changed script count ({diff}) as i32: {err:?}"
-                                ),
-                            )
-                        })?;
-                        let change = match sign {
-                            '+' => diff,
-                            '-' => {
-                                #[expect(clippy::arithmetic_side_effects, reason = "this just switches the sign of a positive value to a negative one but only the opposite switch is panic-prone at i32::MIN")]
-                                -diff
-                            }
-                            c => {
-                                return Err(Simple::custom(
-                                    span,
-                                    format!("Unexpected sign character for script change: {c}"),
-                                ))
-                            }
-                        };
-                        Ok(SystemMessage::ScriptCountChanged {
-                            previous_script_count,
-                            current_script_count,
-                            change,
-                        })
-                    },
+    .ignore_then(just("jumped from ").or(just("dropped from ")))
+    .ignore_then(
+        digits(10).collect::<String>()
+            .then_ignore(just(" to "))
+            .then(digits(10).collect::<String>())
+            .then_ignore(just(" ("))
+            .then(one_of("+-"))
+            .then(digits(10).collect::<String>())
+            .then_ignore(just(")."))
+            .try_map(
+                |(((previous_script_count, current_script_count), sign), diff): (
+                    ((String, String), char),
+                    String,
                 ),
-        )
+                 span: chumsky::span::SimpleSpan| {
+                    let previous_span = span;
+                    let previous_script_count =
+                        previous_script_count.parse().map_err(|err| {
+                            chumsky::error::Rich::custom(previous_span, format!(
+                                "Could not parse previous script count ({previous_script_count}) as u32: {err:?}"
+                            ))
+                        })?;
+                    let current_span = span;
+                    let current_script_count = current_script_count.parse().map_err(|err| {
+                        chumsky::error::Rich::custom(current_span, format!(
+                            "Could not parse current script count ({current_script_count}) as u32: {err:?}"
+                        ))
+                    })?;
+                    let diff_span = span;
+                    let diff: i32 = diff.parse().map_err(|err| {
+                        chumsky::error::Rich::custom(diff_span, format!(
+                            "Could not parse changed script count ({diff}) as i32: {err:?}"
+                        ))
+                    })?;
+                    let change = match sign {
+                        '+' => diff,
+                        '-' => {
+                            #[expect(clippy::arithmetic_side_effects, reason = "this just switches the sign of a positive value to a negative one but only the opposite switch is panic-prone at i32::MIN")]
+                            -diff
+                        }
+                        c => {
+                            return Err(chumsky::error::Rich::custom(span, format!("Unexpected sign character for script change: {c}")))
+                        }
+                    };
+                    Ok(SystemMessage::ScriptCountChanged {
+                        previous_script_count,
+                        current_script_count,
+                        change,
+                    })
+                },
+            ),
+    )
+    .labelled("region script count changed")
 }
 
 /// parse a system message about a chat message still being processed
@@ -1330,25 +1407,27 @@ pub fn region_script_count_change_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn chat_message_still_being_processed_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn chat_message_still_being_processed_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("The message sent to ")
-        .ignore_then(
-            choice([
-                just("Multi-person chat is still being processed.").to(SystemMessage::MultiPersonChatMessageStillBeingProcessed).boxed(),
-                just("(IM Session Doesn't Exist) is still being processed.").to(SystemMessage::ChatMessageToNoLongerExistingImSessionStillBeingProcessed).boxed(),
-                just("Conference with ").ignore_then(take_until(just(" is still being processed.")).map(|(vc, _)| SystemMessage::ConferenceChatMessageStillBeingProcessed { avatar_name: vc.into_iter().collect::<String>() })).boxed(),
-                take_until(just(" is still being processed.").ignored()).map(|(vc, ())| vc.into_iter().collect::<String>())
-                .map(|group_name| {
-                    SystemMessage::GroupChatMessageStillBeingProcessed {
-                        group_name,
-                    }
-                }).boxed(),
-            ])
-        )
-        .then_ignore(newline())
-        .then_ignore(whitespace())
-        .then_ignore(just("If the message does not appear in the next few minutes, it may have been dropped by the server."))
+    .ignore_then(
+        choice([
+            just("Multi-person chat is still being processed.").to(SystemMessage::MultiPersonChatMessageStillBeingProcessed).boxed(),
+            just("(IM Session Doesn't Exist) is still being processed.").to(SystemMessage::ChatMessageToNoLongerExistingImSessionStillBeingProcessed).boxed(),
+            just("Conference with ").ignore_then(take_until!(just(" is still being processed.")).map(|(avatar_name, _)| SystemMessage::ConferenceChatMessageStillBeingProcessed { avatar_name })).boxed(),
+            take_until!(just(" is still being processed.").ignored())
+            .map(|(group_name, ())| {
+                SystemMessage::GroupChatMessageStillBeingProcessed {
+                    group_name,
+                }
+            }).boxed(),
+        ])
+    )
+    .then_ignore(newline())
+    .then_ignore(whitespace())
+    .then_ignore(just("If the message does not appear in the next few minutes, it may have been dropped by the server."))
+    .labelled("chat message still being processed")
 }
 
 /// parse a system message about an avatar declining a voice call
@@ -1357,14 +1436,14 @@ pub fn chat_message_still_being_processed_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn avatar_declined_voice_call_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    take_until(just(
+pub fn avatar_declined_voice_call_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    take_until!(just(
         "has declined your call.  You will now be reconnected to Nearby Voice Chat.",
     ))
-    .map(|(vc, _)| SystemMessage::AvatarDeclinedVoice {
-        avatar_name: vc.into_iter().collect::<String>(),
-    })
+    .map(|(avatar_name, _)| SystemMessage::AvatarDeclinedVoice { avatar_name })
+    .labelled("avatar declined voice call")
 }
 
 /// parse a system message about an avatar being unavailable to take our voice call
@@ -1373,14 +1452,14 @@ pub fn avatar_declined_voice_call_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn avatar_unavailable_for_voice_call_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    take_until(just(
+pub fn avatar_unavailable_for_voice_call_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    take_until!(just(
         "is not available to take your call.  You will now be reconnected to Nearby Voice Chat.",
     ))
-    .map(|(vc, _)| SystemMessage::AvatarUnavailableForVoice {
-        avatar_name: vc.into_iter().collect::<String>(),
-    })
+    .map(|(avatar_name, _)| SystemMessage::AvatarUnavailableForVoice { avatar_name })
+    .labelled("avatar unavailable for voice call")
 }
 
 /// parse a system message about audio from a domain always being played
@@ -1389,13 +1468,15 @@ pub fn avatar_unavailable_for_voice_call_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn audio_from_domain_will_always_be_played_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Audio from the domain ").ignore_then(take_until(just(" will always be played.")).map(
-        |(vc, _)| SystemMessage::AudioFromDomainWillAlwaysBePlayed {
-            domain: vc.into_iter().collect::<String>(),
-        },
-    ))
+pub fn audio_from_domain_will_always_be_played_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Audio from the domain ")
+        .ignore_then(
+            take_until!(just(" will always be played."))
+                .map(|(domain, _)| SystemMessage::AudioFromDomainWillAlwaysBePlayed { domain }),
+        )
+        .labelled("audio from domain will always be played")
 }
 
 /// parse a system message about an object not being for sale
@@ -1404,9 +1485,12 @@ pub fn audio_from_domain_will_always_be_played_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn object_not_for_sale_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn object_not_for_sale_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
-    just("This object is not for sale.").to(SystemMessage::ObjectNotForSale)
+    just("This object is not for sale.")
+        .to(SystemMessage::ObjectNotForSale)
+        .labelled("object not for sale")
 }
 
 /// parse a system message cannot create requested inventory
@@ -1415,9 +1499,12 @@ pub fn object_not_for_sale_message_parser() -> impl Parser<char, SystemMessage, 
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn can_not_create_requested_inventory_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Cannot create requested inventory.").to(SystemMessage::CanNotCreateRequestedInventory)
+pub fn can_not_create_requested_inventory_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Cannot create requested inventory.")
+        .to(SystemMessage::CanNotCreateRequestedInventory)
+        .labelled("cannot created requested inventory")
 }
 
 /// parse a system message about a failed link due to piece distance
@@ -1426,8 +1513,9 @@ pub fn can_not_create_requested_inventory_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn link_failed_due_to_piece_distance_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn link_failed_due_to_piece_distance_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Link failed -- Unable to link any pieces - pieces are too far apart.")
         .to(SystemMessage::LinkFailedDueToPieceDistance {
             link_failed_pieces: None,
@@ -1445,6 +1533,7 @@ pub fn link_failed_due_to_piece_distance_message_parser()
                     }
                 }),
         ))
+        .labelled("link failed due to distance")
 }
 
 /// parse a system message about the failure to rez an object due to a full
@@ -1454,42 +1543,37 @@ pub fn link_failed_due_to_piece_distance_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn rezzing_object_failed_due_to_full_parcel_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn rezzing_object_failed_due_to_full_parcel_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Can't rez object '").ignore_then(
-        take_until(just("' at ").ignored())
-            .map(|(vc, ())| vc.into_iter().collect::<String>())
-            .then(sl_types::map::region_coordinates_parser())
-            .then_ignore(just(" on parcel '"))
-            .then(
-                take_until(just("' in region ").ignored())
-                    .map(|(vc, ())| vc.into_iter().collect::<String>()),
-            )
-            .then(
-                take_until(just(" because the parcel is too full").ignored())
-                    .map(|(vc, ())| vc.into_iter().collect::<String>())
-                    .try_map(|region_name, span| {
-                        sl_types::map::RegionName::try_new(&region_name).map_err(|err| {
-                            Simple::custom(
-                                span,
-                                format!(
-                                    "Could not turn parsed region name ({region_name}) into RegionName: {err:?}"
-                                ),
-                            )
-                        })
-                    }),
-            )
-            .map(
-                |(((object_name, attempted_rez_location), parcel_name), region_name)| {
-                    SystemMessage::RezObjectFailedDueToFullParcel {
-                        object_name,
-                        attempted_rez_location,
-                        parcel_name,
-                        region_name,
-                    }
-                },
-            ),
-    )
+    take_until!(just("' at ").ignored())
+        .then(sl_types::map::region_coordinates_parser())
+        .then_ignore(just(" on parcel '"))
+        .then(
+            take_until!(just("' in region ").ignored())
+        )
+        .then(
+            take_until!(just(" because the parcel is too full.").ignored())
+                .try_map(|(region_name, ()), span| {
+                    sl_types::map::RegionName::try_new(&region_name).map_err(|err| {
+                        chumsky::error::Rich::custom(span, format!(
+                            "Could not turn parsed region name ({region_name}) into RegionName: {err:?}"
+                        ))
+                    })
+                }),
+        )
+        .map(
+            |((((object_name, ()), attempted_rez_location), (parcel_name, ())), region_name)| {
+                SystemMessage::RezObjectFailedDueToFullParcel {
+                    object_name,
+                    attempted_rez_location,
+                    parcel_name,
+                    region_name,
+                }
+            },
+        ),
+    ).labelled("rezzing failed due to full parcel")
 }
 
 /// parse a system message about the failure to create an object due to a full
@@ -1499,10 +1583,12 @@ pub fn rezzing_object_failed_due_to_full_parcel_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn create_object_failed_due_to_full_region_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn create_object_failed_due_to_full_region_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Unable to create requested object. The region is full.")
         .to(SystemMessage::CreateObjectFailedDueToFullRegion)
+        .labelled("create object failed due to full region")
 }
 
 /// parse a system message about an object being returned to your inventory
@@ -1511,16 +1597,14 @@ pub fn create_object_failed_due_to_full_region_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn your_object_has_been_returned_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn your_object_has_been_returned_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Your object '")
-        .ignore_then(
-            take_until(just(
-                "' has been returned to your inventory Lost and Found folder from parcel '",
-            ))
-            .map(|(vc, _)| vc.into_iter().collect::<String>()),
-        )
-        .then(take_until(just("' at ")).map(|(vc, _)| vc.into_iter().collect::<String>()))
+        .ignore_then(take_until!(just(
+            "' has been returned to your inventory Lost and Found folder from parcel '",
+        )))
+        .then(take_until!(just("' at ")))
         .then(sl_types::map::region_name_parser())
         .then_ignore(whitespace())
         .then(sl_types::utils::i16_parser())
@@ -1532,7 +1616,7 @@ pub fn your_object_has_been_returned_message_parser()
                 .or(just('.').to(false)),
         )
         .map(
-            |(((((object_name, parcel_name), region_name), x), y), auto_return)| {
+            |((((((object_name, _), (parcel_name, _)), region_name), x), y), auto_return)| {
                 SystemMessage::YourObjectHasBeenReturned {
                     object_name,
                     parcel_name,
@@ -1541,6 +1625,7 @@ pub fn your_object_has_been_returned_message_parser()
                 }
             },
         )
+        .labelled("your object has been returned")
 }
 
 /// parse a system message about the denial of permission to create an object
@@ -1549,9 +1634,10 @@ pub fn your_object_has_been_returned_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_create_object_denied_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("You cannot create objects here.  The owner of this land does not allow it.  Use the land tool to see land ownership.").to(SystemMessage::PermissionToCreateObjectDenied)
+pub fn permission_to_create_object_denied_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("You cannot create objects here.  The owner of this land does not allow it.  Use the land tool to see land ownership.").to(SystemMessage::PermissionToCreateObjectDenied).labelled("permission to create object denied")
 }
 
 /// parse a system message about the denial of permission to rez an object
@@ -1560,26 +1646,28 @@ pub fn permission_to_create_object_denied_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_rez_object_denied_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn permission_to_rez_object_denied_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Can't rez object '")
-        .ignore_then(
-            take_until(just("' at ").ignored()).map(|(vc, ())| vc.into_iter().collect::<String>())
-            .then(sl_types::map::region_coordinates_parser())
-            .then_ignore(just(" on parcel '"))
-            .then(take_until(just("' in region ").ignored()).map(|(vc, ())| vc.into_iter().collect::<String>()))
-            .then(take_until(just(" because the owner of this land does not allow it.  Use the land tool to see land ownership.").ignored()).map(|(vc, ())| vc.into_iter().collect::<String>()).try_map(|region_name, span| {
-                sl_types::map::RegionName::try_new(&region_name).map_err(|err| Simple::custom(span, format!("Could not turn parsed region name ({region_name}) into RegionName: {err:?}")))
-            }))
-            .map(|(((object_name, attempted_rez_location), parcel_name), region_name)| {
-                SystemMessage::PermissionToRezObjectDenied {
-                    object_name,
-                    attempted_rez_location,
-                    parcel_name,
-                    region_name,
-                }
-            })
-        )
+    .ignore_then(
+        take_until!(just("' at ").ignored())
+        .then(sl_types::map::region_coordinates_parser())
+        .then_ignore(just(" on parcel '"))
+        .then(take_until!(just("' in region ").ignored()))
+        .then(take_until!(just(" because the owner of this land does not allow it.  Use the land tool to see land ownership.").ignored()).try_map(|(region_name, ()), span| {
+            sl_types::map::RegionName::try_new(&region_name).map_err(|err| chumsky::error::Rich::custom(span, format!("Could not turn parsed region name ({region_name}) into RegionName: {err:?}")))
+        }))
+        .map(|((((object_name, ()), attempted_rez_location), (parcel_name, ())), region_name)| {
+            SystemMessage::PermissionToRezObjectDenied {
+                object_name,
+                attempted_rez_location,
+                parcel_name,
+                region_name,
+            }
+        })
+    )
+    .labelled("permission to rez object denied")
 }
 
 /// parse a system message about the denial of permission to reposition an object
@@ -1588,9 +1676,12 @@ pub fn permission_to_rez_object_denied_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_reposition_denied_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Can't reposition -- permission denied").to(SystemMessage::PermissionToRepositionDenied)
+pub fn permission_to_reposition_denied_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Can't reposition -- permission denied")
+        .to(SystemMessage::PermissionToRepositionDenied)
+        .labelled("permission to reposition denied")
 }
 
 /// parse a system message about the denial of permission to rotate an object
@@ -1599,9 +1690,12 @@ pub fn permission_to_reposition_denied_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_rotate_denied_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Can't rotate -- permission denied").to(SystemMessage::PermissionToRotateDenied)
+pub fn permission_to_rotate_denied_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Can't rotate -- permission denied")
+        .to(SystemMessage::PermissionToRotateDenied)
+        .labelled("permission to rotate denied")
 }
 
 /// parse a system message about the denial of permission to rescale an object
@@ -1610,9 +1704,12 @@ pub fn permission_to_rotate_denied_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_rescale_denied_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Can't rescale -- permission denied").to(SystemMessage::PermissionToRescaleDenied)
+pub fn permission_to_rescale_denied_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Can't rescale -- permission denied")
+        .to(SystemMessage::PermissionToRescaleDenied)
+        .labelled("permission to rescale denied")
 }
 
 /// parse a system message about the denial of permission to unlink an object
@@ -1622,10 +1719,12 @@ pub fn permission_to_rescale_denied_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_unlink_denied_due_to_missing_parcel_build_permissions_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn permission_to_unlink_denied_due_to_missing_parcel_build_permissions_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Failed to unlink because you do not have permissions to build on all parcels")
         .to(SystemMessage::PermissionToUnlinkDeniedDueToMissingParcelBuildPermissions)
+        .labelled("permission to unlink denied due to parcel build permissions")
 }
 
 /// parse a system message about the denial of permission to view a script
@@ -1634,10 +1733,12 @@ pub fn permission_to_unlink_denied_due_to_missing_parcel_build_permissions_messa
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_view_script_denied_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn permission_to_view_script_denied_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Insufficient permissions to view the script.")
         .to(SystemMessage::PermissionToViewScriptDenied)
+        .labelled("permission to view script denied")
 }
 
 /// parse a system message about the denial of permission to view a notecard
@@ -1646,10 +1747,12 @@ pub fn permission_to_view_script_denied_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_view_notecard_denied_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn permission_to_view_notecard_denied_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("You do not have permission to view this notecard.")
         .to(SystemMessage::PermissionToViewNotecardDenied)
+        .labelled("permission to view notecard denied")
 }
 
 /// parse a system message about the denial of permission to change a shape
@@ -1658,10 +1761,12 @@ pub fn permission_to_view_notecard_denied_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_change_shape_denied_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn permission_to_change_shape_denied_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("You are not allowed to change this shape.")
         .to(SystemMessage::PermissionToChangeShapeDenied)
+        .labelled("permission to change shape denied")
 }
 
 /// parse a system message about the denial of permission to enter a parcel
@@ -1670,10 +1775,12 @@ pub fn permission_to_change_shape_denied_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_enter_parcel_denied_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn permission_to_enter_parcel_denied_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Cannot enter parcel, you are not on the access list.")
         .to(SystemMessage::PermissionToEnterParcelDenied)
+        .labelled("permission to enter parcel denied")
 }
 
 /// parse a system message about the denial of permission to enter a parcel due to ban
@@ -1682,10 +1789,12 @@ pub fn permission_to_enter_parcel_denied_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn permission_to_enter_parcel_denied_due_to_ban_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn permission_to_enter_parcel_denied_due_to_ban_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Cannot enter parcel, you have been banned.")
         .to(SystemMessage::PermissionToEnterParcelDeniedDueToBan)
+        .labelled("permission to enter parcel denied due to ban")
 }
 
 /// parse a system message about ejecting an avatar from a parcel
@@ -1694,8 +1803,12 @@ pub fn permission_to_enter_parcel_denied_due_to_ban_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn avatar_ejected_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Avatar ejected.").to(SystemMessage::EjectedAvatar)
+pub fn avatar_ejected_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Avatar ejected.")
+        .to(SystemMessage::EjectedAvatar)
+        .labelled("avatar ejected")
 }
 
 /// parse a system message about being ejected from a parcel
@@ -1704,7 +1817,8 @@ pub fn avatar_ejected_message_parser() -> impl Parser<char, SystemMessage, Error
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn ejected_from_parcel_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn ejected_from_parcel_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
     just("You have been ejected from this land.")
         .to(SystemMessage::EjectedFromParcel)
@@ -1712,6 +1826,7 @@ pub fn ejected_from_parcel_message_parser() -> impl Parser<char, SystemMessage, 
             just("You are no longer allowed here and have been ejected.")
                 .to(SystemMessage::EjectedFromParcelBecauseNoLongerAllowed),
         )
+        .labelled("ejected from parcel")
 }
 
 /// parse a system message about being banned from a parcel
@@ -1720,17 +1835,20 @@ pub fn ejected_from_parcel_message_parser() -> impl Parser<char, SystemMessage, 
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn banned_from_parcel_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn banned_from_parcel_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
-    just("You have been banned ").ignore_then(
-        just("indefinitely")
-            .to(SystemMessage::BannedFromParcelIndefinitely)
-            .or(just("for ")
-                .ignore_then(i64_parser().then_ignore(just(" minutes")))
-                .map(|d| SystemMessage::BannedFromParcelTemporarily {
-                    ban_duration: time::Duration::minutes(d),
-                })),
-    )
+    just("You have been banned ")
+        .ignore_then(
+            just("indefinitely")
+                .to(SystemMessage::BannedFromParcelIndefinitely)
+                .or(just("for ")
+                    .ignore_then(i64_parser().then_ignore(just(" minutes")))
+                    .map(|d| SystemMessage::BannedFromParcelTemporarily {
+                        ban_duration: time::Duration::minutes(d),
+                    })),
+        )
+        .labelled("you have been banned")
 }
 
 /// parse a system message about only group members being able to visit an area
@@ -1739,10 +1857,12 @@ pub fn banned_from_parcel_message_parser() -> impl Parser<char, SystemMessage, E
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn only_group_members_can_visit_this_area_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn only_group_members_can_visit_this_area_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Only members of a certain group can visit this area.")
         .to(SystemMessage::OnlyGroupMembersCanVisitThisArea)
+        .labelled("only group members allowed here")
 }
 
 /// parse a system message about teleports being RLV restricted
@@ -1751,10 +1871,12 @@ pub fn only_group_members_can_visit_this_area_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn unable_to_teleport_due_to_rlv_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn unable_to_teleport_due_to_rlv_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Unable to initiate teleport due to RLV restrictions")
         .to(SystemMessage::UnableToTeleportDueToRlv)
+        .labelled("unable to teleport due to RLV")
 }
 
 /// parse a system message about opening textures being RLV restricted
@@ -1763,10 +1885,12 @@ pub fn unable_to_teleport_due_to_rlv_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn unable_to_open_texture_due_to_rlv_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn unable_to_open_texture_due_to_rlv_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Unable to open texture due to RLV restrictions")
         .to(SystemMessage::UnableToOpenTextureDueToRlv)
+        .labelled("unable to open texture due to RLV")
 }
 
 /// parse a system message about unsupported SLurl
@@ -1775,9 +1899,12 @@ pub fn unable_to_open_texture_due_to_rlv_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn unsupported_slurl_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn unsupported_slurl_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
-    just("The SLurl you clicked on is not supported.").to(SystemMessage::UnsupportedSlurl)
+    just("The SLurl you clicked on is not supported.")
+        .to(SystemMessage::UnsupportedSlurl)
+        .labelled("unsupported slurl")
 }
 
 /// parse a system message about a SLurl from an untrusted browser being blocked
@@ -1786,10 +1913,12 @@ pub fn unsupported_slurl_message_parser() -> impl Parser<char, SystemMessage, Er
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn blocked_untrusted_browser_slurl_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("A SLurl was received from an untrusted browser and has been blocked for your security")
+pub fn blocked_untrusted_browser_slurl_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("A SLurl was received from an untrusted browser and has been blocked for your security.")
         .to(SystemMessage::BlockedUntrustedBrowserSlurl)
+        .labelled("blocked untrusted browser")
 }
 
 /// parse a system message about a grid status error about an invalid message format
@@ -1798,10 +1927,12 @@ pub fn blocked_untrusted_browser_slurl_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn grid_status_error_invalid_message_format_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn grid_status_error_invalid_message_format_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("SL Grid Status error: Invalid message format. Try again later.")
         .to(SystemMessage::GridStatusErrorInvalidMessageFormat)
+        .labelled("sl grid status invalid message format")
 }
 
 /// parse a system message about a script info object being invalid or out of range
@@ -1810,10 +1941,12 @@ pub fn grid_status_error_invalid_message_format_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn script_info_object_invalid_or_out_of_range_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn script_info_object_invalid_or_out_of_range_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Script info: Object to check is invalid or out of range.")
         .to(SystemMessage::ScriptInfoObjectInvalidOrOutOfRange)
+        .labelled("script info object invalid or out of range")
 }
 
 /// parse a system message about script info
@@ -1822,33 +1955,36 @@ pub fn script_info_object_invalid_or_out_of_range_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn script_info_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Script info: '").ignore_then(
-        take_until(just("': [").ignored())
-            .map(|(vc, ())| vc.into_iter().collect::<String>())
-            .then(usize_parser())
-            .then_ignore(just('/'))
-            .then(usize_parser())
-            .then_ignore(just("] running scripts, "))
-            .then(u64_parser().map(bytesize::ByteSize::kb))
-            .then_ignore(just(" KB allowed memory size limit, "))
-            .then(unsigned_f32_parser().map(|ms| time::Duration::seconds_f32(ms / 1000f32)))
-            .then_ignore(just(" ms of CPU time consumed."))
-            .map(
-                |(
-                    (((name, running_scripts), total_scripts), allowed_memory_size_limit),
-                    cpu_time_consumed,
-                )| {
-                    SystemMessage::ScriptInfo {
-                        name,
-                        running_scripts,
-                        total_scripts,
-                        allowed_memory_size_limit,
+pub fn script_info_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Script info: '")
+        .ignore_then(
+            take_until!(just("': [").ignored())
+                .then(usize_parser())
+                .then_ignore(just('/'))
+                .then(usize_parser())
+                .then_ignore(just("] running scripts, "))
+                .then(u64_parser().map(bytesize::ByteSize::kb))
+                .then_ignore(just(" KB allowed memory size limit, "))
+                .then(unsigned_f32_parser().map(|ms| time::Duration::seconds_f32(ms / 1000f32)))
+                .then_ignore(just(" ms of CPU time consumed."))
+                .map(
+                    |(
+                        ((((name, ()), running_scripts), total_scripts), allowed_memory_size_limit),
                         cpu_time_consumed,
-                    }
-                },
-            ),
-    )
+                    )| {
+                        SystemMessage::ScriptInfo {
+                            name,
+                            running_scripts,
+                            total_scripts,
+                            allowed_memory_size_limit,
+                            cpu_time_consumed,
+                        }
+                    },
+                ),
+        )
+        .labelled("script info")
 }
 
 /// parse a system message with extended script info
@@ -1859,145 +1995,146 @@ pub fn script_info_message_parser() -> impl Parser<char, SystemMessage, Error = 
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn extended_script_info_message_parser()
--> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn extended_script_info_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Object ID: ")
-        .ignore_then(sl_types::key::object_key_parser())
-        .then_ignore(newline())
-        .then_ignore(just(" Description:"))
-        .then_ignore(just(" ").or_not())
-        .then(just("(No Description)").then_ignore(newline()).to(None).or(
-            take_until(newline().ignored()).map(|(vc, ())| Some(vc.into_iter().collect::<String>())),
-        ))
-        .then_ignore(just(" Root prim: "))
-        .then(sl_types::key::object_key_parser())
-        .then_ignore(newline())
-        .then_ignore(just(" Prim count: "))
-        .then(sl_types::utils::usize_parser())
-        .then_ignore(newline())
-        .then_ignore(just(" Land impact: "))
-        .then(sl_types::utils::usize_parser())
-        .then_ignore(newline())
-        .then_ignore(just(" Inventory items: "))
-        .then(sl_types::utils::usize_parser())
-        .then_ignore(newline())
-        .then_ignore(just(" Velocity: "))
-        .then(sl_types::lsl::vector_parser())
-        .then_ignore(newline())
-        .then_ignore(just(" Position: "))
-        .then(sl_types::lsl::vector_parser().map(sl_types::map::RegionCoordinates::from))
-        .then_ignore(whitespace())
-        .then(sl_types::map::distance_parser().delimited_by(just('('), just(')')))
-        .then_ignore(newline())
-        .then_ignore(just(" Rotation: "))
-        .then(sl_types::lsl::rotation_parser())
-        .then_ignore(whitespace())
-        .then(sl_types::lsl::vector_parser().delimited_by(just('('), just(')')))
-        .then_ignore(newline())
-        .then_ignore(just(" Angular velocity: "))
-        .then(sl_types::lsl::vector_parser())
-        .then_ignore(whitespace())
-        .then_ignore(just("(radians per second)"))
-        .then_ignore(newline())
-        .then_ignore(just(" Creator: "))
-        .then(sl_types::key::app_agent_uri_as_agent_key_parser())
-        .then_ignore(newline())
-        .then_ignore(just(" Owner: "))
-        .then(sl_types::key::app_agent_or_group_uri_as_owner_key_parser())
-        .then_ignore(newline())
-        .then_ignore(just(" Previous owner: "))
-        .then(
-            sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
-                .map(Some)
-                .or(just("---").to(None)),
-        )
-        .then_ignore(newline())
-        .then_ignore(just(" Rezzed by: "))
-        .then(sl_types::key::agent_key_parser())
-        .then_ignore(newline())
-        .then_ignore(just(" Group: "))
-        .then(
-            sl_types::key::app_group_uri_as_group_key_parser()
-                .map(Some)
-                .or(just("---").to(None)),
-        )
-        .then_ignore(newline())
-        .then_ignore(just(" Creation time:"))
-        .then_ignore(just(' ').or_not())
-        .then(crate::utils::offset_datetime_parser().or_not())
-        .then_ignore(newline())
-        .then_ignore(just(" Rez time:"))
-        .then_ignore(just(' ').or_not())
-        .then(crate::utils::offset_datetime_parser().or_not())
-        .then_ignore(newline())
-        .then_ignore(just(" Pathfinding type: "))
-        .then(sl_types::pathfinding::int_as_pathfinding_type_parser())
-        .then_ignore(newline())
-        .then_ignore(just(" Attachment point: "))
-        .then(
-            sl_types::attachment::attachment_point_parser()
-                .map(Some)
-                .or(just("---").to(None)),
-        )
-        .then_ignore(newline())
-        .then_ignore(just(" Temporarily attached: "))
-        .then(just("Yes").to(true).or(just("No").to(false)))
-        .then_ignore(newline())
-        .then_ignore(just(" Your current position: "))
-        .then(sl_types::lsl::vector_parser().map(sl_types::map::RegionCoordinates::from))
-        .map(
-            |((((((((((((((((((((((
+    .ignore_then(sl_types::key::object_key_parser())
+    .then_ignore(newline())
+    .then_ignore(just(" Description:"))
+    .then_ignore(just(" ").or_not())
+    .then(just("(No Description)").then_ignore(newline()).to(None).or(
+        take_until!(newline().ignored()).map(|(vc, ())| Some(vc)),
+    ))
+    .then_ignore(just(" Root prim: "))
+    .then(sl_types::key::object_key_parser())
+    .then_ignore(newline())
+    .then_ignore(just(" Prim count: "))
+    .then(sl_types::utils::usize_parser())
+    .then_ignore(newline())
+    .then_ignore(just(" Land impact: "))
+    .then(sl_types::utils::usize_parser())
+    .then_ignore(newline())
+    .then_ignore(just(" Inventory items: "))
+    .then(sl_types::utils::usize_parser())
+    .then_ignore(newline())
+    .then_ignore(just(" Velocity: "))
+    .then(sl_types::lsl::vector_parser())
+    .then_ignore(newline())
+    .then_ignore(just(" Position: "))
+    .then(sl_types::lsl::vector_parser().map(sl_types::map::RegionCoordinates::from))
+    .then_ignore(whitespace())
+    .then(sl_types::map::distance_parser().delimited_by(just('('), just(')')))
+    .then_ignore(newline())
+    .then_ignore(just(" Rotation: "))
+    .then(sl_types::lsl::rotation_parser())
+    .then_ignore(whitespace())
+    .then(sl_types::lsl::vector_parser().delimited_by(just('('), just(')')))
+    .then_ignore(newline())
+    .then_ignore(just(" Angular velocity: "))
+    .then(sl_types::lsl::vector_parser())
+    .then_ignore(whitespace())
+    .then_ignore(just("(radians per second)"))
+    .then_ignore(newline())
+    .then_ignore(just(" Creator: "))
+    .then(sl_types::key::app_agent_uri_as_agent_key_parser())
+    .then_ignore(newline())
+    .then_ignore(just(" Owner: "))
+    .then(just("Group Owned").to(None).or(sl_types::key::app_agent_or_group_uri_as_owner_key_parser().map(Some)))
+    .then_ignore(newline())
+    .then_ignore(just(" Previous owner: "))
+    .then(
+        sl_types::key::app_agent_or_group_uri_as_owner_key_parser()
+            .map(Some)
+            .or(just("---").to(None)),
+    )
+    .then_ignore(newline())
+    .then_ignore(just(" Rezzed by: "))
+    .then(sl_types::key::agent_key_parser())
+    .then_ignore(newline())
+    .then_ignore(just(" Group: "))
+    .then(
+        sl_types::key::app_group_uri_as_group_key_parser()
+            .map(Some)
+            .or(just("---").to(None)),
+    )
+    .then_ignore(newline())
+    .then_ignore(just(" Creation time:"))
+    .then_ignore(just(' ').or_not())
+    .then(crate::utils::offset_datetime_parser().or_not())
+    .then_ignore(newline())
+    .then_ignore(just(" Rez time:"))
+    .then_ignore(just(' ').or_not())
+    .then(crate::utils::offset_datetime_parser().or_not())
+    .then_ignore(newline())
+    .then_ignore(just(" Pathfinding type: "))
+    .then(sl_types::pathfinding::int_as_pathfinding_type_parser())
+    .then_ignore(newline())
+    .then_ignore(just(" Attachment point: "))
+    .then(
+        sl_types::attachment::attachment_point_parser()
+            .map(Some)
+            .or(just("---").to(None)),
+    )
+    .then_ignore(newline())
+    .then_ignore(just(" Temporarily attached: "))
+    .then(just("Yes").to(true).or(just("No").to(false)))
+    .then_ignore(newline())
+    .then_ignore(just(" Your current position: "))
+    .then(sl_types::lsl::vector_parser().map(sl_types::map::RegionCoordinates::from))
+    .map(
+        |((((((((((((((((((((((
+            object_key,
+            description),
+            root_prim),
+            prim_count),
+            land_impact),
+            inventory_items),
+            velocity),
+            position),
+            position_distance),
+            rotation),
+            rotation_vector_degrees),
+            angular_velocity),
+            creator),
+            owner),
+            previous_owner),
+            rezzed_by),
+            group),
+            creation_time),
+            rez_time),
+            pathfinding_type),
+            attachment_point),
+            temporarily_attached),
+            inspecting_avatar_position,
+        )| {
+            SystemMessage::ExtendedScriptInfo {
                 object_key,
-                description),
-                root_prim),
-                prim_count),
-                land_impact),
-                inventory_items),
-                velocity),
-                position),
-                position_distance),
-                rotation),
-                rotation_vector_degrees),
-                angular_velocity),
-                creator),
-                owner),
-                previous_owner),
-                rezzed_by),
-                group),
-                creation_time),
-                rez_time),
-                pathfinding_type),
-                attachment_point),
-                temporarily_attached),
+                description,
+                root_prim,
+                prim_count,
+                land_impact,
+                inventory_items,
+                velocity,
+                position,
+                position_distance,
+                rotation,
+                rotation_vector_degrees,
+                angular_velocity,
+                creator,
+                owner,
+                previous_owner,
+                rezzed_by,
+                group,
+                creation_time,
+                rez_time,
+                pathfinding_type,
+                attachment_point,
+                temporarily_attached,
                 inspecting_avatar_position,
-            )| {
-                SystemMessage::ExtendedScriptInfo {
-                    object_key,
-                    description,
-                    root_prim,
-                    prim_count,
-                    land_impact,
-                    inventory_items,
-                    velocity,
-                    position,
-                    position_distance,
-                    rotation,
-                    rotation_vector_degrees,
-                    angular_velocity,
-                    creator,
-                    owner,
-                    previous_owner,
-                    rezzed_by,
-                    group,
-                    creation_time,
-                    rez_time,
-                    pathfinding_type,
-                    attachment_point,
-                    temporarily_attached,
-                    inspecting_avatar_position,
-                }
-            },
-        )
+            }
+        },
+    ).labelled("extended script info")
 }
 
 /// parse a system message about dice rolls
@@ -2006,7 +2143,9 @@ pub fn extended_script_info_message_parser()
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn dice_roll_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn dice_roll_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     choice([
         just("You must provide positive values for dice (max 100) and faces (max 1000).")
             .to(SystemMessage::DiceRollCommandUsageInstructions)
@@ -2045,6 +2184,7 @@ pub fn dice_roll_message_parser() -> impl Parser<char, SystemMessage, Error = Si
             )
             .boxed(),
     ])
+    .labelled("dice roll")
 }
 
 /// parse a system message about object textures on faces
@@ -2053,14 +2193,15 @@ pub fn dice_roll_message_parser() -> impl Parser<char, SystemMessage, Error = Si
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn texture_info_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn texture_info_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     choice([
         just("Texture info for: ")
-            .ignore_then(take_until(newline().or(end())).map(|(vc, ())| {
-                SystemMessage::TextureInfoForObject {
-                    object_name: vc.into_iter().collect::<String>(),
-                }
-            }))
+            .ignore_then(
+                take_until!(newline().or(end()))
+                    .map(|(object_name, ())| SystemMessage::TextureInfoForObject { object_name }),
+            )
             .boxed(),
         sl_types::utils::u16_parser()
             .then_ignore(just('x'))
@@ -2081,6 +2222,7 @@ pub fn texture_info_message_parser() -> impl Parser<char, SystemMessage, Error =
             )
             .boxed(),
     ])
+    .labelled("texture info")
 }
 
 /// parse a system message by the Firestorm developers
@@ -2089,16 +2231,20 @@ pub fn texture_info_message_parser() -> impl Parser<char, SystemMessage, Error =
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn firestorm_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
-    just("Firestorm ").ignore_then(
-        take_until(just("!").ignored())
-            .map(|(message_type, ())| message_type.into_iter().collect::<String>())
-            .then(any().repeated().collect::<String>())
-            .map(|(message_type, message)| SystemMessage::FirestormMessage {
-                message_type,
-                message,
-            }),
-    )
+pub fn firestorm_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    just("Firestorm ")
+        .ignore_then(
+            take_until!(just("!").ignored())
+                .map(|(message_type, ())| message_type)
+                .then(any().repeated().collect::<String>())
+                .map(|(message_type, message)| SystemMessage::FirestormMessage {
+                    message_type,
+                    message,
+                }),
+        )
+        .labelled("firestorm message")
 }
 
 /// parse a system message about a grid status event
@@ -2107,35 +2253,36 @@ pub fn firestorm_message_parser() -> impl Parser<char, SystemMessage, Error = Si
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>>
+pub fn grid_status_event_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
-    just("[ ").ignore_then(
-        take_until(just(" ] "))
-            .map(|(vc, _)| vc.into_iter().collect::<String>())
-            .then(
-                just("THIS IS A SCHEDULED EVENT ")
-                    .or_not()
-                    .map(|s| s.is_some()),
-            )
-            .then(
-                take_until(just(" [ https://status.secondlifegrid.net/incidents/").ignored())
-                    .map(|(vc, ())| vc.into_iter().collect::<String>()),
-            )
-            .then(
-                take_until(just(' ').ignored()).map(|(vc, ())| vc.into_iter().collect::<String>()),
-            )
-            .then_ignore(just("]"))
-            .map(
-                |(((title, scheduled), body), url_fragment)| SystemMessage::GridStatusEvent {
-                    title,
-                    scheduled,
-                    body,
-                    incident_url: format!(
-                        "https://status.secondlifegird.net/incidents/{url_fragment}"
-                    ),
-                },
-            ),
-    )
+    just("[ ")
+        .ignore_then(
+            take_until!(just(" ] "))
+                .map(|(vc, _)| vc)
+                .then(
+                    just("THIS IS A SCHEDULED EVENT ")
+                        .or_not()
+                        .map(|s| s.is_some()),
+                )
+                .then(
+                    take_until!(just(" [ https://status.secondlifegrid.net/incidents/").ignored())
+                        .map(|(vc, ())| vc),
+                )
+                .then(take_until!(just(' ').ignored()).map(|(vc, ())| vc))
+                .then_ignore(just("]"))
+                .map(
+                    |(((title, scheduled), body), url_fragment)| SystemMessage::GridStatusEvent {
+                        title,
+                        scheduled,
+                        body,
+                        incident_url: format!(
+                            "https://status.secondlifegird.net/incidents/{url_fragment}"
+                        ),
+                    },
+                ),
+        )
+        .labelled("grid status event")
 }
 
 /// parse a Second Life system message
@@ -2144,132 +2291,132 @@ pub fn grid_status_event_message_parser() -> impl Parser<char, SystemMessage, Er
 ///
 /// returns an error if the string could not be parsed
 #[must_use]
-pub fn system_message_parser() -> impl Parser<char, SystemMessage, Error = Simple<char>> {
+pub fn system_message_parser<'src>()
+-> impl Parser<'src, &'src str, SystemMessage, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     choice([
-        snapshot_saved_message_parser().boxed(),
-        attachment_saved_message_parser().boxed(),
-        draw_distance_set_message_parser().boxed(),
-        home_position_set_message_parser().boxed(),
-        land_divided_message_parser().boxed(),
-        failed_to_join_land_due_to_region_boundary_message_parser().boxed(),
-        offered_calling_card_message_parser().boxed(),
-        you_paid_for_object_message_parser().boxed(),
-        you_paid_to_create_a_group_message_parser().boxed(),
-        you_paid_to_join_group_message_parser().boxed(),
-        you_paid_for_land_message_parser().boxed(),
-        failed_to_pay_message_parser().boxed(),
-        object_granted_permission_to_take_money_parser().boxed(),
-        sent_payment_message_parser().boxed(),
-        received_payment_message_parser().boxed(),
-        group_membership_message_parser().boxed(),
-        unable_to_invite_user_due_to_missing_group_membership_message_parser().boxed(),
-        unable_to_invite_user_due_to_differing_limited_estate_message_parser().boxed(),
-        unable_to_load_notecard_message_parser().boxed(),
-        unable_to_load_gesture_message_parser().boxed(),
-        teleport_completed_message_parser().boxed(),
-        now_playing_message_parser().boxed(),
-        region_restart_message_parser().boxed(),
-        object_gave_object_message_parser().boxed(),
-        object_gave_folder_message_parser().boxed(),
-        declined_given_object_message_parser().boxed(),
-        select_residents_to_share_with_message_parser().boxed(),
-        items_successfully_shared_message_parser().boxed(),
-        modified_search_query_message_parser().boxed(),
-        avatar_gave_object_message_parser().boxed(),
-        simulator_version_message_parser().boxed(),
-        renamed_avatar_message_parser().boxed(),
-        doubleclick_teleport_message_parser().boxed(),
-        always_run_message_parser().boxed(),
-        added_as_estate_manager_message_parser().boxed(),
-        bridge_message_parser().boxed(),
-        failed_to_place_object_at_specified_location_message_parser().boxed(),
-        region_script_count_change_message_parser().boxed(),
-        chat_message_still_being_processed_message_parser().boxed(),
-        avatar_declined_voice_call_message_parser().boxed(),
-        avatar_unavailable_for_voice_call_message_parser().boxed(),
-        audio_from_domain_will_always_be_played_message_parser().boxed(),
-        object_not_for_sale_message_parser().boxed(),
-        can_not_create_requested_inventory_message_parser().boxed(),
-        link_failed_due_to_piece_distance_message_parser().boxed(),
-        rezzing_object_failed_due_to_full_parcel_message_parser().boxed(),
-        create_object_failed_due_to_full_region_message_parser().boxed(),
-        your_object_has_been_returned_message_parser().boxed(),
-        permission_to_create_object_denied_message_parser().boxed(),
-        permission_to_rez_object_denied_message_parser().boxed(),
-        permission_to_reposition_denied_message_parser().boxed(),
-        permission_to_rotate_denied_message_parser().boxed(),
-        permission_to_rescale_denied_message_parser().boxed(),
-        permission_to_unlink_denied_due_to_missing_parcel_build_permissions_message_parser()
-            .boxed(),
-        permission_to_view_script_denied_message_parser().boxed(),
-        permission_to_view_notecard_denied_message_parser().boxed(),
-        permission_to_change_shape_denied_message_parser().boxed(),
-        permission_to_enter_parcel_denied_message_parser().boxed(),
-        permission_to_enter_parcel_denied_due_to_ban_message_parser().boxed(),
-        avatar_ejected_message_parser().boxed(),
-        ejected_from_parcel_message_parser().boxed(),
-        banned_from_parcel_message_parser().boxed(),
-        only_group_members_can_visit_this_area_message_parser().boxed(),
-        unable_to_teleport_due_to_rlv_message_parser().boxed(),
-        unable_to_open_texture_due_to_rlv_message_parser().boxed(),
-        unsupported_slurl_message_parser().boxed(),
-        blocked_untrusted_browser_slurl_message_parser().boxed(),
-        grid_status_error_invalid_message_format_message_parser().boxed(),
-        script_info_object_invalid_or_out_of_range_message_parser().boxed(),
-        script_info_message_parser().boxed(),
-        extended_script_info_message_parser().boxed(),
-        dice_roll_message_parser().boxed(),
-        texture_info_message_parser().boxed(),
-        firestorm_message_parser().boxed(),
-        grid_status_event_message_parser().boxed(),
-        take_until(just("https").or(just("http")).or(just("Http")))
-            .map(|(message, scheme)| (message.into_iter().collect::<String>(), scheme))
-            .then(take_until(newline().or(end())).map(|(vc, ())| vc.into_iter().collect::<String>()))
-            .map(
-                |((message, scheme), rest_of_url)| SystemMessage::SystemMessageWithLink {
+    snapshot_saved_message_parser().boxed(),
+    attachment_saved_message_parser().boxed(),
+    draw_distance_set_message_parser().boxed(),
+    home_position_set_message_parser().boxed(),
+    land_divided_message_parser().boxed(),
+    failed_to_join_land_due_to_region_boundary_message_parser().boxed(),
+    offered_calling_card_message_parser().boxed(),
+    you_paid_for_object_message_parser().boxed(),
+    you_paid_to_create_a_group_message_parser().boxed(),
+    you_paid_to_join_group_message_parser().boxed(),
+    you_paid_for_land_message_parser().boxed(),
+    failed_to_pay_message_parser().boxed(),
+    object_granted_permission_to_take_money_parser().boxed(),
+    sent_payment_message_parser().boxed(),
+    received_payment_message_parser().boxed(),
+    group_membership_message_parser().boxed(),
+    unable_to_invite_user_due_to_missing_group_membership_message_parser().boxed(),
+    unable_to_invite_user_due_to_differing_limited_estate_message_parser().boxed(),
+    unable_to_load_notecard_message_parser().boxed(),
+    unable_to_load_gesture_message_parser().boxed(),
+    teleport_completed_message_parser().boxed(),
+    now_playing_message_parser().boxed(),
+    region_restart_message_parser().boxed(),
+    object_gave_object_message_parser().boxed(),
+    object_gave_folder_message_parser().boxed(),
+    declined_given_object_message_parser().boxed(),
+    select_residents_to_share_with_message_parser().boxed(),
+    items_successfully_shared_message_parser().boxed(),
+    modified_search_query_message_parser().boxed(),
+    avatar_gave_object_message_parser().boxed(),
+    simulator_version_message_parser().boxed(),
+    renamed_avatar_message_parser().boxed(),
+    doubleclick_teleport_message_parser().boxed(),
+    always_run_message_parser().boxed(),
+    added_as_estate_manager_message_parser().boxed(),
+    bridge_message_parser().boxed(),
+    failed_to_place_object_at_specified_location_message_parser().boxed(),
+    region_script_count_change_message_parser().boxed(),
+    chat_message_still_being_processed_message_parser().boxed(),
+    avatar_declined_voice_call_message_parser().boxed(),
+    avatar_unavailable_for_voice_call_message_parser().boxed(),
+    audio_from_domain_will_always_be_played_message_parser().boxed(),
+    object_not_for_sale_message_parser().boxed(),
+    can_not_create_requested_inventory_message_parser().boxed(),
+    link_failed_due_to_piece_distance_message_parser().boxed(),
+    rezzing_object_failed_due_to_full_parcel_message_parser().boxed(),
+    create_object_failed_due_to_full_region_message_parser().boxed(),
+    your_object_has_been_returned_message_parser().boxed(),
+    permission_to_create_object_denied_message_parser().boxed(),
+    permission_to_rez_object_denied_message_parser().boxed(),
+    permission_to_reposition_denied_message_parser().boxed(),
+    permission_to_rotate_denied_message_parser().boxed(),
+    permission_to_rescale_denied_message_parser().boxed(),
+    permission_to_unlink_denied_due_to_missing_parcel_build_permissions_message_parser()
+        .boxed(),
+    permission_to_view_script_denied_message_parser().boxed(),
+    permission_to_view_notecard_denied_message_parser().boxed(),
+    permission_to_change_shape_denied_message_parser().boxed(),
+    permission_to_enter_parcel_denied_message_parser().boxed(),
+    permission_to_enter_parcel_denied_due_to_ban_message_parser().boxed(),
+    avatar_ejected_message_parser().boxed(),
+    ejected_from_parcel_message_parser().boxed(),
+    banned_from_parcel_message_parser().boxed(),
+    only_group_members_can_visit_this_area_message_parser().boxed(),
+    unable_to_teleport_due_to_rlv_message_parser().boxed(),
+    unable_to_open_texture_due_to_rlv_message_parser().boxed(),
+    unsupported_slurl_message_parser().boxed(),
+    blocked_untrusted_browser_slurl_message_parser().boxed(),
+    grid_status_error_invalid_message_format_message_parser().boxed(),
+    script_info_object_invalid_or_out_of_range_message_parser().boxed(),
+    script_info_message_parser().boxed(),
+    extended_script_info_message_parser().boxed(),
+    dice_roll_message_parser().boxed(),
+    texture_info_message_parser().boxed(),
+    firestorm_message_parser().boxed(),
+    grid_status_event_message_parser().boxed(),
+    take_until!(just("https").or(just("http")).or(just("Http")))
+        .then(take_until!(newline().or(end())).map(|(vc, ())| vc))
+        .map(
+            |((message, scheme), rest_of_url)| SystemMessage::SystemMessageWithLink {
+                message,
+                link: format!("{scheme}://{rest_of_url}"),
+            },
+        )
+        .boxed(),
+    take_until!(just("www."))
+        .then(take_until!(newline().or(end())).map(|(vc, ())| vc))
+        .map(
+            |((message, subdomain), rest_of_url)| SystemMessage::SystemMessageWithLink {
+                message,
+                link: format!("{subdomain}{rest_of_url}"),
+            },
+        )
+        .boxed(),
+    any()
+        .repeated()
+        .collect::<String>()
+        .map(|message| {
+            if message.contains("Firestorm") && (message.contains("holiday") || message.contains("Happy New Year")) {
+                SystemMessage::FirestormHolidayWishes { message }
+            } else if message.contains("phishing") {
+                SystemMessage::PhishingWarning { message }
+            } else if message == "This is a test version of Firestorm. If this were an actual release version, a real message of the day would be here. This is only a test." {
+                SystemMessage::TestMessageOfTheDay
+            } else if (message.ends_with("...") && (message.starts_with("Loading") || message.starts_with("Initializing") || message.starts_with("Downloading") || message.starts_with("Verifying") || message.starts_with("Loading") || message.starts_with("Connecting") || message.starts_with("Decoding") || message.starts_with("Waiting"))) || message == "Welcome to Advertisement-Free Firestorm" || message.starts_with("Logging in") {
+                SystemMessage::EarlyFirestormStartupMessage { message }
+            } else if message.contains("wiki.phoenixviewer.com/firestorm_classes") {
+                SystemMessage::FirestormMessage {
+                    message_type: "Classes".to_string(),
                     message,
-                    link: format!("{scheme}://{rest_of_url}"),
-                },
-            )
-            .boxed(),
-        take_until(just("www."))
-            .map(|(message, subdomain)| (message.into_iter().collect::<String>(), subdomain))
-            .then(take_until(newline().or(end())).map(|(vc, ())| vc.into_iter().collect::<String>()))
-            .map(
-                |((message, subdomain), rest_of_url)| SystemMessage::SystemMessageWithLink {
-                    message,
-                    link: format!("{subdomain}{rest_of_url}"),
-                },
-            )
-            .boxed(),
-        any()
-            .repeated()
-            .collect::<String>()
-            .map(|message| {
-                if message.contains("Firestorm") && (message.contains("holiday") || message.contains("Happy New Year")) {
-                    SystemMessage::FirestormHolidayWishes { message }
-                } else if message.contains("phishing") {
-                    SystemMessage::PhishingWarning { message }
-                } else if message == "This is a test version of Firestorm. If this were an actual release version, a real message of the day would be here. This is only a test." {
-                    SystemMessage::TestMessageOfTheDay
-                } else if (message.ends_with("...") && (message.starts_with("Loading") || message.starts_with("Initializing") || message.starts_with("Downloading") || message.starts_with("Verifying") || message.starts_with("Loading") || message.starts_with("Connecting") || message.starts_with("Decoding") || message.starts_with("Waiting"))) || message == "Welcome to Advertisement-Free Firestorm" || message.starts_with("Logging in") {
-                    SystemMessage::EarlyFirestormStartupMessage { message }
-                } else if message.contains("wiki.phoenixviewer.com/firestorm_classes") {
-                    SystemMessage::FirestormMessage {
-                        message_type: "Classes".to_string(),
-                        message,
-                    }
-                } else if message.contains("BETA TESTERS") || message.contains("Beta Testers") {
-                    SystemMessage::FirestormMessage {
-                        message_type: "Beta Test".to_string(),
-                        message,
-                    }
-                } else {
-                    SystemMessage::OtherSystemMessage { message }
                 }
-            })
-            .boxed(),
-    ])
+            } else if message.contains("BETA TESTERS") || message.contains("Beta Testers") {
+                SystemMessage::FirestormMessage {
+                    message_type: "Beta Test".to_string(),
+                    message,
+                }
+            } else {
+                SystemMessage::OtherSystemMessage { message }
+            }
+        })
+        .boxed(),
+])
 }
 
 #[cfg(test)]
@@ -2288,9 +2435,11 @@ mod test {
                     z: 912
                 }
             }),
-            teleport_completed_message_parser().parse(
-                "Teleport completed from http://maps.secondlife.com/secondlife/Fudo/30/169/912"
-            )
+            teleport_completed_message_parser()
+                .parse(
+                    "Teleport completed from http://maps.secondlife.com/secondlife/Fudo/30/169/912"
+                )
+                .into_result()
         );
         Ok(())
     }
@@ -2308,6 +2457,7 @@ mod test {
             }),
             teleport_completed_message_parser()
                 .parse("Teleport completed from http://maps.secondlife.com/secondlife/AA/78/83/26")
+                .into_result()
         );
         Ok(())
     }
@@ -2322,7 +2472,7 @@ mod test {
                 region_name: sl_types::map::RegionName::try_new("Fudo")?,
             }),
             permission_to_rez_object_denied_message_parser()
-                .parse("Can't rez object 'Foo2' at { 63.0486, 45.2515, 1501.08 } on parcel 'The Foo Bar' in region Fudo because the owner of this land does not allow it.  Use the land tool to see land ownership.")
+                .parse("Can't rez object 'Foo2' at { 63.0486, 45.2515, 1501.08 } on parcel 'The Foo Bar' in region Fudo because the owner of this land does not allow it.  Use the land tool to see land ownership.").into_result()
         );
         Ok(())
     }

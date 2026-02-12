@@ -3,7 +3,7 @@
 #[cfg(feature = "chumsky")]
 use chumsky::{
     Parser,
-    prelude::{Simple, choice, just},
+    prelude::{choice, just},
 };
 
 /// avatar attachment points
@@ -276,8 +276,12 @@ impl std::str::FromStr for AvatarAttachmentPoint {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn avatar_attachment_point_parser()
--> impl Parser<char, AvatarAttachmentPoint, Error = Simple<char>> {
+pub fn avatar_attachment_point_parser<'src>() -> impl Parser<
+    'src,
+    &'src str,
+    AvatarAttachmentPoint,
+    chumsky::extra::Err<chumsky::error::Rich<'src, char>>,
+> {
     choice([
         just("ATTACH_HEAD")
             .or(just("Skull"))
@@ -602,8 +606,12 @@ impl std::str::FromStr for HudAttachmentPoint {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn hud_attachment_point_parser() -> impl Parser<char, HudAttachmentPoint, Error = Simple<char>>
-{
+pub fn hud_attachment_point_parser<'src>() -> impl Parser<
+    'src,
+    &'src str,
+    HudAttachmentPoint,
+    chumsky::extra::Err<chumsky::error::Rich<'src, char>>,
+> {
     choice([
         just("ATTACH_HUD_CENTER_2")
             .or(just("HUD Center 2"))
@@ -726,7 +734,9 @@ impl std::str::FromStr for AttachmentPoint {
     clippy::module_name_repetitions,
     reason = "the parser is going to be used outside of the module"
 )]
-pub fn attachment_point_parser() -> impl Parser<char, AttachmentPoint, Error = Simple<char>> {
+pub fn attachment_point_parser<'src>()
+-> impl Parser<'src, &'src str, AttachmentPoint, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     avatar_attachment_point_parser()
         .map(AttachmentPoint::Avatar)
         .or(hud_attachment_point_parser().map(AttachmentPoint::Hud))
@@ -745,7 +755,7 @@ mod test {
     #[test]
     fn test_parse_attachment_point_bottom_left() {
         assert_eq!(
-            attachment_point_parser().parse("Bottom Left"),
+            attachment_point_parser().parse("Bottom Left").into_result(),
             Ok(AttachmentPoint::Hud(HudAttachmentPoint::BottomLeft)),
         );
     }
@@ -754,7 +764,7 @@ mod test {
     #[test]
     fn test_parse_attachment_point_bottom() {
         assert_eq!(
-            attachment_point_parser().parse("Bottom"),
+            attachment_point_parser().parse("Bottom").into_result(),
             Ok(AttachmentPoint::Hud(HudAttachmentPoint::Bottom)),
         );
     }
@@ -763,7 +773,9 @@ mod test {
     #[test]
     fn test_parse_attachment_point_bottom_right() {
         assert_eq!(
-            attachment_point_parser().parse("Bottom Right"),
+            attachment_point_parser()
+                .parse("Bottom Right")
+                .into_result(),
             Ok(AttachmentPoint::Hud(HudAttachmentPoint::BottomRight)),
         );
     }

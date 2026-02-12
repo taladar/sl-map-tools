@@ -4,8 +4,8 @@ use uuid::{Uuid, uuid};
 
 #[cfg(feature = "chumsky")]
 use chumsky::{
-    Parser,
-    prelude::{Simple, just, one_of},
+    IterParser as _, Parser,
+    prelude::{just, one_of},
 };
 
 /// parse a UUID
@@ -15,7 +15,8 @@ use chumsky::{
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn uuid_parser() -> impl Parser<char, uuid::Uuid, Error = Simple<char>> {
+pub fn uuid_parser<'src>()
+-> impl Parser<'src, &'src str, uuid::Uuid, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     one_of("0123456789abcdef")
         .repeated()
         .exactly(8)
@@ -48,9 +49,9 @@ pub fn uuid_parser() -> impl Parser<char, uuid::Uuid, Error = Simple<char>> {
                 .exactly(12)
                 .collect::<String>(),
         )
-        .try_map(|((((a, b), c), d), e), span: std::ops::Range<usize>| {
+        .try_map(|((((a, b), c), d), e), span: chumsky::span::SimpleSpan| {
             uuid::Uuid::parse_str(&format!("{a}-{b}-{c}-{d}-{e}"))
-                .map_err(|e| Simple::custom(span.clone(), format!("{e:?}")))
+                .map_err(|e| chumsky::error::Rich::custom(span, format!("{e:?}")))
         })
 }
 
@@ -76,7 +77,8 @@ impl std::fmt::Display for Key {
     clippy::module_name_repetitions,
     reason = "the parser is going to be used outside this module"
 )]
-pub fn key_parser() -> impl Parser<char, Key, Error = Simple<char>> {
+pub fn key_parser<'src>()
+-> impl Parser<'src, &'src str, Key, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     uuid_parser().map(Key)
 }
 
@@ -114,7 +116,8 @@ impl From<AgentKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn agent_key_parser() -> impl Parser<char, AgentKey, Error = Simple<char>> {
+pub fn agent_key_parser<'src>()
+-> impl Parser<'src, &'src str, AgentKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     key_parser().map(AgentKey)
 }
 
@@ -126,11 +129,15 @@ pub fn agent_key_parser() -> impl Parser<char, AgentKey, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn app_agent_uri_as_agent_key_parser() -> impl Parser<char, AgentKey, Error = Simple<char>> {
+pub fn app_agent_uri_as_agent_key_parser<'src>()
+-> impl Parser<'src, &'src str, AgentKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     crate::viewer_uri::viewer_app_agent_uri_parser().try_map(|uri, span| match uri {
         crate::viewer_uri::ViewerUri::AgentAbout(agent_key)
         | crate::viewer_uri::ViewerUri::AgentInspect(agent_key) => Ok(agent_key),
-        _ => Err(Simple::custom(span, "Unexpected type of Agent viewer URI")),
+        _ => Err(chumsky::error::Rich::custom(
+            span,
+            "Unexpected type of Agent viewer URI",
+        )),
     })
 }
 
@@ -161,7 +168,9 @@ impl From<ClassifiedKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn classified_key_parser() -> impl Parser<char, ClassifiedKey, Error = Simple<char>> {
+pub fn classified_key_parser<'src>()
+-> impl Parser<'src, &'src str, ClassifiedKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     key_parser().map(ClassifiedKey)
 }
 
@@ -192,7 +201,8 @@ impl From<EventKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn event_key_parser() -> impl Parser<char, EventKey, Error = Simple<char>> {
+pub fn event_key_parser<'src>()
+-> impl Parser<'src, &'src str, EventKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     key_parser().map(EventKey)
 }
 
@@ -223,7 +233,9 @@ impl From<ExperienceKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn experience_key_parser() -> impl Parser<char, ExperienceKey, Error = Simple<char>> {
+pub fn experience_key_parser<'src>()
+-> impl Parser<'src, &'src str, ExperienceKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     key_parser().map(ExperienceKey)
 }
 
@@ -260,7 +272,8 @@ impl From<FriendKey> for AgentKey {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn friend_key_parser() -> impl Parser<char, FriendKey, Error = Simple<char>> {
+pub fn friend_key_parser<'src>()
+-> impl Parser<'src, &'src str, FriendKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     key_parser().map(FriendKey)
 }
 
@@ -291,7 +304,8 @@ impl From<GroupKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn group_key_parser() -> impl Parser<char, GroupKey, Error = Simple<char>> {
+pub fn group_key_parser<'src>()
+-> impl Parser<'src, &'src str, GroupKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     key_parser().map(GroupKey)
 }
 
@@ -303,11 +317,15 @@ pub fn group_key_parser() -> impl Parser<char, GroupKey, Error = Simple<char>> {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn app_group_uri_as_group_key_parser() -> impl Parser<char, GroupKey, Error = Simple<char>> {
+pub fn app_group_uri_as_group_key_parser<'src>()
+-> impl Parser<'src, &'src str, GroupKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     crate::viewer_uri::viewer_app_group_uri_parser().try_map(|uri, span| match uri {
         crate::viewer_uri::ViewerUri::GroupAbout(group_key)
         | crate::viewer_uri::ViewerUri::GroupInspect(group_key) => Ok(group_key),
-        _ => Err(Simple::custom(span, "Unexpected type of group viewer URI")),
+        _ => Err(chumsky::error::Rich::custom(
+            span,
+            "Unexpected type of group viewer URI",
+        )),
     })
 }
 
@@ -338,7 +356,9 @@ impl From<InventoryKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn inventory_key_parser() -> impl Parser<char, InventoryKey, Error = Simple<char>> {
+pub fn inventory_key_parser<'src>()
+-> impl Parser<'src, &'src str, InventoryKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     key_parser().map(InventoryKey)
 }
 
@@ -369,7 +389,8 @@ impl From<ObjectKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn object_key_parser() -> impl Parser<char, ObjectKey, Error = Simple<char>> {
+pub fn object_key_parser<'src>()
+-> impl Parser<'src, &'src str, ObjectKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     key_parser().map(ObjectKey)
 }
 
@@ -400,7 +421,8 @@ impl From<ParcelKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn parcel_key_parser() -> impl Parser<char, ParcelKey, Error = Simple<char>> {
+pub fn parcel_key_parser<'src>()
+-> impl Parser<'src, &'src str, ParcelKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     key_parser().map(ParcelKey)
 }
 
@@ -431,7 +453,8 @@ impl From<TextureKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn texture_key_parser() -> impl Parser<char, TextureKey, Error = Simple<char>> {
+pub fn texture_key_parser<'src>()
+-> impl Parser<'src, &'src str, TextureKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     key_parser().map(TextureKey)
 }
 
@@ -462,8 +485,12 @@ impl From<InventoryFolderKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn inventory_folder_key_parser() -> impl Parser<char, InventoryFolderKey, Error = Simple<char>>
-{
+pub fn inventory_folder_key_parser<'src>() -> impl Parser<
+    'src,
+    &'src str,
+    InventoryFolderKey,
+    chumsky::extra::Err<chumsky::error::Rich<'src, char>>,
+> {
     key_parser().map(InventoryFolderKey)
 }
 
@@ -548,8 +575,8 @@ impl From<OwnerKey> for Key {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn app_agent_or_group_uri_as_owner_key_parser()
--> impl Parser<char, OwnerKey, Error = Simple<char>> {
+pub fn app_agent_or_group_uri_as_owner_key_parser<'src>()
+-> impl Parser<'src, &'src str, OwnerKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     app_agent_uri_as_agent_key_parser()
         .map(OwnerKey::Agent)
         .or(app_group_uri_as_group_key_parser().map(OwnerKey::Group))

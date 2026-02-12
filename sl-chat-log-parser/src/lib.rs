@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
 
+use chumsky::IterParser as _;
 use chumsky::Parser;
-use chumsky::error::Simple;
-use chumsky::prelude::{any, just, none_of, one_of, take_until};
+use chumsky::prelude::{any, just, none_of, one_of};
 use chumsky::text::whitespace;
 
 pub mod avatar_messages;
@@ -41,11 +41,12 @@ pub enum ChatLogEvent {
 ///
 /// returns an error if the parser fails
 #[must_use]
-pub fn avatar_name_parser() -> impl Parser<char, String, Error = Simple<char>> {
+pub fn avatar_name_parser<'src>()
+-> impl Parser<'src, &'src str, String, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     none_of(":")
         .repeated()
         .collect::<String>()
-        .try_map(|s, _span: std::ops::Range<usize>| Ok(s))
+        .try_map(|s, _span: chumsky::span::SimpleSpan| Ok(s))
 }
 
 /// parse a Second Life chat log event
@@ -54,17 +55,18 @@ pub fn avatar_name_parser() -> impl Parser<char, String, Error = Simple<char>> {
 ///
 /// returns an error if the parser fails
 #[must_use]
-fn chat_log_event_parser() -> impl Parser<char, ChatLogEvent, Error = Simple<char>> {
+fn chat_log_event_parser<'src>()
+-> impl Parser<'src, &'src str, ChatLogEvent, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("Second Life: ")
         .ignore_then(
-            take_until(
+            take_until!(
                 crate::avatar_messages::avatar_came_online_message_parser().or(
                     crate::avatar_messages::avatar_went_offline_message_parser()
                         .or(crate::avatar_messages::avatar_entered_area_message_parser())
                         .or(crate::avatar_messages::avatar_left_area_message_parser()),
-                ),
+                )
             )
-            .map(|(vc, msg)| (vc.into_iter().collect::<String>(), msg))
             .map(|(name, message)| ChatLogEvent::AvatarLine {
                 name: name.strip_suffix(" ").unwrap_or(&name).to_owned(),
                 message,
@@ -99,86 +101,104 @@ pub struct ChatLogLine {
 ///
 /// returns an error if the parser fails
 #[must_use]
-pub fn chat_log_line_parser() -> impl Parser<char, ChatLogLine, Error = Simple<char>> {
+pub fn chat_log_line_parser<'src>()
+-> impl Parser<'src, &'src str, ChatLogLine, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
     just("[")
-        .ignore_then(
+    .ignore_then(
+        one_of("0123456789")
+            .repeated()
+            .exactly(4)
+            .collect::<String>(),
+    )
+    .then(
+        just("/").ignore_then(
             one_of("0123456789")
                 .repeated()
-                .exactly(4)
+                .exactly(2)
                 .collect::<String>(),
-        )
-        .then(
-            just("/").ignore_then(
+        ),
+    )
+    .then(
+        just("/").ignore_then(
+            one_of("0123456789")
+                .repeated()
+                .exactly(2)
+                .collect::<String>(),
+        ),
+    )
+    .then(
+        just(" ").ignore_then(
+            one_of("0123456789")
+                .repeated()
+                .exactly(2)
+                .collect::<String>(),
+        ),
+    )
+    .then(
+        just(":").ignore_then(
+            one_of("0123456789")
+                .repeated()
+                .exactly(2)
+                .collect::<String>(),
+        ),
+    )
+    .then(
+        just(":")
+            .ignore_then(
                 one_of("0123456789")
                     .repeated()
                     .exactly(2)
                     .collect::<String>(),
-            ),
-        )
-        .then(
-            just("/").ignore_then(
-                one_of("0123456789")
-                    .repeated()
-                    .exactly(2)
-                    .collect::<String>(),
-            ),
-        )
-        .then(
-            just(" ").ignore_then(
-                one_of("0123456789")
-                    .repeated()
-                    .exactly(2)
-                    .collect::<String>(),
-            ),
-        )
-        .then(
-            just(":").ignore_then(
-                one_of("0123456789")
-                    .repeated()
-                    .exactly(2)
-                    .collect::<String>(),
-            ),
-        )
-        .then(
-            just(":")
-                .ignore_then(
-                    one_of("0123456789")
-                        .repeated()
-                        .exactly(2)
-                        .collect::<String>(),
-                )
-                .or_not(),
-        )
-        .then_ignore(just("]"))
-        .try_map(
-            |(((((year, month), day), hour), minute), second),
-             span: std::ops::Range<usize>| {
-                let second = second.unwrap_or_else(|| "00".to_string());
-                let format = time::macros::format_description!(
-                    "[year]/[month]/[day] [hour]:[minute]:[second]"
-                );
-                Ok(Some(
-                    time::PrimitiveDateTime::parse(
-                        &format!("{year}/{month}/{day} {hour}:{minute}:{second}"),
-                        format,
-                    ).map_err(|e| Simple::custom(span, format!("{e:?}")))?
-                ))
-             }
-        )
-        .or(just("[[year,datetime,slt]/[mthnum,datetime,slt]/[day,datetime,slt] [hour,datetime,slt]:[min,datetime,slt]]").map(|_| None))
-        .then_ignore(whitespace())
-        .then(chat_log_event_parser())
-        .try_map(
-            |(timestamp, event),
-             _span: std::ops::Range<usize>| {
-                Ok(ChatLogLine {
-                    timestamp,
-                    event,
-                })
-            },
-        )
+            )
+            .or_not(),
+    )
+    .then_ignore(just("]"))
+    .try_map(
+        |(((((year, month), day), hour), minute), second),
+         span: chumsky::span::SimpleSpan| {
+            let second = second.unwrap_or_else(|| "00".to_string());
+            let format = time::macros::format_description!(
+                "[year]/[month]/[day] [hour]:[minute]:[second]"
+            );
+            Ok(Some(
+                time::PrimitiveDateTime::parse(
+                    &format!("{year}/{month}/{day} {hour}:{minute}:{second}"),
+                    format,
+                ).map_err(|e| chumsky::error::Rich::custom(span, format!("{e:?}")))?
+            ))
+         }
+    )
+    .or(just("[[year,datetime,slt]/[mthnum,datetime,slt]/[day,datetime,slt] [hour,datetime,slt]:[min,datetime,slt]]").map(|_| None))
+    .then_ignore(whitespace())
+    .then(chat_log_event_parser())
+    .try_map(
+        |(timestamp, event),
+         _span: chumsky::span::SimpleSpan| {
+            Ok(ChatLogLine {
+                timestamp,
+                event,
+            })
+        },
+    )
 }
 
+/// replacement for take_until combinator in old chumsky versions
+macro_rules! take_until {
+    ($p:expr) => {
+        any()
+            .and_is($p.not())
+            .repeated()
+            .collect::<String>()
+            .then($p)
+    };
+}
+pub(crate) use take_until;
+
+#[expect(
+    clippy::print_stderr,
+    reason = "unfortunately our ariadne reports with ANSI are just gibberish in the latest tracing version because someone thought the ability to use ANSI escape codes was a security risk"
+)]
 #[cfg(test)]
 mod test {
     use std::io::{BufRead as _, BufReader};
@@ -239,6 +259,7 @@ mod test {
                 .map_err(|e| TestError::OpenChatLogFile(local_chat_log_file.clone(), e))?;
             let file = BufReader::new(file);
             let mut last_line: Option<String> = None;
+            let mut failed_to_parse_line = false;
             for line in file.lines() {
                 let line = line.map_err(TestError::ChatLogLineRead)?;
                 if (line.starts_with(' ') || line.is_empty())
@@ -248,17 +269,18 @@ mod test {
                     continue;
                 }
                 if let Some(ref ll) = last_line {
-                    #[expect(
-                        clippy::panic,
-                        reason = "panics are okay - even intentional - in tests"
-                    )]
-                    match chat_log_line_parser().parse(ll.clone()) {
+                    match chat_log_line_parser().parse(ll).into_result() {
                         Err(e) => {
                             tracing::error!("failed to parse line\n{}", ll);
-                            for err in e {
-                                tracing::error!("{}", err);
-                            }
-                            panic!("Failed to parse a line");
+                            eprintln!(
+                                "{}",
+                                utils::ChumskyError {
+                                    description: "the above line".to_string(),
+                                    source: ll.to_owned(),
+                                    errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                }
+                            );
+                            failed_to_parse_line = true;
                         }
                         Ok(parsed_line) => {
                             if let ChatLogLine {
@@ -272,55 +294,51 @@ mod test {
                                     },
                             } = parsed_line
                             {
+                                let message = message.to_string();
                                 tracing::info!("parsed line\n{}\n{:?}", ll, parsed_line);
                                 if message.starts_with("The message sent to") &&
                                     let Err(e) =
                                         system_messages::chat_message_still_being_processed_message_parser()
-                                            .parse(message.to_string())
+                                            .parse(&message).into_result()
                                     {
-                                        for e in e {
-                                            tracing::debug!("{}", utils::ChumskyError {
-                                                description: "group chat message still being processed".to_string(),
-                                                source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
-                                            });
-                                        }
+                                        eprintln!("{}", utils::ChumskyError {
+                                            description: "group chat message still being processed".to_string(),
+                                            source: message.to_owned(),
+                                            errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                        });
                                 }
                                 if message.contains("owned by")
                                     && message.contains("gave you")
                                     && let Err(e) =
                                         system_messages::object_gave_object_message_parser()
-                                            .parse(message.to_string())
+                                            .parse(&message)
+                                            .into_result()
                                 {
-                                    for e in e {
-                                        tracing::debug!(
-                                            "{}",
-                                            utils::ChumskyError {
-                                                description: "owned by gave you".to_string(),
-                                                source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
-                                            }
-                                        );
-                                    }
+                                    eprintln!(
+                                        "{}",
+                                        utils::ChumskyError {
+                                            description: "owned by gave you".to_string(),
+                                            source: message.to_owned(),
+                                            errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                        }
+                                    );
                                 }
                                 if message.contains("An object named")
                                     && message.contains("gave you this folder")
                                     && let Err(e) =
                                         system_messages::object_gave_folder_message_parser()
-                                            .parse(message.to_string())
+                                            .parse(&message)
+                                            .into_result()
                                 {
-                                    for e in e {
-                                        tracing::debug!(
-                                            "{}",
-                                            utils::ChumskyError {
-                                                description:
-                                                    "An object named ... gave you this folder"
-                                                        .to_string(),
-                                                source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
-                                            }
-                                        );
-                                    }
+                                    eprintln!(
+                                        "{}",
+                                        utils::ChumskyError {
+                                            description: "An object named ... gave you this folder"
+                                                .to_string(),
+                                            source: message.to_owned(),
+                                            errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                        }
+                                    );
                                 }
                                 if message.starts_with("Can't rez object")
                                     && message.contains(
@@ -328,164 +346,158 @@ mod test {
                                     )
                                     && let Err(e) =
                                         system_messages::permission_to_rez_object_denied_message_parser()
-                                            .parse(message.to_string())
+                                            .parse(&message).into_result()
                                     {
-                                        for e in e {
-                                            tracing::debug!("{}", utils::ChumskyError {
+                                            eprintln!("{}", utils::ChumskyError {
                                                 description: "permission to rez object denied".to_string(),
                                                 source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
+                                                errors: e.into_iter().map(|e| e.into_owned()).collect(),
                                             });
-                                        }
                                 }
                                 if message.starts_with("Teleport completed from")
                                     && let Err(e) =
                                         system_messages::teleport_completed_message_parser()
-                                            .parse(message.to_string())
+                                            .parse(&message)
+                                            .into_result()
                                 {
-                                    for e in e {
-                                        tracing::debug!(
-                                            "{}",
-                                            utils::ChumskyError {
-                                                description: "teleported completed".to_string(),
-                                                source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
-                                            }
-                                        );
-                                    }
+                                    eprintln!(
+                                        "{}",
+                                        utils::ChumskyError {
+                                            description: "teleported completed".to_string(),
+                                            source: message.to_owned(),
+                                            errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                        }
+                                    );
                                 }
                                 if message.starts_with('[')
                                     && message.contains("status.secondlifegrid.net")
                                     && let Err(e) =
                                         system_messages::grid_status_event_message_parser()
-                                            .parse(message.to_string())
+                                            .parse(&message)
+                                            .into_result()
                                 {
-                                    for e in e {
-                                        tracing::debug!(
-                                            "{}",
-                                            utils::ChumskyError {
-                                                description: "grid status event".to_string(),
-                                                source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
-                                            }
-                                        );
-                                    }
+                                    eprintln!(
+                                        "{}",
+                                        utils::ChumskyError {
+                                            description: "grid status event".to_string(),
+                                            source: message.to_owned(),
+                                            errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                        }
+                                    );
                                 }
                                 if message.starts_with("Object ID:")
                                     && let Err(e) =
                                         system_messages::extended_script_info_message_parser()
-                                            .parse(message.to_string())
+                                            .parse(&message)
+                                            .into_result()
                                 {
-                                    for e in e {
-                                        tracing::debug!(
-                                            "{}",
-                                            utils::ChumskyError {
-                                                description: "extended script info".to_string(),
-                                                source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
-                                            }
-                                        );
-                                    }
+                                    eprintln!(
+                                        "{}",
+                                        utils::ChumskyError {
+                                            description: "extended script info".to_string(),
+                                            source: message.to_owned(),
+                                            errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                        }
+                                    );
                                 }
                                 if message.starts_with("Bridge")
                                     && let Err(e) = system_messages::bridge_message_parser()
-                                        .parse(message.to_string())
+                                        .parse(&message)
+                                        .into_result()
                                 {
-                                    for e in e {
-                                        tracing::debug!(
-                                            "{}",
-                                            utils::ChumskyError {
-                                                description: "bridge message".to_string(),
-                                                source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
-                                            }
-                                        );
-                                    }
+                                    eprintln!(
+                                        "{}",
+                                        utils::ChumskyError {
+                                            description: "bridge message".to_string(),
+                                            source: message.to_owned(),
+                                            errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                        }
+                                    );
                                 }
 
                                 if message.starts_with("You paid")
                                     && let Err(e) = system_messages::sent_payment_message_parser()
-                                        .parse(message.to_string())
+                                        .parse(&message)
+                                        .into_result()
                                 {
-                                    for e in e {
-                                        tracing::debug!(
-                                            "{}",
-                                            utils::ChumskyError {
-                                                description: "sent payment".to_string(),
-                                                source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
-                                            }
-                                        );
-                                    }
+                                    eprintln!(
+                                        "{}",
+                                        utils::ChumskyError {
+                                            description: "sent payment".to_string(),
+                                            source: message.to_owned(),
+                                            errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                        }
+                                    );
                                 }
                                 if message.contains("Take Linden dollars") &&
                                     let Err(e) = system_messages::object_granted_permission_to_take_money_parser()
-                                        .parse(message.to_string())
+                                        .parse(&message).into_result()
                                     {
-                                        for e in e {
-                                            tracing::debug!(
+                                            eprintln!(
                                                 "{}",
                                                 utils::ChumskyError {
                                                     description: "object granted permission to take money".to_string(),
                                                     source: message.to_owned(),
-                                                    errors: vec![e.to_owned()],
+                                                    errors: e.into_iter().map(|e| e.into_owned()).collect(),
                                                 }
                                             );
-                                        }
                                 }
                                 if message.starts_with("You have offered a calling card")
                                     && let Err(e) =
                                         system_messages::offered_calling_card_message_parser()
-                                            .parse(message.to_string())
+                                            .parse(&message)
+                                            .into_result()
                                 {
-                                    for e in e {
-                                        tracing::debug!(
-                                            "{}",
-                                            utils::ChumskyError {
-                                                description: "offered calling card".to_string(),
-                                                source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
-                                            }
-                                        );
-                                    }
+                                    eprintln!(
+                                        "{}",
+                                        utils::ChumskyError {
+                                            description: "offered calling card".to_string(),
+                                            source: message.to_owned(),
+                                            errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                        }
+                                    );
                                 }
                                 if message.starts_with("Draw Distance set")
                                     && let Err(e) =
                                         system_messages::draw_distance_set_message_parser()
-                                            .parse(message.to_string())
+                                            .parse(&message)
+                                            .into_result()
                                 {
-                                    for e in e {
-                                        tracing::debug!(
-                                            "{}",
-                                            utils::ChumskyError {
-                                                description: "draw distance set".to_string(),
-                                                source: message.to_owned(),
-                                                errors: vec![e.to_owned()],
-                                            }
-                                        );
-                                    }
+                                    eprintln!(
+                                        "{}",
+                                        utils::ChumskyError {
+                                            description: "draw distance set".to_string(),
+                                            source: message.to_owned(),
+                                            errors: e.into_iter().map(|e| e.into_owned()).collect(),
+                                        }
+                                    );
                                 }
                                 if message.starts_with("Your object") &&
                                     let Err(e) =
                                         system_messages::your_object_has_been_returned_message_parser()
-                                            .parse(message.to_string())
+                                            .parse(&message).into_result()
                                     {
-                                        for e in e {
-                                            tracing::debug!(
+                                            eprintln!(
                                                 "{}",
                                                 utils::ChumskyError {
                                                     description: "your object has been returned".to_string(),
                                                     source: message.to_owned(),
-                                                    errors: vec![e.to_owned()],
+                                                    errors: e.into_iter().map(|e| e.into_owned()).collect(),
                                                 }
                                             );
-                                        }
                                 }
                             }
                         }
                     }
                 }
                 last_line = Some(line);
+            }
+            #[expect(
+                clippy::panic,
+                reason = "panics are okay - even intentional - in tests"
+            )]
+            if failed_to_parse_line {
+                panic!("Failed to parse a line");
             }
         }
         // enable to see output during development, both to identity unhandled messages and to see parse errors above

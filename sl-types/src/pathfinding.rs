@@ -1,7 +1,7 @@
 //! Pathfinding related types
 
 #[cfg(feature = "chumsky")]
-use chumsky::{Parser, prelude::Simple};
+use chumsky::Parser;
 
 /// Pathfinding types
 ///
@@ -39,11 +39,12 @@ pub enum PathfindingType {
 /// returns an error if the string could not be parsed
 #[cfg(feature = "chumsky")]
 #[must_use]
-pub fn int_as_pathfinding_type_parser() -> impl Parser<char, PathfindingType, Error = Simple<char>>
+pub fn int_as_pathfinding_type_parser<'src>()
+-> impl Parser<'src, &'src str, PathfindingType, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
 {
     crate::utils::i8_parser().try_map(|repr, span| {
         crate::pathfinding::PathfindingType::from_repr(repr).ok_or_else(|| {
-            Simple::custom(
+            chumsky::error::Rich::custom(
                 span,
                 "Could not convert parsed pathfinding type i8 into PathfindingType enum",
             )

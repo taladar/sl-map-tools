@@ -3,7 +3,7 @@ name = "sl-chat-log-parser"
 description = "Parser for SL viewer chat logs (Firestorm in particular but might work for others too)"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-version = "0.1.5"
+version = "0.2.0"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2024"
 repository = "https://github.com/taladar/sl-map-tools"
@@ -15,7 +15,7 @@ exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 [dependencies]
 bytesize = "2.3.1"
 chumsky = "0.12.0"
-sl-types = { version = "0.1.9", path = "../sl-types", features = ["chumsky"] }
+sl-types = { version = "0.2.0", path = "../sl-types", features = ["chumsky"] }
 time = { version = "0.3.47", features = ["formatting", "macros", "parsing"] }
 
 [dev-dependencies]

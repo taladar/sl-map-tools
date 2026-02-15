@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 - 2026-02-15 19:33:31Z
+
+### 🚀 Features
+
+- *(chatlog)* Parse message about a parsing being unavailable for voice
+
+### 💼 Other
+
+- *(release)* Add release.sh and cliff config
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Upgrade dependencies
+- *(chumsky)* Update chumsky dependency from 0.9.3 to 0.12.0
+
 ## 0.1.5
 
 update dependencies

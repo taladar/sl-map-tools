@@ -1,3 +1,9 @@
+sl-map-cli (0.3.1-1) unstable; urgency=medium
+
+  * Miscellaneous tasks - dependencies - Update dependencies
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Thu, 12 Mar 2026 16:18:51 +0100
+
 sl-map-cli (0.3.0-1) unstable; urgency=medium
 
   * Other - release - Add release.sh and cliff config

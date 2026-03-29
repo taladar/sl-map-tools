@@ -97,7 +97,7 @@ sort_commits = "oldest"
 # Process submodules commits
 recurse_submodules = false
 # include dependencies and top-level files
-include_path = [
+include_paths = [
     "sl-chat-log-parser/**",
     "Cargo.lock",
     "deny.toml",

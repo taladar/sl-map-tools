@@ -223,9 +223,7 @@ async fn do_stuff() -> Result<(), crate::Error> {
 
     match options.command {
         Command::FromGridRectangle(from_grid_rectangle) => {
-            let ratelimiter =
-                ratelimit::Ratelimiter::builder(1, std::time::Duration::from_millis(100))
-                    .build()?;
+            let ratelimiter = ratelimit::Ratelimiter::builder(10).build()?;
             let mut map_tile_cache = MapTileCache::new(options.cache_dir, Some(ratelimiter));
             let grid_rectangle: GridRectangle = (&from_grid_rectangle).into();
             let map = Map::new(
@@ -252,9 +250,7 @@ async fn do_stuff() -> Result<(), crate::Error> {
                 &usb_notecard,
             )
             .await?;
-            let ratelimiter =
-                ratelimit::Ratelimiter::builder(1, std::time::Duration::from_millis(100))
-                    .build()?;
+            let ratelimiter = ratelimit::Ratelimiter::builder(10).build()?;
             let mut map_tile_cache = MapTileCache::new(options.cache_dir, Some(ratelimiter));
             let mut map = Map::new(
                 &mut map_tile_cache,

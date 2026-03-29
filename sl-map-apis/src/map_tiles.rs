@@ -1360,8 +1360,7 @@ mod test {
     #[tokio::test]
     async fn test_fetch_map_zoom_level_1() -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let ratelimiter =
-            ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
+        let ratelimiter = ratelimit::Ratelimiter::builder(1).build()?;
         let mut map_tile_cache =
             MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
@@ -1384,8 +1383,7 @@ mod test {
     #[tokio::test]
     async fn test_fetch_map_zoom_level_2() -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let ratelimiter =
-            ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
+        let ratelimiter = ratelimit::Ratelimiter::builder(1).build()?;
         let mut map_tile_cache =
             MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
@@ -1408,8 +1406,7 @@ mod test {
     #[tokio::test]
     async fn test_fetch_map_zoom_level_3() -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let ratelimiter =
-            ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
+        let ratelimiter = ratelimit::Ratelimiter::builder(1).build()?;
         let mut map_tile_cache =
             MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
@@ -1432,8 +1429,7 @@ mod test {
     #[tokio::test]
     async fn test_fetch_map_zoom_level_1_ratelimiter() -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let ratelimiter =
-            ratelimit::Ratelimiter::builder(1, std::time::Duration::from_millis(100)).build()?;
+        let ratelimiter = ratelimit::Ratelimiter::builder(1).build()?;
         let mut map_tile_cache =
             MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
@@ -1495,8 +1491,7 @@ mod test {
     async fn test_map_pixel_coordinates_for_coordinates_four_regions()
     -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let ratelimiter =
-            ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
+        let ratelimiter = ratelimit::Ratelimiter::builder(1).build()?;
         let mut map_tile_cache =
             MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(
@@ -1592,8 +1587,7 @@ mod test {
     async fn test_map_coordinates_for_pixel_coordinates_four_regions()
     -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = tempfile::tempdir()?;
-        let ratelimiter =
-            ratelimit::Ratelimiter::builder(1, std::time::Duration::from_secs(1)).build()?;
+        let ratelimiter = ratelimit::Ratelimiter::builder(1).build()?;
         let mut map_tile_cache =
             MapTileCache::new(temp_dir.path().to_path_buf(), Some(ratelimiter));
         let map = Map::new(

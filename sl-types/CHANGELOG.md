@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.2 - 2026-03-29 10:26:32Z
+
+### 🚀 Features
+
+- *(cli)* Add --metadata-output-file option that allows optionally writing the
+  PPS and aspect ratio metadata to a file
+
+### 🐛 Bug Fixes
+
+- *(cliff)* Fix include_path -> include_paths
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Upgrade dependencies
+- *(deny)* Remove unused OpenSSL license from deny.toml
+
 ## 0.2.1 - 2026-03-12 15:18:51Z
 
 ### ⚙️ Miscellaneous Tasks

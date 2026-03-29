@@ -2941,7 +2941,7 @@ dependencies = [
 
 [[package]]
 name = "sl-chat-log-parser"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "ariadne",
  "bytesize",
@@ -2962,7 +2962,7 @@ dependencies = [
 
 [[package]]
 name = "sl-map-apis"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "derive_more",
  "http",
@@ -2986,7 +2986,7 @@ dependencies = [
 
 [[package]]
 name = "sl-map-cli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "clap",
  "fs-err",
@@ -3005,7 +3005,7 @@ dependencies = [
 
 [[package]]
 name = "sl-types"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chumsky",
  "nutype",

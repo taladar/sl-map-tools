@@ -51,6 +51,9 @@ pub enum Error {
     /// error converting a USB notecard to a grid rectangle
     #[error("error converting a USB notecard to a grid rectangle: {0}")]
     USBNotecardToGridRectangleError(#[from] USBNotecardToGridRectangleError),
+    /// error writing metadata output file
+    #[error("error writing metadata output file: {0}")]
+    MetadataOutputFileError(#[source] std::io::Error),
 }
 
 /// Generate a map from a rectangle of grid coordinates
@@ -87,6 +90,9 @@ pub struct FromGridRectangle {
     /// the output file name for the generated map
     #[clap(long)]
     pub output_file: PathBuf,
+    /// optional file to write the metadata (aspect ratio, PPS HUD config) to
+    #[clap(long)]
+    pub metadata_output_file: Option<PathBuf>,
 }
 
 impl From<&FromGridRectangle> for GridRectangle {
@@ -147,6 +153,9 @@ pub struct FromUSBNotecard {
     /// the output file name for the generated map
     #[clap(long)]
     pub output_file: PathBuf,
+    /// optional file to write the metadata (aspect ratio, PPS HUD config) to
+    #[clap(long)]
+    pub metadata_output_file: Option<PathBuf>,
 }
 
 /// which subcommand to call
@@ -174,6 +183,38 @@ struct Options {
     command: Command,
 }
 
+/// Print metadata (PPS HUD config, aspect ratio) to stdout and optionally to a file
+///
+/// # Errors
+///
+/// returns an error when writing to the metadata output file fails
+#[expect(
+    clippy::result_large_err,
+    reason = "this is only used once at the end of the run so we only return from it once"
+)]
+fn output_metadata(
+    grid_rectangle: &GridRectangle,
+    metadata_output_file: Option<&PathBuf>,
+) -> Result<(), crate::Error> {
+    let pps_config = format!("PPS HUD config: {}", grid_rectangle.pps_hud_config());
+    let aspect = format!(
+        "The aspect ratio of the image is {}:{} ({})",
+        grid_rectangle.size_x(),
+        grid_rectangle.size_y(),
+        f32::from(grid_rectangle.size_x()) / f32::from(grid_rectangle.size_y())
+    );
+    let note =
+        "You can use this to edit e.g. the PPS HUD to have the correct ratio of width and height";
+    println!("{pps_config}");
+    println!("{aspect}");
+    println!("{note}");
+    if let Some(path) = metadata_output_file {
+        fs_err::write(path, format!("{pps_config}\n{aspect}\n{note}\n"))
+            .map_err(crate::Error::MetadataOutputFileError)?;
+    }
+    Ok(())
+}
+
 /// The main behaviour of the binary should go here
 #[instrument]
 async fn do_stuff() -> Result<(), crate::Error> {
@@ -197,16 +238,10 @@ async fn do_stuff() -> Result<(), crate::Error> {
             )
             .await?;
             map.save(&from_grid_rectangle.output_file)?;
-            println!("PPS HUD config: {}", grid_rectangle.pps_hud_config());
-            println!(
-                "The aspect ratio of the image is {}:{} ({})",
-                grid_rectangle.size_x(),
-                grid_rectangle.size_y(),
-                f32::from(grid_rectangle.size_x()) / f32::from(grid_rectangle.size_y())
-            );
-            println!(
-                "You can use this to edit e.g. the PPS HUD to have the correct ratio of width and height"
-            );
+            output_metadata(
+                &grid_rectangle,
+                from_grid_rectangle.metadata_output_file.as_ref(),
+            )?;
         }
         Command::FromUSBNotecard(from_usb_notecard) => {
             let usb_notecard = USBNotecard::load_from_file(&from_usb_notecard.usb_notecard)?;
@@ -240,16 +275,10 @@ async fn do_stuff() -> Result<(), crate::Error> {
             )
             .await?;
             map.save(&from_usb_notecard.output_file)?;
-            println!("PPS HUD config: {}", grid_rectangle.pps_hud_config());
-            println!(
-                "The aspect ratio of the image is {}:{} ({})",
-                grid_rectangle.size_x(),
-                grid_rectangle.size_y(),
-                f32::from(grid_rectangle.size_x()) / f32::from(grid_rectangle.size_y())
-            );
-            println!(
-                "You can use this to edit e.g. the PPS HUD to have the correct ratio of width and height"
-            );
+            output_metadata(
+                &grid_rectangle,
+                from_usb_notecard.metadata_output_file.as_ref(),
+            )?;
         }
     }
 

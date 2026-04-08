@@ -1,3 +1,9 @@
+sl-map-cli (0.3.3-1) unstable; urgency=medium
+
+  * Miscellaneous tasks - dependencies - Update dependencies
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Wed, 08 Apr 2026 13:33:58 +0200
+
 sl-map-cli (0.3.2-1) unstable; urgency=medium
 
   * Features - cli - Add --metadata-output-file option that allows optionally writing the PPS and aspect ratio metadata to a file

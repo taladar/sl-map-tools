@@ -3,19 +3,20 @@
 set -e -u
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <major|minor|patch>" >&2
+  echo "Usage: $0 <major|minor|patch> [ <only package(s)> [ ... ] ]" >&2
   exit 1
 fi
 
 level="$1"
+shift
 
 declare -a generated_workspace_crates
 # add any generated crates where the version can not be changed (e.g. from OpenAPI JSON or YAML) to this list
 # so they will be skipped for the whole "bump version, generate changelogs"
 generated_workspace_crates=()
 
-declare -a workspace_crates
-workspace_crates=()
+declare -a all_workspace_crates
+all_workspace_crates=()
 
 for c in $(cargo get --delimiter LF --terminator LF workspace.members); do
   if [[ ${#generated_workspace_crates[*]} -gt 0 ]]; then
@@ -25,8 +26,15 @@ for c in $(cargo get --delimiter LF --terminator LF workspace.members); do
       fi
     done
   fi
-  workspace_crates+=("${c}")
+  all_workspace_crates+=("${c}")
 done
+
+declare -a workspace_crates
+if [[ $# -gt 0 ]]; then
+  workspace_crates=("$@")
+else
+  workspace_crates=("${all_workspace_crates[@]}")
+fi
 
 declare -a workspace_binary_crates
 workspace_binary_crates=()

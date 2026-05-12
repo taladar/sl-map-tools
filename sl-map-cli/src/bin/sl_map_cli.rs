@@ -131,6 +131,31 @@ pub struct FromUSBNotecard {
     /// the color to use for the waypoints and route
     #[clap(long, value_parser = parse_color, default_value = "#f00")]
     pub color: image::Rgba<u8>,
+    /// number of extra regions of border to add on every side of the
+    /// rectangle derived from the USB notecard waypoints. Cannot be
+    /// combined with the per-direction --border-{north,south,east,west}
+    /// flags.
+    #[clap(
+        long,
+        conflicts_with_all = ["border_north", "border_south", "border_east", "border_west"],
+    )]
+    pub border_regions: Option<u16>,
+    /// extra regions of border to add on the north (+y) side of the
+    /// rectangle derived from the USB notecard waypoints
+    #[clap(long)]
+    pub border_north: Option<u16>,
+    /// extra regions of border to add on the south (-y) side of the
+    /// rectangle derived from the USB notecard waypoints
+    #[clap(long)]
+    pub border_south: Option<u16>,
+    /// extra regions of border to add on the east (+x) side of the
+    /// rectangle derived from the USB notecard waypoints
+    #[clap(long)]
+    pub border_east: Option<u16>,
+    /// extra regions of border to add on the west (-x) side of the
+    /// rectangle derived from the USB notecard waypoints
+    #[clap(long)]
+    pub border_west: Option<u16>,
     /// the fill color for missing map tiles, default is not to
     /// fill which results in black
     #[clap(long, value_parser = parse_color)]
@@ -245,11 +270,26 @@ async fn do_stuff() -> Result<(), crate::Error> {
             let usb_notecard = USBNotecard::load_from_file(&from_usb_notecard.usb_notecard)?;
             let mut region_name_to_grid_coordinates_cache =
                 RegionNameToGridCoordinatesCache::new(options.cache_dir.to_owned())?;
+            let (border_north, border_south, border_east, border_west) =
+                if let Some(b) = from_usb_notecard.border_regions {
+                    (b, b, b, b)
+                } else {
+                    (
+                        from_usb_notecard.border_north.unwrap_or(0),
+                        from_usb_notecard.border_south.unwrap_or(0),
+                        from_usb_notecard.border_east.unwrap_or(0),
+                        from_usb_notecard.border_west.unwrap_or(0),
+                    )
+                };
             let grid_rectangle = usb_notecard_to_grid_rectangle(
                 &mut region_name_to_grid_coordinates_cache,
                 &usb_notecard,
             )
-            .await?;
+            .await?
+            .expanded_west(border_west)
+            .expanded_east(border_east)
+            .expanded_south(border_south)
+            .expanded_north(border_north);
             let ratelimiter = ratelimit::Ratelimiter::builder(10).build()?;
             let mut map_tile_cache = MapTileCache::new(options.cache_dir, Some(ratelimiter));
             let mut map = Map::new(

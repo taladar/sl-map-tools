@@ -302,6 +302,66 @@ impl GridRectangle {
             ),
         }
     }
+
+    /// returns a new `GridRectangle` extended by `by` regions on the west (-x) side
+    ///
+    /// Saturates at the western edge of the grid (x = 0).
+    #[must_use]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "GridCoordinates + GridCoordinateOffset saturates at u16::MIN/u16::MAX"
+    )]
+    pub fn expanded_west(&self, by: u16) -> Self {
+        Self::new(
+            self.lower_left_corner.to_owned() + GridCoordinateOffset::new(-i32::from(by), 0),
+            self.upper_right_corner.to_owned(),
+        )
+    }
+
+    /// returns a new `GridRectangle` extended by `by` regions on the east (+x) side
+    ///
+    /// Saturates at the eastern edge of the grid (x = `u16::MAX`).
+    #[must_use]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "GridCoordinates + GridCoordinateOffset saturates at u16::MIN/u16::MAX"
+    )]
+    pub fn expanded_east(&self, by: u16) -> Self {
+        Self::new(
+            self.lower_left_corner.to_owned(),
+            self.upper_right_corner.to_owned() + GridCoordinateOffset::new(i32::from(by), 0),
+        )
+    }
+
+    /// returns a new `GridRectangle` extended by `by` regions on the south (-y) side
+    ///
+    /// Saturates at the southern edge of the grid (y = 0).
+    #[must_use]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "GridCoordinates + GridCoordinateOffset saturates at u16::MIN/u16::MAX"
+    )]
+    pub fn expanded_south(&self, by: u16) -> Self {
+        Self::new(
+            self.lower_left_corner.to_owned() + GridCoordinateOffset::new(0, -i32::from(by)),
+            self.upper_right_corner.to_owned(),
+        )
+    }
+
+    /// returns a new `GridRectangle` extended by `by` regions on the north (+y) side
+    ///
+    /// Saturates at the northern edge of the grid (y = `u16::MAX`).
+    #[must_use]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "GridCoordinates + GridCoordinateOffset saturates at u16::MIN/u16::MAX"
+    )]
+    pub fn expanded_north(&self, by: u16) -> Self {
+        Self::new(
+            self.lower_left_corner.to_owned(),
+            self.upper_right_corner.to_owned() + GridCoordinateOffset::new(0, i32::from(by)),
+        )
+    }
 }
 
 /// represents a grid rectangle like type (usually one that contains a
@@ -1554,6 +1614,80 @@ mod test {
         let rect2 = GridRectangle::new(GridCoordinates::new(30, 30), GridCoordinates::new(40, 40));
         assert_eq!(rect1.intersect(&rect2), None);
         Ok(())
+    }
+
+    #[test]
+    fn test_grid_rectangle_expanded_west() {
+        let rect = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
+        assert_eq!(rect.expanded_west(0), rect);
+        assert_eq!(
+            rect.expanded_west(3),
+            GridRectangle::new(GridCoordinates::new(7, 10), GridCoordinates::new(20, 20)),
+        );
+        let near_edge =
+            GridRectangle::new(GridCoordinates::new(2, 10), GridCoordinates::new(20, 20));
+        assert_eq!(
+            near_edge.expanded_west(5),
+            GridRectangle::new(GridCoordinates::new(0, 10), GridCoordinates::new(20, 20)),
+        );
+    }
+
+    #[test]
+    fn test_grid_rectangle_expanded_east() {
+        let rect = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
+        assert_eq!(rect.expanded_east(0), rect);
+        assert_eq!(
+            rect.expanded_east(3),
+            GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(23, 20)),
+        );
+        let near_edge = GridRectangle::new(
+            GridCoordinates::new(10, 10),
+            GridCoordinates::new(u16::MAX - 2, 20),
+        );
+        assert_eq!(
+            near_edge.expanded_east(5),
+            GridRectangle::new(
+                GridCoordinates::new(10, 10),
+                GridCoordinates::new(u16::MAX, 20),
+            ),
+        );
+    }
+
+    #[test]
+    fn test_grid_rectangle_expanded_south() {
+        let rect = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
+        assert_eq!(rect.expanded_south(0), rect);
+        assert_eq!(
+            rect.expanded_south(3),
+            GridRectangle::new(GridCoordinates::new(10, 7), GridCoordinates::new(20, 20)),
+        );
+        let near_edge =
+            GridRectangle::new(GridCoordinates::new(10, 2), GridCoordinates::new(20, 20));
+        assert_eq!(
+            near_edge.expanded_south(5),
+            GridRectangle::new(GridCoordinates::new(10, 0), GridCoordinates::new(20, 20)),
+        );
+    }
+
+    #[test]
+    fn test_grid_rectangle_expanded_north() {
+        let rect = GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 20));
+        assert_eq!(rect.expanded_north(0), rect);
+        assert_eq!(
+            rect.expanded_north(3),
+            GridRectangle::new(GridCoordinates::new(10, 10), GridCoordinates::new(20, 23)),
+        );
+        let near_edge = GridRectangle::new(
+            GridCoordinates::new(10, 10),
+            GridCoordinates::new(20, u16::MAX - 2),
+        );
+        assert_eq!(
+            near_edge.expanded_north(5),
+            GridRectangle::new(
+                GridCoordinates::new(10, 10),
+                GridCoordinates::new(20, u16::MAX),
+            ),
+        );
     }
 
     #[cfg(feature = "chumsky")]

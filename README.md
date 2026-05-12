@@ -68,14 +68,14 @@ To use this you can use the --missing-region-color option.
 
 ```shell
 sl_map_cli --cache-dir cache \
-           from-grid-rectangle \
-           --lower-left-x 380 \
-           --lower-left-y 380 \
-           --upper-right-x 1500 \
-           --upper-right-y 1500 \
-           --max-width 2048 \
-           --max-height 2048 \
-           --output-file test_map.jpg
+  from-grid-rectangle \
+  --lower-left-x 380 \
+  --lower-left-y 380 \
+  --upper-right-x 1500 \
+  --upper-right-y 1500 \
+  --max-width 2048 \
+  --max-height 2048 \
+  --output-file test_map.jpg
 ```
 
 If you want to use the generated map with a PPS HUD you can use the string
@@ -99,12 +99,12 @@ mode
 
 ```shell
 sl_map_cli --cache-dir cache \
-           from-usb-notecard \
-           --usb-notecard usb_notecard.txt \
-           --color '#0f0' \
-           --max-width 2048 \
-           --max-height 2048 \
-           --output-file test_map.jpg
+  from-usb-notecard \
+  --usb-notecard usb_notecard.txt \
+  --color '#0f0' \
+  --max-width 2048 \
+  --max-height 2048 \
+  --output-file test_map.jpg
 ```
 
 It is also possible to additionally save the map without the route to a separate

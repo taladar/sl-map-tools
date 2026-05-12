@@ -32,8 +32,8 @@ trim = true
 render_always = false
 # An array of regex based postprocessors to modify the changelog.
 postprocessors = [
-    # Replace the placeholder <REPO> with a URL.
-    #{ pattern = '<REPO>', replace = "https://github.com/orhun/git-cliff" },
+  # Replace the placeholder <REPO> with a URL.
+  # { pattern = '<REPO>', replace = "https://github.com/orhun/git-cliff" },
 ]
 # render body even when there are no releases to process
 # render_always = true
@@ -54,11 +54,11 @@ require_conventional = false
 split_commits = false
 # An array of regex based parsers to modify commit messages prior to further processing.
 commit_preprocessors = [
-    # Replace issue numbers with link templates to be updated in `changelog.postprocessors`.
-    #{ pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](<REPO>/issues/${2}))"},
-    # Check spelling of the commit message using https://github.com/crate-ci/typos.
-    # If the spelling is incorrect, it will be fixed automatically.
-    #{ pattern = '.*', replace_command = 'typos --write-changes -' },
+  # Replace issue numbers with link templates to be updated in `changelog.postprocessors`.
+  # { pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](<REPO>/issues/${2}))"},
+  # Check spelling of the commit message using https://github.com/crate-ci/typos.
+  # If the spelling is incorrect, it will be fixed automatically.
+  # { pattern = '.*', replace_command = 'typos --write-changes -' },
 ]
 # Prevent commits that are breaking from being excluded by commit parsers.
 protect_breaking_commits = false
@@ -66,21 +66,21 @@ protect_breaking_commits = false
 # Assigns commits to groups.
 # Optionally sets the commit's scope and can decide to exclude commits from further processing.
 commit_parsers = [
-    { message = "^feat", group = "<!-- 0 -->features" },
-    { message = "^fix", group = "<!-- 1 -->bug fixes" },
-    { message = "^doc", group = "<!-- 3 -->documentation" },
-    { message = "^perf", group = "<!-- 4 -->performance" },
-    { message = "^refactor", group = "<!-- 2 -->refactor" },
-    { message = "^style", group = "<!-- 5 -->styling" },
-    { message = "^test", group = "<!-- 6 -->testing" },
-    { message = "^chore\\(release\\): prepare for", skip = true },
-    { message = "^chore\\(deps.*\\)", skip = true },
-    { message = "^chore\\(pr\\)", skip = true },
-    { message = "^chore\\(pull\\)", skip = true },
-    { message = "^chore|^ci", group = "<!-- 7 -->miscellaneous tasks" },
-    { body = ".*security", group = "<!-- 8 -->security" },
-    { message = "^revert", group = "<!-- 9 -->revert" },
-    { message = ".*", group = "<!-- 10 -->other" },
+  { message = "^feat", group = "<!-- 0 -->features" },
+  { message = "^fix", group = "<!-- 1 -->bug fixes" },
+  { message = "^doc", group = "<!-- 3 -->documentation" },
+  { message = "^perf", group = "<!-- 4 -->performance" },
+  { message = "^refactor", group = "<!-- 2 -->refactor" },
+  { message = "^style", group = "<!-- 5 -->styling" },
+  { message = "^test", group = "<!-- 6 -->testing" },
+  { message = "^chore\\(release\\): prepare for", skip = true },
+  { message = "^chore\\(deps.*\\)", skip = true },
+  { message = "^chore\\(pr\\)", skip = true },
+  { message = "^chore\\(pull\\)", skip = true },
+  { message = "^chore|^ci", group = "<!-- 7 -->miscellaneous tasks" },
+  { body = ".*security", group = "<!-- 8 -->security" },
+  { message = "^revert", group = "<!-- 9 -->revert" },
+  { message = ".*", group = "<!-- 10 -->other" },
 ]
 # Exclude commits that are not matched by any commit parser.
 filter_commits = false
@@ -99,9 +99,9 @@ sort_commits = "oldest"
 recurse_submodules = false
 # include dependencies and top-level files
 include_path = [
-    "sl-map-cli/**",
-    "Cargo.lock",
-    "deny.toml",
-    "sl-types/**",
-    "sl-map-apis/**",
+  "sl-map-cli/**",
+  "Cargo.lock",
+  "deny.toml",
+  "sl-types/**",
+  "sl-map-apis/**",
 ]

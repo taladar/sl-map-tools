@@ -77,10 +77,45 @@ impl Destination {
 /// name. Applies to `groups.name` and `saved_notecards.name`.
 pub const MAX_DISPLAY_NAME_LEN: usize = 128;
 
+/// True if `c` belongs to the unicode `Cf` (Format) general category.
+/// Hand-coded from Unicode 15 so we do not have to pull in a properties
+/// crate. The set includes the bidi controls (LRE/RLE/PDF/LRO/RLO and
+/// LRI/RLI/FSI/PDI), zero-width joiners/marks, the BOM, and the
+/// language-tag block — every codepoint whose only purpose is to change
+/// how surrounding text is rendered or processed.
+const fn is_unicode_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{0600}'..='\u{0605}'
+            | '\u{061C}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206F}'
+            | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0001}'
+            | '\u{E0020}'..='\u{E007F}'
+    )
+}
+
 /// Trim a user-supplied display name and reject it if it is empty,
-/// longer than [`MAX_DISPLAY_NAME_LEN`] codepoints, or contains any
-/// unicode control character (`char::is_control` — covers NUL, TAB, LF,
-/// CR, the C1 control block, and DEL). `field` is interpolated into the
+/// longer than [`MAX_DISPLAY_NAME_LEN`] codepoints, contains any unicode
+/// control character (`char::is_control` — NUL, TAB, LF, CR, the C1
+/// control block, DEL), or contains any unicode `Cf` Format character
+/// (bidi overrides, zero-width joiners, the BOM, language-tag block,
+/// etc. — see [`is_unicode_format`]). `field` is interpolated into the
 /// error message so the caller does not need to repeat the label.
 ///
 /// # Errors
@@ -91,9 +126,12 @@ pub fn sanitise_display_name(raw: &str, field: &str) -> Result<String, Error> {
     if trimmed.is_empty() {
         return Err(Error::BadRequest(format!("{field} must not be empty")));
     }
-    if trimmed.chars().any(char::is_control) {
+    if trimmed
+        .chars()
+        .any(|c| c.is_control() || is_unicode_format(c))
+    {
         return Err(Error::BadRequest(format!(
-            "{field} must not contain control characters"
+            "{field} must not contain control or formatting characters"
         )));
     }
     if trimmed.chars().count() > MAX_DISPLAY_NAME_LEN {

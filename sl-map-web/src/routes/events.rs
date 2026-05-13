@@ -11,8 +11,10 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
+use crate::auth::CurrentUser;
 use crate::error::Error;
 use crate::jobs::{JobState, ProgressDto};
+use crate::library;
 use crate::state::AppState;
 
 /// `GET /api/render/{id}/events` — SSE stream of `ProgressDto`s for the
@@ -22,12 +24,15 @@ use crate::state::AppState;
 ///
 /// # Errors
 ///
-/// Returns [`Error::JobNotFound`] if no job with the given id exists in
-/// the job store.
+/// Returns [`Error::NotFound`] if the render does not exist or is not
+/// visible to the caller, or [`Error::JobNotFound`] if the in-memory job
+/// has been evicted.
 pub async fn events(
+    user: CurrentUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Error> {
+    library::assert_can_read_render(&state.db, user.user_id, id).await?;
     let Some(job) = state.jobs.get(id).await else {
         return Err(Error::JobNotFound);
     };

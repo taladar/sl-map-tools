@@ -112,13 +112,24 @@ impl FromRequestParts<AppState> for CurrentUser {
         }
         let user_id = uuid_from_bytes(&uid_bytes).ok_or(Error::Unauthenticated)?;
         // best-effort bump of last_seen_at; failures here should not break
-        // request handling.
-        if let Err(err) =
-            sqlx::query("UPDATE sessions SET last_seen_at = ?1 WHERE session_id_hash = ?2")
-                .bind(now)
-                .bind(session_id_hash.as_slice())
-                .execute(&state.db)
-                .await
+        // request handling. Throttled in SQL: chatty clients (SSE, polling)
+        // would otherwise hold SQLite's writer lock on every request and
+        // serialise all other writes behind them.
+        // Fallback to MIN_UTC if the subtraction underflows (impossible in
+        // practice — would require `now` near year -262144); a MIN_UTC
+        // cutoff matches no rows, so we simply skip the bump that tick.
+        let stale_cutoff = now
+            .checked_sub_signed(chrono::Duration::seconds(60))
+            .unwrap_or(chrono::DateTime::<Utc>::MIN_UTC);
+        if let Err(err) = sqlx::query(
+            "UPDATE sessions SET last_seen_at = ?1 \
+             WHERE session_id_hash = ?2 AND last_seen_at < ?3",
+        )
+        .bind(now)
+        .bind(session_id_hash.as_slice())
+        .bind(stale_cutoff)
+        .execute(&state.db)
+        .await
         {
             tracing::warn!("failed to bump sessions.last_seen_at: {err}");
         }

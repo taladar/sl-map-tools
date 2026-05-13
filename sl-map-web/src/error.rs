@@ -187,7 +187,22 @@ impl IntoResponse for Error {
             Self::TooManyRequests { retry_after_secs } => Some(*retry_after_secs),
             _ => None,
         };
-        tracing::warn!("request failed: {self}");
+        // Several variants embed attacker-supplied bytes (request bodies,
+        // notecard contents, multipart field names, …). Escape control
+        // chars via `char::escape_debug` before logging so a payload like
+        // `\n[ERROR] system breach` or an ANSI escape can't inject a fake
+        // log line or hijack a tailing terminal. Demote 4xx (and the 202
+        // JobNotFinished) to `debug!` to avoid a volume-amplification
+        // DoS: only 5xx variants — which indicate genuine server bugs —
+        // stay at `warn!`. Flip `RUST_LOG=sl_map_web=debug` to recover
+        // client-error visibility for an investigation.
+        let display = self.to_string();
+        let safe: String = display.chars().flat_map(char::escape_debug).collect();
+        if status.is_server_error() {
+            tracing::warn!("request failed: {safe}");
+        } else {
+            tracing::debug!("request failed: {safe}");
+        }
         let body = serde_json::json!({ "error": body_text }).to_string();
         let mut response = (status, body).into_response();
         if let Ok(value) = axum::http::HeaderValue::from_str("application/json; charset=utf-8") {

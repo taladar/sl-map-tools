@@ -86,6 +86,15 @@ pub enum Error {
     /// argon2 hashing or verification failed.
     #[error("password hash error: {0}")]
     PasswordHash(String),
+    /// the caller exhausted their per-user token bucket for a
+    /// rate-limited create endpoint. The wrapped value is the number of
+    /// seconds the client should wait before retrying; it is also
+    /// emitted as a `Retry-After` HTTP header.
+    #[error("rate limit exceeded")]
+    TooManyRequests {
+        /// recommended wait in whole seconds.
+        retry_after_secs: u64,
+    },
 }
 
 impl From<MapError> for Error {
@@ -147,6 +156,7 @@ impl IntoResponse for Error {
             Self::JobNotFound | Self::NotFound(_) => ReqwestStatusCode::NOT_FOUND,
             Self::JobNotFinished => ReqwestStatusCode::ACCEPTED,
             Self::RenderFailed(_) => ReqwestStatusCode::CONFLICT,
+            Self::TooManyRequests { .. } => ReqwestStatusCode::TOO_MANY_REQUESTS,
             Self::USBNotecardToGridRectangle(_)
             | Self::RegionCache(_)
             | Self::Map(_)
@@ -173,6 +183,10 @@ impl IntoResponse for Error {
             | Self::PasswordHash(_) => "internal error".to_owned(),
             _ => format!("{self}"),
         };
+        let retry_after = match &self {
+            Self::TooManyRequests { retry_after_secs } => Some(*retry_after_secs),
+            _ => None,
+        };
         tracing::warn!("request failed: {self}");
         let body = serde_json::json!({ "error": body_text }).to_string();
         let mut response = (status, body).into_response();
@@ -181,6 +195,15 @@ impl IntoResponse for Error {
                 response
                     .headers_mut()
                     .insert(axum::http::header::CONTENT_TYPE, value),
+            );
+        }
+        if let Some(secs) = retry_after
+            && let Ok(value) = axum::http::HeaderValue::from_str(&secs.to_string())
+        {
+            drop(
+                response
+                    .headers_mut()
+                    .insert(axum::http::header::RETRY_AFTER, value),
             );
         }
         response

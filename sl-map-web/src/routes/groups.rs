@@ -13,6 +13,7 @@ use crate::auth::CurrentUser;
 use crate::error::Error;
 use crate::groups::{self, GroupMemberView, GroupRole, GroupView};
 use crate::library;
+use crate::rate_limit::{self, RateCategory};
 use crate::state::AppState;
 
 /// Body for `POST /api/groups`.
@@ -82,6 +83,7 @@ pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateGroupRequest>,
 ) -> Result<(ReqwestStatusCode, Json<GroupResponse>), Error> {
+    rate_limit::try_acquire(&state.db, RateCategory::GroupCreate, user.user_id).await?;
     let name = library::sanitise_display_name(&req.name, "group name")?;
     let group_id = groups::create_group(&state.db, &name, user.user_id).await?;
     let group = groups::get_for_user(&state.db, group_id, user.user_id).await?;

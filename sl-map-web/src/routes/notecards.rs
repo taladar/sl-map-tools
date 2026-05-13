@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::auth::{CurrentUser, uuid_from_bytes};
 use crate::error::{self, Error};
 use crate::library::{self, Destination, NotecardView};
+use crate::rate_limit::{self, RateCategory};
 use crate::state::AppState;
 
 /// Query parameters for `GET /api/notecards`.
@@ -65,6 +66,7 @@ pub async fn create(
     State(state): State<AppState>,
     multipart: Multipart,
 ) -> Result<(ReqwestStatusCode, Json<NotecardResponse>), Error> {
+    rate_limit::try_acquire(&state.db, RateCategory::NotecardCreate, user.user_id).await?;
     let parsed = parse_create_form(multipart).await?;
     library::assert_can_write(&state.db, user.user_id, parsed.destination).await?;
 

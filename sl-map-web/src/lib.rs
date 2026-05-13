@@ -9,6 +9,7 @@ pub mod error;
 pub mod groups;
 pub mod jobs;
 pub mod library;
+pub mod rate_limit;
 pub mod routes;
 pub mod state;
 pub mod storage;

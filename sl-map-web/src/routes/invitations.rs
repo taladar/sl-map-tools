@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::auth::{self, CurrentUser, uuid_from_bytes};
 use crate::error::Error;
 use crate::groups::{self, GroupRole, InvitationStatus};
+use crate::rate_limit::{self, RateCategory};
 use crate::state::AppState;
 
 /// Body for `POST /api/groups/{id}/invitations`.
@@ -90,6 +91,7 @@ pub async fn create(
     Path(group_id): Path<Uuid>,
     Json(req): Json<CreateInvitationRequest>,
 ) -> Result<(ReqwestStatusCode, Json<InvitationResponse>), Error> {
+    rate_limit::try_acquire(&state.db, RateCategory::InvitationCreate, user.user_id).await?;
     require_owner(&state, group_id, user.user_id).await?;
     let identifier = req.identifier.trim();
     if identifier.is_empty() {

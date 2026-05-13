@@ -193,7 +193,8 @@ function alertModal(opts) {
 // Helper for the common `alert(await resp.text())` pattern. The server's
 // JSON error envelope is `{"error": "..."}` (see error.rs); we surface
 // just the message field when present and fall back to the raw body so
-// pre-JSON responses still render.
+// pre-JSON responses still render. A `Retry-After` header (sent on
+// rate-limit responses) is appended as "try again in N s / N min".
 async function showError(resp, fallbackTitle) {
   const raw = await resp.text();
   let msg = raw;
@@ -202,6 +203,14 @@ async function showError(resp, fallbackTitle) {
     if (body && typeof body.error === "string") msg = body.error;
   } catch (_e) {
     // not JSON — keep the raw text
+  }
+  const retryHeader = resp.headers.get("retry-after");
+  if (retryHeader) {
+    const secs = parseInt(retryHeader, 10);
+    if (Number.isFinite(secs) && secs > 0) {
+      const human = secs < 90 ? `${secs} s` : `${Math.ceil(secs / 60)} min`;
+      msg = `${msg} — try again in ${human}.`;
+    }
   }
   await alertModal({ title: fallbackTitle || "Error", message: msg });
 }

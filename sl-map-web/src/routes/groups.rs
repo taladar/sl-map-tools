@@ -162,13 +162,16 @@ pub async fn list_members(
 }
 
 /// `PATCH /api/groups/{id}/members/{user_id}` — change a member's role.
-/// Owners only. Demotion that would leave zero owners is rejected.
+/// Owners only. An owner may promote any member to owner, but the only
+/// owner→member transition allowed is self-demotion, and only when at
+/// least one other owner remains.
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not an owner,
-/// [`Error::BadRequest`] for a malformed role or a demotion that would
-/// orphan the group, or [`Error::NotFound`] if the target is not a member.
+/// Returns [`Error::Forbidden`] if the caller is not an owner or attempts
+/// to demote a different owner, [`Error::BadRequest`] for a malformed role
+/// or a self-demotion that would orphan the group, or [`Error::NotFound`]
+/// if the target is not a member.
 pub async fn set_member_role(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -177,11 +180,33 @@ pub async fn set_member_role(
 ) -> Result<Response, Error> {
     require_owner(&state, group_id, user.user_id).await?;
     let role = GroupRole::parse(req.role.trim())?;
-    if role == GroupRole::Member {
-        let current = groups::lookup_role(&state.db, group_id, target_user_id).await?;
-        if current == Some(GroupRole::Owner) {
-            let owner_count = groups::count_owners(&state.db, group_id).await?;
-            if owner_count <= 1 {
+    let current = groups::lookup_role(&state.db, group_id, target_user_id)
+        .await?
+        .ok_or_else(|| {
+            Error::NotFound(format!(
+                "user {target_user_id} is not a member of group {group_id}"
+            ))
+        })?;
+    match (current, role) {
+        (GroupRole::Owner, GroupRole::Owner) | (GroupRole::Member, GroupRole::Member) => {}
+        (GroupRole::Member, GroupRole::Owner) => {
+            let promoted =
+                groups::try_promote_member_to_owner(&state.db, group_id, target_user_id).await?;
+            if !promoted {
+                return Err(Error::NotFound(format!(
+                    "user {target_user_id} is not a member of group {group_id}"
+                )));
+            }
+        }
+        (GroupRole::Owner, GroupRole::Member) => {
+            if target_user_id != user.user_id {
+                return Err(Error::Forbidden(
+                    "owners cannot demote other owners; ask them to demote themselves or leave"
+                        .to_owned(),
+                ));
+            }
+            let demoted = groups::try_self_demote_owner(&state.db, group_id, user.user_id).await?;
+            if !demoted {
                 return Err(Error::BadRequest(
                     "cannot demote the last owner; promote another member first or delete the group"
                         .to_owned(),
@@ -189,34 +214,38 @@ pub async fn set_member_role(
             }
         }
     }
-    groups::set_role(&state.db, group_id, target_user_id, role).await?;
     Ok((ReqwestStatusCode::NO_CONTENT, "").into_response())
 }
 
-/// `DELETE /api/groups/{id}/members/{user_id}` — remove a member. Owners
-/// only. Removing the last owner is rejected with a friendly message.
+/// `DELETE /api/groups/{id}/members/{user_id}` — remove a non-owner
+/// member from the group. Owners only. Owners can never be removed by
+/// another owner; an owner who wants to step down must demote themselves
+/// or call `/leave`.
 ///
 /// # Errors
 ///
-/// As above plus [`Error::NotFound`] if the target is not a member.
+/// Returns [`Error::Forbidden`] if the caller is not an owner or the
+/// target is an owner, or [`Error::NotFound`] if the target is not a
+/// member.
 pub async fn remove_member(
     user: CurrentUser,
     State(state): State<AppState>,
     Path((group_id, target_user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, Error> {
     require_owner(&state, group_id, user.user_id).await?;
-    let target_role = groups::lookup_role(&state.db, group_id, target_user_id).await?;
-    if target_role == Some(GroupRole::Owner) {
-        let owner_count = groups::count_owners(&state.db, group_id).await?;
-        if owner_count <= 1 {
-            return Err(Error::BadRequest(
-                "cannot remove the last owner; promote another member first or delete the group"
-                    .to_owned(),
-            ));
-        }
+    let removed = groups::try_remove_non_owner(&state.db, group_id, target_user_id).await?;
+    if removed {
+        return Ok((ReqwestStatusCode::NO_CONTENT, "").into_response());
     }
-    groups::remove_member(&state.db, group_id, target_user_id).await?;
-    Ok((ReqwestStatusCode::NO_CONTENT, "").into_response())
+    match groups::lookup_role(&state.db, group_id, target_user_id).await? {
+        None => Err(Error::NotFound(format!(
+            "user {target_user_id} is not a member of group {group_id}"
+        ))),
+        Some(_) => Err(Error::Forbidden(
+            "owners cannot be removed by other owners; the owner must demote themselves or leave"
+                .to_owned(),
+        )),
+    }
 }
 
 /// `POST /api/groups/{id}/leave` — the calling user leaves the group. The
@@ -224,30 +253,27 @@ pub async fn remove_member(
 ///
 /// # Errors
 ///
-/// Returns [`Error::BadRequest`] if the caller is the sole owner.
+/// Returns [`Error::BadRequest`] if the caller is the sole owner, or
+/// [`Error::NotFound`] if the caller is not a member.
 pub async fn leave(
     user: CurrentUser,
     State(state): State<AppState>,
     Path(group_id): Path<Uuid>,
 ) -> Result<Response, Error> {
-    let role = groups::lookup_role(&state.db, group_id, user.user_id).await?;
-    let Some(role) = role else {
-        return Err(Error::NotFound(format!(
-            "you are not a member of group {group_id}"
-        )));
-    };
-    if role == GroupRole::Owner {
-        let owner_count = groups::count_owners(&state.db, group_id).await?;
-        if owner_count <= 1 {
-            return Err(Error::BadRequest(
-                "you are the last owner of this group; promote another member to owner or \
-                 delete the group instead of leaving"
-                    .to_owned(),
-            ));
-        }
+    let left = groups::try_leave(&state.db, group_id, user.user_id).await?;
+    if left {
+        return Ok((ReqwestStatusCode::NO_CONTENT, "").into_response());
     }
-    groups::remove_member(&state.db, group_id, user.user_id).await?;
-    Ok((ReqwestStatusCode::NO_CONTENT, "").into_response())
+    match groups::lookup_role(&state.db, group_id, user.user_id).await? {
+        None => Err(Error::NotFound(format!(
+            "you are not a member of group {group_id}"
+        ))),
+        Some(_) => Err(Error::BadRequest(
+            "you are the last owner of this group; promote another member to owner or \
+             delete the group instead of leaving"
+                .to_owned(),
+        )),
+    }
 }
 
 /// Require that the calling user is an owner of the given group.

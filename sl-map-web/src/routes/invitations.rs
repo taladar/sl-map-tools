@@ -206,11 +206,15 @@ pub async fn list_mine(
 }
 
 /// `POST /api/invitations/{id}/accept` — accept an invitation. Only the
-/// invitee may accept.
+/// invitee may accept. An accept never downgrades an existing membership:
+/// if the invitee is already a member at a higher role, the role is left
+/// unchanged but the invitation is still marked accepted.
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not the invitee.
+/// Returns [`Error::Forbidden`] if the caller is not the invitee, or
+/// [`Error::BadRequest`] if the invitation is no longer pending (e.g.
+/// concurrently accepted or rejected from another session).
 pub async fn accept(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -226,7 +230,9 @@ pub async fn accept(
     sqlx::query(
         "INSERT INTO group_memberships (group_id, user_id, role, created_at) \
          VALUES (?1, ?2, ?3, ?4) \
-         ON CONFLICT(group_id, user_id) DO UPDATE SET role = excluded.role",
+         ON CONFLICT(group_id, user_id) DO UPDATE \
+            SET role = excluded.role \
+            WHERE excluded.role = 'owner' AND group_memberships.role = 'member'",
     )
     .bind(&group_id_bytes)
     .bind(user.user_id.as_bytes().to_vec())
@@ -238,9 +244,9 @@ pub async fn accept(
         tracing::error!("insert membership on accept failed: {err}");
         Error::Database
     })?;
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE group_invitations SET status = 'accepted', responded_at = ?1 \
-         WHERE invitation_id = ?2",
+         WHERE invitation_id = ?2 AND status = 'pending'",
     )
     .bind(now)
     .bind(invitation_id.as_bytes().to_vec())
@@ -250,6 +256,11 @@ pub async fn accept(
         tracing::error!("update invitation on accept failed: {err}");
         Error::Database
     })?;
+    if result.rows_affected() != 1 {
+        return Err(Error::BadRequest(
+            "invitation is no longer pending".to_owned(),
+        ));
+    }
     tx.commit().await.map_err(|err| {
         tracing::error!("commit accept tx failed: {err}");
         Error::Database
@@ -262,7 +273,8 @@ pub async fn accept(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not the invitee.
+/// Returns [`Error::Forbidden`] if the caller is not the invitee, or
+/// [`Error::BadRequest`] if the invitation is no longer pending.
 pub async fn reject(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -270,9 +282,9 @@ pub async fn reject(
 ) -> Result<Response, Error> {
     let _row = fetch_pending_for_invitee(&state, invitation_id, user.user_id).await?;
     let now = Utc::now();
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE group_invitations SET status = 'rejected', responded_at = ?1 \
-         WHERE invitation_id = ?2",
+         WHERE invitation_id = ?2 AND status = 'pending'",
     )
     .bind(now)
     .bind(invitation_id.as_bytes().to_vec())
@@ -282,6 +294,11 @@ pub async fn reject(
         tracing::error!("update invitation on reject failed: {err}");
         Error::Database
     })?;
+    if result.rows_affected() != 1 {
+        return Err(Error::BadRequest(
+            "invitation is no longer pending".to_owned(),
+        ));
+    }
     Ok((ReqwestStatusCode::NO_CONTENT, "").into_response())
 }
 

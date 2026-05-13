@@ -128,25 +128,118 @@ pub async fn lookup_role(
     row.map(|(role,)| GroupRole::parse(&role)).transpose()
 }
 
-/// Count the number of owners a group currently has. Used by the application
-/// layer to enforce the "at least one owner" invariant when removing,
-/// demoting, or leaving.
+/// Atomically promote a member of a group to owner. Returns `true` if a
+/// row was updated, `false` if the user is not a member or is already an
+/// owner. The role guard lives in the WHERE clause so concurrent role
+/// changes cannot turn this into a downgrade.
 ///
 /// # Errors
 ///
-/// Returns [`Error::Database`] on count failure.
-pub async fn count_owners(db: &SqlitePool, group_id: Uuid) -> Result<i64, Error> {
-    let (count,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM group_memberships WHERE group_id = ?1 AND role = 'owner'",
+/// Returns [`Error::Database`] on update failure.
+pub async fn try_promote_member_to_owner(
+    db: &SqlitePool,
+    group_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, Error> {
+    let result = sqlx::query(
+        "UPDATE group_memberships SET role = 'owner' \
+         WHERE group_id = ?1 AND user_id = ?2 AND role = 'member'",
     )
     .bind(group_id.as_bytes().to_vec())
-    .fetch_one(db)
+    .bind(user_id.as_bytes().to_vec())
+    .execute(db)
     .await
     .map_err(|err| {
-        tracing::error!("owner count failed: {err}");
+        tracing::error!("promote to owner failed: {err}");
         Error::Database
     })?;
-    Ok(count)
+    Ok(result.rows_affected() == 1)
+}
+
+/// Atomically demote the calling user from owner to member, refusing the
+/// demote if it would leave the group with zero owners. The owner-count
+/// check is folded into the WHERE clause so two concurrent self-demotes
+/// cannot both observe `owners == 2` and both succeed. Returns `true` if
+/// a row was updated.
+///
+/// # Errors
+///
+/// Returns [`Error::Database`] on update failure.
+pub async fn try_self_demote_owner(
+    db: &SqlitePool,
+    group_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, Error> {
+    let result = sqlx::query(
+        "UPDATE group_memberships SET role = 'member' \
+         WHERE group_id = ?1 AND user_id = ?2 AND role = 'owner' \
+           AND (SELECT COUNT(*) FROM group_memberships \
+                 WHERE group_id = ?1 AND role = 'owner') > 1",
+    )
+    .bind(group_id.as_bytes().to_vec())
+    .bind(user_id.as_bytes().to_vec())
+    .execute(db)
+    .await
+    .map_err(|err| {
+        tracing::error!("self-demote owner failed: {err}");
+        Error::Database
+    })?;
+    Ok(result.rows_affected() == 1)
+}
+
+/// Atomically remove a non-owner member from a group. The role guard is
+/// folded into the WHERE clause so a member promoted to owner between an
+/// upstream check and this call is never silently kicked. Returns `true`
+/// if a row was deleted.
+///
+/// # Errors
+///
+/// Returns [`Error::Database`] on delete failure.
+pub async fn try_remove_non_owner(
+    db: &SqlitePool,
+    group_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, Error> {
+    let result = sqlx::query(
+        "DELETE FROM group_memberships \
+         WHERE group_id = ?1 AND user_id = ?2 AND role = 'member'",
+    )
+    .bind(group_id.as_bytes().to_vec())
+    .bind(user_id.as_bytes().to_vec())
+    .execute(db)
+    .await
+    .map_err(|err| {
+        tracing::error!("remove non-owner member failed: {err}");
+        Error::Database
+    })?;
+    Ok(result.rows_affected() == 1)
+}
+
+/// Atomically remove the calling user from a group. If the caller is an
+/// owner the delete only fires when at least one other owner exists, so
+/// two concurrent leaves by the last two owners cannot both succeed.
+/// Returns `true` if a row was deleted.
+///
+/// # Errors
+///
+/// Returns [`Error::Database`] on delete failure.
+pub async fn try_leave(db: &SqlitePool, group_id: Uuid, user_id: Uuid) -> Result<bool, Error> {
+    let result = sqlx::query(
+        "DELETE FROM group_memberships \
+         WHERE group_id = ?1 AND user_id = ?2 \
+           AND (role <> 'owner' \
+                OR (SELECT COUNT(*) FROM group_memberships \
+                     WHERE group_id = ?1 AND role = 'owner') > 1)",
+    )
+    .bind(group_id.as_bytes().to_vec())
+    .bind(user_id.as_bytes().to_vec())
+    .execute(db)
+    .await
+    .map_err(|err| {
+        tracing::error!("leave group failed: {err}");
+        Error::Database
+    })?;
+    Ok(result.rows_affected() == 1)
 }
 
 /// Verify that the given group exists. Returns [`Error::NotFound`] if not.
@@ -384,60 +477,5 @@ pub async fn delete_group(db: &SqlitePool, group_id: Uuid) -> Result<(), Error> 
             tracing::error!("delete group failed: {err}");
             Error::Database
         })?;
-    Ok(())
-}
-
-/// Set a member's role to the supplied value.
-///
-/// # Errors
-///
-/// Returns [`Error::NotFound`] if the user is not a member,
-/// [`Error::Database`] on update failure.
-pub async fn set_role(
-    db: &SqlitePool,
-    group_id: Uuid,
-    user_id: Uuid,
-    role: GroupRole,
-) -> Result<(), Error> {
-    let result =
-        sqlx::query("UPDATE group_memberships SET role = ?1 WHERE group_id = ?2 AND user_id = ?3")
-            .bind(role.as_str())
-            .bind(group_id.as_bytes().to_vec())
-            .bind(user_id.as_bytes().to_vec())
-            .execute(db)
-            .await
-            .map_err(|err| {
-                tracing::error!("update member role failed: {err}");
-                Error::Database
-            })?;
-    if result.rows_affected() == 0 {
-        return Err(Error::NotFound(format!(
-            "user {user_id} is not a member of group {group_id}"
-        )));
-    }
-    Ok(())
-}
-
-/// Remove a member from a group.
-///
-/// # Errors
-///
-/// Returns [`Error::NotFound`] if the user is not a member,
-/// [`Error::Database`] on delete failure.
-pub async fn remove_member(db: &SqlitePool, group_id: Uuid, user_id: Uuid) -> Result<(), Error> {
-    let result = sqlx::query("DELETE FROM group_memberships WHERE group_id = ?1 AND user_id = ?2")
-        .bind(group_id.as_bytes().to_vec())
-        .bind(user_id.as_bytes().to_vec())
-        .execute(db)
-        .await
-        .map_err(|err| {
-            tracing::error!("delete membership failed: {err}");
-            Error::Database
-        })?;
-    if result.rows_affected() == 0 {
-        return Err(Error::NotFound(format!(
-            "user {user_id} is not a member of group {group_id}"
-        )));
-    }
     Ok(())
 }

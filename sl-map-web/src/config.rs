@@ -186,6 +186,25 @@ pub enum ConfigError {
         /// the offending value.
         value: i64,
     },
+    /// `cookie_secure=false` paired with an `https://` public base URL.
+    /// The session cookie would lack the `Secure` attribute and could leak
+    /// over plain HTTP — a one-character downgrade attack on the whole
+    /// deployment.
+    #[error(
+        "SL_MAP_WEB_COOKIE_SECURE is false but SL_MAP_WEB_PUBLIC_BASE_URL is https. \
+         Set cookie_secure=true (the default), or change the public base URL to http \
+         for local testing."
+    )]
+    CookieSecureMissingForHttps,
+    /// `cookie_secure=true` paired with an `http://` public base URL. The
+    /// browser drops the cookie on plain HTTP, so users cannot log in.
+    #[error(
+        "SL_MAP_WEB_COOKIE_SECURE is true but SL_MAP_WEB_PUBLIC_BASE_URL is http. \
+         The Secure cookie attribute would prevent the cookie from being sent over \
+         plain HTTP, so logins would not work. Either set cookie_secure=false for \
+         local testing, or change the public base URL to https for production."
+    )]
+    CookieSecureSetForHttp,
 }
 
 impl Config {
@@ -203,6 +222,12 @@ impl Config {
         }
         if self.public_base_url.is_empty() {
             return Err(ConfigError::EmptyPublicBaseUrl);
+        }
+        if self.public_base_url.starts_with("https://") && !self.cookie_secure {
+            return Err(ConfigError::CookieSecureMissingForHttps);
+        }
+        if self.public_base_url.starts_with("http://") && self.cookie_secure {
+            return Err(ConfigError::CookieSecureSetForHttp);
         }
         // attempt to decode the signing key to surface base64 errors here
         // rather than at first request.

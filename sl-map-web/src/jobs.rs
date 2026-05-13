@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sl_map_apis::map_tiles::{MapProgressEvent, TileOutcome};
 use sl_types::map::MapTileDescriptor;
 use tokio::sync::{Mutex, broadcast, watch};
@@ -154,7 +154,7 @@ const fn outcome_str(outcome: TileOutcome) -> &'static str {
 
 /// Metadata returned alongside a finished render (mirrors what the CLI
 /// prints to stdout / writes to the metadata file).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metadata {
     /// the x size of the rendered grid rectangle (in regions).
     pub aspect_x: u16,

@@ -20,7 +20,9 @@ use uuid::Uuid;
 
 use crate::auth::{CurrentUser, uuid_from_bytes};
 use crate::error::Error;
+use crate::jobs::Metadata;
 use crate::library::{self, Destination, RenderView};
+use crate::routes::render::SavedRenderSettings;
 use crate::state::AppState;
 use crate::storage;
 
@@ -185,6 +187,10 @@ pub async fn download(
 
 /// `GET /api/renders/{id}/metadata` — serve the metadata JSON.
 ///
+/// The stored bytes are round-tripped through [`Metadata`] rather than
+/// being replayed verbatim, so an unexpected writer to the column cannot
+/// cause the API to serve arbitrary trusted-content-type JSON.
+///
 /// # Errors
 ///
 /// As [`get`].
@@ -194,15 +200,18 @@ pub async fn metadata(
     Path(render_id): Path<Uuid>,
 ) -> Result<Response, Error> {
     let row = library::assert_can_read_render(&state.db, user.user_id, render_id).await?;
-    let body = row
+    let raw = row
         .metadata_json
         .ok_or_else(|| Error::NotFound(format!("render {render_id} has no metadata yet")))?;
-    let headers = [(header::CONTENT_TYPE, "application/json; charset=utf-8")];
-    Ok((headers, body).into_response())
+    let parsed: Metadata = serde_json::from_str(&raw)?;
+    Ok(Json(parsed).into_response())
 }
 
 /// `GET /api/renders/{id}/settings` — serve the settings JSON used to launch
 /// the render. Used by the UI's "Regenerate" button.
+///
+/// The stored bytes are round-tripped through [`SavedRenderSettings`]
+/// rather than being replayed verbatim; same rationale as [`metadata`].
 ///
 /// # Errors
 ///
@@ -213,8 +222,8 @@ pub async fn settings(
     Path(render_id): Path<Uuid>,
 ) -> Result<Response, Error> {
     let row = library::assert_can_read_render(&state.db, user.user_id, render_id).await?;
-    let headers = [(header::CONTENT_TYPE, "application/json; charset=utf-8")];
-    Ok((headers, row.settings_json).into_response())
+    let parsed: SavedRenderSettings = serde_json::from_str(&row.settings_json)?;
+    Ok(Json(parsed).into_response())
 }
 
 /// Shared body for `image`, `image_without_route`, `download`.

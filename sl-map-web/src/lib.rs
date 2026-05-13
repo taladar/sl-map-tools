@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod client_ip;
 pub mod config;
+pub mod csrf;
 pub mod db;
 pub mod error;
 pub mod groups;

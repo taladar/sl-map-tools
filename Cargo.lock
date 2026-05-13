@@ -3723,6 +3723,7 @@ dependencies = [
  "ipnet",
  "log-panics",
  "password-hash",
+ "pretty_assertions",
  "rand 0.8.6",
  "ratelimit",
  "reqwest",

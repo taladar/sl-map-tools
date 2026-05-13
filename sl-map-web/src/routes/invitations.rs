@@ -186,12 +186,7 @@ pub async fn list_for_group(
     Path(group_id): Path<Uuid>,
 ) -> Result<Json<ListInvitationsResponse>, Error> {
     require_owner(&state, group_id, user.user_id).await?;
-    let invitations = fetch_invitations(
-        &state,
-        "WHERE group_invitations.group_id = ?1 ORDER BY group_invitations.created_at DESC",
-        Some(group_id.as_bytes().to_vec()),
-    )
-    .await?;
+    let invitations = fetch_invitations(&state, InvitationsFilter::Group(group_id)).await?;
     Ok(Json(ListInvitationsResponse { invitations }))
 }
 
@@ -205,13 +200,8 @@ pub async fn list_mine(
     user: CurrentUser,
     State(state): State<AppState>,
 ) -> Result<Json<ListInvitationsResponse>, Error> {
-    let invitations = fetch_invitations(
-        &state,
-        "WHERE group_invitations.invitee_id = ?1 AND group_invitations.status = 'pending' \
-         ORDER BY group_invitations.created_at DESC",
-        Some(user.user_id.as_bytes().to_vec()),
-    )
-    .await?;
+    let invitations =
+        fetch_invitations(&state, InvitationsFilter::PendingForInvitee(user.user_id)).await?;
     Ok(Json(ListInvitationsResponse { invitations }))
 }
 
@@ -332,33 +322,69 @@ async fn fetch_pending_for_invitee(
     Ok((group_id_bytes, target_role))
 }
 
+/// Selector for which slice of `group_invitations` a `fetch_invitations`
+/// call should return. Each variant maps to a single hard-coded SQL string
+/// inside [`fetch_invitations`] so no caller can inject SQL via a
+/// `where_clause` string parameter.
+enum InvitationsFilter {
+    /// All invitations addressed to a given group, newest first. Owners-
+    /// only endpoint.
+    Group(Uuid),
+    /// Pending invitations addressed to a given invitee, newest first.
+    PendingForInvitee(Uuid),
+}
+
 /// Run a parameterised lookup of invitations joined with group + user info.
-/// The `where_clause` may contain a single `?1` placeholder that will be
-/// bound to `bind_blob`.
+/// The SQL is selected by matching on [`InvitationsFilter`]; the variant's
+/// payload is the only data bound into the query.
 async fn fetch_invitations(
     state: &AppState,
-    where_clause: &str,
-    bind_blob: Option<Vec<u8>>,
+    filter: InvitationsFilter,
 ) -> Result<Vec<InvitationView>, Error> {
-    let sql = format!(
-        "SELECT group_invitations.invitation_id, \
-                group_invitations.group_id, \
-                groups.name, \
-                group_invitations.inviter_id, \
-                inviter.username, inviter.legacy_name, \
-                group_invitations.invitee_id, \
-                invitee.username, invitee.legacy_name, \
-                group_invitations.target_role, \
-                group_invitations.status, \
-                group_invitations.created_at, \
-                group_invitations.responded_at \
-         FROM group_invitations \
-         JOIN groups ON groups.group_id = group_invitations.group_id \
-         JOIN users AS inviter ON inviter.user_id = group_invitations.inviter_id \
-         JOIN users AS invitee ON invitee.user_id = group_invitations.invitee_id \
-         {where_clause}"
-    );
-    let mut query = sqlx::query_as::<
+    let (sql, blob): (&'static str, Vec<u8>) = match filter {
+        InvitationsFilter::Group(group_id) => (
+            "SELECT group_invitations.invitation_id, \
+                    group_invitations.group_id, \
+                    groups.name, \
+                    group_invitations.inviter_id, \
+                    inviter.username, inviter.legacy_name, \
+                    group_invitations.invitee_id, \
+                    invitee.username, invitee.legacy_name, \
+                    group_invitations.target_role, \
+                    group_invitations.status, \
+                    group_invitations.created_at, \
+                    group_invitations.responded_at \
+             FROM group_invitations \
+             JOIN groups ON groups.group_id = group_invitations.group_id \
+             JOIN users AS inviter ON inviter.user_id = group_invitations.inviter_id \
+             JOIN users AS invitee ON invitee.user_id = group_invitations.invitee_id \
+             WHERE group_invitations.group_id = ?1 \
+             ORDER BY group_invitations.created_at DESC",
+            group_id.as_bytes().to_vec(),
+        ),
+        InvitationsFilter::PendingForInvitee(user_id) => (
+            "SELECT group_invitations.invitation_id, \
+                    group_invitations.group_id, \
+                    groups.name, \
+                    group_invitations.inviter_id, \
+                    inviter.username, inviter.legacy_name, \
+                    group_invitations.invitee_id, \
+                    invitee.username, invitee.legacy_name, \
+                    group_invitations.target_role, \
+                    group_invitations.status, \
+                    group_invitations.created_at, \
+                    group_invitations.responded_at \
+             FROM group_invitations \
+             JOIN groups ON groups.group_id = group_invitations.group_id \
+             JOIN users AS inviter ON inviter.user_id = group_invitations.inviter_id \
+             JOIN users AS invitee ON invitee.user_id = group_invitations.invitee_id \
+             WHERE group_invitations.invitee_id = ?1 \
+                   AND group_invitations.status = 'pending' \
+             ORDER BY group_invitations.created_at DESC",
+            user_id.as_bytes().to_vec(),
+        ),
+    };
+    let rows = sqlx::query_as::<
         _,
         (
             Vec<u8>,
@@ -375,11 +401,11 @@ async fn fetch_invitations(
             DateTime<Utc>,
             Option<DateTime<Utc>>,
         ),
-    >(&sql);
-    if let Some(blob) = bind_blob {
-        query = query.bind(blob);
-    }
-    let rows = query.fetch_all(&state.db).await.map_err(|err| {
+    >(sql)
+    .bind(blob)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| {
         tracing::error!("fetch invitations failed: {err}");
         Error::Database
     })?;

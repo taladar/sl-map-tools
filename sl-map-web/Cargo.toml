@@ -51,7 +51,7 @@ time = "0.3.36"
 tokio = { version = "1.51.1", features = ["full"] }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 tower = "0.5.2"
-tower-http = { version = "0.6.6", features = ["trace", "compression-gzip"] }
+tower-http = { version = "0.6.6", features = ["trace", "compression-gzip", "set-header"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.4"
 tracing-subscriber = { version = "0.3.23", features = [
@@ -59,6 +59,9 @@ tracing-subscriber = { version = "0.3.23", features = [
   "tracing-log",
 ] }
 uuid = { version = "1.18.0", features = ["serde", "v4"] }
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
 
 [lints.clippy]
 allow_attributes = "deny"

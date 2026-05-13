@@ -28,6 +28,21 @@ use crate::routes::notecards as notecard_routes;
 use crate::state::AppState;
 use crate::storage;
 
+/// Maximum width or height of a rendered image in pixels. The renderer
+/// allocates roughly `4 * max_width * max_height` bytes for the output
+/// buffer, so 32 768 caps a single render at ~4 GiB on the extreme edge
+/// while leaving plenty of headroom for any realistic map. Beyond a sanity
+/// check it prevents an attacker-supplied `max_width` / `max_height` from
+/// driving the server out of memory.
+const MAX_OUTPUT_DIMENSION: u32 = 0x8000;
+
+/// Maximum number of in-progress renders per user. The renderer is
+/// serialised on a single map-tile cache, so one user submitting many
+/// concurrent jobs would block all other users. Three is a small ceiling
+/// that lets a user kick off a couple of variants in parallel without
+/// monopolising the worker.
+const MAX_CONCURRENT_RENDERS_PER_USER: i64 = 3;
+
 /// Output format for the rendered image.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -183,6 +198,7 @@ pub async fn grid_rectangle(
     State(state): State<AppState>,
     Json(req): Json<GridRectangleRequest>,
 ) -> Result<Json<StartedResponse>, Error> {
+    validate_dimensions(req.max_width, req.max_height)?;
     let common = CommonParams {
         max_width: req.max_width,
         max_height: req.max_height,
@@ -200,6 +216,7 @@ pub async fn grid_rectangle(
     };
     let destination = Destination::parse(req.save_to.as_deref().unwrap_or("personal"))?;
     library::assert_can_write(&state.db, user.user_id, destination).await?;
+    assert_under_concurrent_limit(&state.db, user.user_id).await?;
     let rect = GridRectangle::new(
         GridCoordinates::new(req.lower_left_x, req.lower_left_y),
         GridCoordinates::new(req.upper_right_x, req.upper_right_y),
@@ -245,6 +262,7 @@ pub async fn usb_notecard(
 ) -> Result<Json<StartedResponse>, Error> {
     let parsed = parse_render_form(multipart).await?;
     library::assert_can_write(&state.db, user.user_id, parsed.destination).await?;
+    assert_under_concurrent_limit(&state.db, user.user_id).await?;
 
     // Resolve the notecard: either reuse an existing saved one or upload
     // (and always save) a fresh one to the chosen notecard destination.
@@ -463,6 +481,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
     let max_width = max_width.ok_or_else(|| Error::BadRequest("missing max_width".to_owned()))?;
     let max_height =
         max_height.ok_or_else(|| Error::BadRequest("missing max_height".to_owned()))?;
+    validate_dimensions(max_width, max_height)?;
     let borders = form.borders();
     let common = CommonParams {
         max_width,
@@ -900,6 +919,49 @@ async fn finish_job(job: &Arc<JobState>, result: Result<JobOutcome, Error>) -> J
     let arc = Arc::new(outcome.clone());
     drop(job.outcome.send_replace(Some(arc)));
     outcome
+}
+
+/// Reject `max_width` / `max_height` outside the per-side caps. Both must
+/// be > 0 and <= [`MAX_OUTPUT_DIMENSION`].
+fn validate_dimensions(max_width: u32, max_height: u32) -> Result<(), Error> {
+    if max_width == 0 || max_height == 0 {
+        return Err(Error::BadRequest(
+            "max_width and max_height must be greater than zero".to_owned(),
+        ));
+    }
+    if max_width > MAX_OUTPUT_DIMENSION || max_height > MAX_OUTPUT_DIMENSION {
+        return Err(Error::BadRequest(format!(
+            "max_width and max_height must each be <= {MAX_OUTPUT_DIMENSION}"
+        )));
+    }
+    Ok(())
+}
+
+/// Reject the request if the user already has
+/// [`MAX_CONCURRENT_RENDERS_PER_USER`] or more renders in progress. The
+/// count is not strictly atomic with the subsequent insert — two requests
+/// arriving in the same millisecond could both pass — but the race window
+/// is small and the cap exists to limit accidental DoS rather than to be a
+/// hard quota.
+async fn assert_under_concurrent_limit(db: &sqlx::SqlitePool, user_id: Uuid) -> Result<(), Error> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM saved_renders \
+         WHERE created_by = ?1 AND status = 'in_progress'",
+    )
+    .bind(user_id.as_bytes().to_vec())
+    .fetch_one(db)
+    .await
+    .map_err(|err| {
+        tracing::error!("count in-progress renders failed: {err}");
+        Error::Database
+    })?;
+    if count >= MAX_CONCURRENT_RENDERS_PER_USER {
+        return Err(Error::Forbidden(format!(
+            "at most {MAX_CONCURRENT_RENDERS_PER_USER} renders may be in progress per user; \
+             wait for one to finish"
+        )));
+    }
+    Ok(())
 }
 
 /// Parse a possibly-empty u16 from a form field.

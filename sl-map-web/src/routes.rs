@@ -14,38 +14,85 @@ pub mod renders;
 pub mod result;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
+use axum::http::header;
 use axum::middleware;
 use axum::routing::{get, patch, post};
 use tower_http::compression::CompressionLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
+/// Maximum HTTP request body size, in bytes. The largest legitimate upload
+/// is a USB notecard, which never exceeds a few tens of KiB; 1 MiB leaves
+/// generous headroom while preventing memory exhaustion from a malicious
+/// multipart upload or JSON body.
+const REQUEST_BODY_LIMIT: usize = 1024 * 1024;
+
+/// Content-Security-Policy applied to every response.
+///
+/// The pages load their JS via external `<script src="/static/...">` only —
+/// no inline `<script>` blocks — so `script-src 'self'` is enough.
+/// `style-src` allows `'unsafe-inline'` because the renderer page sets
+/// element `.style` properties from JS for positional layout
+/// (`element.style.width = ...`), which CSP treats as an inline style.
+/// `img-src` also allows the Linden Lab map-tile CDN so the renderer
+/// preview can display tiles.
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; \
+     img-src 'self' https://secondlife-maps-cdn.akamaized.net; \
+     script-src 'self'; \
+     style-src 'self' 'unsafe-inline'; \
+     connect-src 'self'; \
+     frame-ancestors 'none'; \
+     base-uri 'none'; \
+     form-action 'self'";
+
 use crate::auth::require_session;
+use crate::csrf::require_same_origin;
 use crate::state::AppState;
 
 /// Build the full axum [`Router`] wired to the given application state.
 ///
 /// Routes are organised into three groups:
 ///
-/// * **Public** — `/login`, `/set-password`, the static assets, and the
-///   `/api/auth/*` endpoints. No session required.
+/// * **Public, open** — `/login`, `/set-password`, the static assets, the
+///   LSL-facing `/api/auth/register`, and `/api/auth/set-password`. No
+///   session and no same-origin requirement.
+/// * **Public, CSRF-checked** — `/api/auth/login` and `/api/auth/logout`:
+///   no session required, but wrapped in `require_same_origin` to block
+///   login fixation and forced-logout from third-party origins.
 /// * **Protected** — `/`, the notecard and render APIs, plus the new
-///   groups/invitations/library endpoints and HTML pages. Wrapped in the
-///   `require_session` middleware.
-/// * The two groups are merged and then wrapped in compression + tracing.
+///   groups/invitations/library endpoints and HTML pages. Wrapped in both
+///   `require_same_origin` and `require_session`.
+/// * All three groups are merged and then wrapped in compression +
+///   tracing.
 pub fn build(state: AppState) -> Router {
-    let public = Router::new()
+    // Public endpoints that are CSRF-checked. `/api/auth/register` is
+    // excluded because it is called from `llHTTPRequest`, which does not
+    // send an `Origin` header — its only authenticator is the pre-shared
+    // bearer token. `/api/auth/set-password` is excluded because the only
+    // capability it grants is bound to a one-time secret token that the
+    // attacker cannot guess cross-site.
+    let public_csrf = Router::new()
+        .route("/api/auth/login", post(auth::login))
+        .route("/api/auth/logout", post(auth::logout))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_same_origin,
+        ));
+
+    let public_open = Router::new()
         .route("/login", get(pages::login_page))
         .route("/set-password", get(pages::set_password_page))
         .route("/api/auth/register", post(auth::register))
         .route("/api/auth/set-password", post(auth::set_password))
-        .route("/api/auth/login", post(auth::login))
-        .route("/api/auth/logout", post(auth::logout))
         .route("/api/auth/me", get(auth::me))
         .route("/static/app.js", get(index::app_js))
         .route("/static/style.css", get(index::style_css))
         .route("/static/library.js", get(library_pages::library_js))
         .route("/static/groups.js", get(library_pages::groups_js))
-        .route("/static/invitations.js", get(library_pages::invitations_js));
+        .route("/static/invitations.js", get(library_pages::invitations_js))
+        .route("/static/login.js", get(pages::login_js))
+        .route("/static/set_password.js", get(pages::set_password_js));
 
     let protected = Router::new()
         .route("/", get(index::index))
@@ -115,10 +162,34 @@ pub fn build(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_session,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_same_origin,
         ));
 
-    public
+    public_open
+        .merge(public_csrf)
         .merge(protected)
+        .layer(DefaultBodyLimit::max(REQUEST_BODY_LIMIT))
+        // Response security headers. `if_not_present` so per-route
+        // handlers can override (none currently do).
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            axum::http::HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            axum::http::HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::REFERRER_POLICY,
+            axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_FRAME_OPTIONS,
+            axum::http::HeaderValue::from_static("DENY"),
+        ))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

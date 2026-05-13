@@ -157,8 +157,24 @@ impl IntoResponse for Error {
             | Self::Database
             | Self::PasswordHash(_) => ReqwestStatusCode::INTERNAL_SERVER_ERROR,
         };
+        // The 500-class variants may carry filesystem paths (`Io`),
+        // argon2 parameter detail (`PasswordHash`), decoder internals
+        // (`Image`), or deserializer state (`Json`). Collapse them to a
+        // generic body — the full Display is still recorded via the
+        // `warn!` below so the operator gets the detail in logs.
+        let body_text = match &self {
+            Self::Io(_)
+            | Self::Image(_)
+            | Self::Json(_)
+            | Self::Map(_)
+            | Self::MapTileCache(_)
+            | Self::RegionCache(_)
+            | Self::USBNotecardToGridRectangle(_)
+            | Self::PasswordHash(_) => "internal error".to_owned(),
+            _ => format!("{self}"),
+        };
         tracing::warn!("request failed: {self}");
-        let body = serde_json::json!({ "error": format!("{self}") }).to_string();
+        let body = serde_json::json!({ "error": body_text }).to_string();
         let mut response = (status, body).into_response();
         if let Ok(value) = axum::http::HeaderValue::from_str("application/json; charset=utf-8") {
             drop(

@@ -39,6 +39,7 @@ password-hash = "0.5.0"
 rand = "0.8.5"
 ratelimit = "1.0.0"
 reqwest = { version = "0.13.2", default-features = false, features = ["blocking", "json", "native-tls-vendored"] }
+secrecy = "0.10"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.10.8"
@@ -59,6 +60,7 @@ tracing-subscriber = { version = "0.3.23", features = [
   "tracing-log",
 ] }
 uuid = { version = "1.18.0", features = ["serde", "v4"] }
+zeroize = "1"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

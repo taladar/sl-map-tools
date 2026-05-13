@@ -6,6 +6,7 @@
 //! signed into Second Life.
 
 use clap::Parser as _;
+use secrecy::{ExposeSecret as _, SecretString};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -29,9 +30,10 @@ struct Args {
     #[clap(
         long,
         env = "SL_MAP_WEB_LSL_REGISTRATION_BEARER_TOKEN",
-        hide_env_values = true
+        hide_env_values = true,
+        value_parser = parse_secret_string,
     )]
-    bearer_token: String,
+    bearer_token: SecretString,
 
     /// Avatar UUID (the SL "agent key").
     #[clap(long)]
@@ -91,6 +93,13 @@ fn main() {
     }
 }
 
+/// clap `value_parser` adaptor that wraps the raw CLI/env string in a
+/// [`SecretString`] so `Debug` redaction and zeroize-on-drop apply to the
+/// bearer token even in this short-lived helper.
+fn parse_secret_string(s: &str) -> Result<SecretString, std::convert::Infallible> {
+    Ok(SecretString::from(s.to_owned()))
+}
+
 /// Parse the CLI arguments, POST to the registration endpoint, and print
 /// the returned set-password URL.
 fn run() -> Result<(), Error> {
@@ -107,7 +116,7 @@ fn run() -> Result<(), Error> {
     let client = reqwest::blocking::Client::new();
     let response = client
         .post(&url)
-        .bearer_auth(&args.bearer_token)
+        .bearer_auth(args.bearer_token.expose_secret())
         .json(&body)
         .send()?;
     let status = response.status();

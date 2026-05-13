@@ -15,6 +15,7 @@ use chrono::{DateTime, Utc};
 use password_hash::SaltString;
 use rand::RngCore as _;
 use rand::rngs::OsRng;
+use secrecy::ExposeSecret as _;
 use sha2::{Digest as _, Sha256};
 use sqlx::SqlitePool;
 use subtle::ConstantTimeEq as _;
@@ -226,7 +227,11 @@ impl FromRequestParts<AppState> for LslBearer {
             return Err(Error::Unauthenticated);
         }
         let presented = bytes.get(prefix.len()..).unwrap_or(&[]);
-        let expected = state.config.lsl_registration_bearer_token.as_bytes();
+        let expected = state
+            .config
+            .lsl_registration_bearer_token
+            .expose_secret()
+            .as_bytes();
         // Run ct_eq over `expected.len()` bytes on every path so the
         // mismatched-length case takes the same time as a wrong-content
         // compare and the bearer's length doesn't leak via timing.

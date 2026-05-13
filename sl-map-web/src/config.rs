@@ -3,11 +3,13 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use secrecy::{ExposeSecret as _, SecretString};
+
 /// CLI options for `sl_map_web`.
 ///
 /// Each field may also be supplied via the matching `SL_MAP_WEB_*`
 /// environment variable. Explicit CLI flags override the env vars.
-#[derive(Debug, Clone, clap::Parser)]
+#[derive(Debug, clap::Parser)]
 #[clap(
     name = clap::crate_name!(),
     about = clap::crate_description!(),
@@ -56,17 +58,23 @@ pub struct Config {
     #[clap(
         long,
         env = "SL_MAP_WEB_LSL_REGISTRATION_BEARER_TOKEN",
-        hide_env_values = true
+        hide_env_values = true,
+        value_parser = parse_secret_string,
     )]
-    pub lsl_registration_bearer_token: String,
+    pub lsl_registration_bearer_token: SecretString,
 
     /// Secret used to sign session cookies. Provide at least 64 raw bytes of
     /// entropy (the cookie crate requires this). Encoded as base64 (standard
     /// or URL-safe, with or without padding). Startup aborts if missing or
     /// too short — a regenerated random key on every restart would force all
     /// users to re-log in, which is undesirable for the 30-day sessions.
-    #[clap(long, env = "SL_MAP_WEB_SESSION_SIGNING_KEY", hide_env_values = true)]
-    pub session_signing_key: String,
+    #[clap(
+        long,
+        env = "SL_MAP_WEB_SESSION_SIGNING_KEY",
+        hide_env_values = true,
+        value_parser = parse_secret_string,
+    )]
+    pub session_signing_key: SecretString,
 
     /// Public base URL (scheme + host, no trailing slash) used to build the
     /// set-password URL returned from the LSL registration call. For example
@@ -217,7 +225,11 @@ impl Config {
     /// Returns a [`ConfigError`] if any required field is missing or
     /// malformed.
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.lsl_registration_bearer_token.is_empty() {
+        if self
+            .lsl_registration_bearer_token
+            .expose_secret()
+            .is_empty()
+        {
             return Err(ConfigError::EmptyBearerToken);
         }
         if self.public_base_url.is_empty() {
@@ -231,7 +243,7 @@ impl Config {
         }
         // attempt to decode the signing key to surface base64 errors here
         // rather than at first request.
-        let decoded = decode_signing_key(&self.session_signing_key)?;
+        let decoded = decode_signing_key(self.session_signing_key.expose_secret())?;
         if decoded.len() < 64 {
             return Err(ConfigError::SessionKeyTooShort(decoded.len()));
         }
@@ -257,8 +269,15 @@ impl Config {
     ///
     /// Returns a [`ConfigError`] if the configured key fails to decode.
     pub fn decoded_signing_key(&self) -> Result<Vec<u8>, ConfigError> {
-        decode_signing_key(&self.session_signing_key)
+        decode_signing_key(self.session_signing_key.expose_secret())
     }
+}
+
+/// clap `value_parser` adaptor that wraps the raw CLI/env string in a
+/// [`SecretString`] so it carries `Debug` redaction and zeroize-on-drop
+/// through the rest of the program.
+fn parse_secret_string(s: &str) -> Result<SecretString, std::convert::Infallible> {
+    Ok(SecretString::from(s.to_owned()))
 }
 
 /// Decode a base64-encoded signing key. Accepts standard or URL-safe

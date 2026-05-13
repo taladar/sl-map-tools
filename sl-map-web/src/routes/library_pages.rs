@@ -17,6 +17,9 @@ const GROUPS_JS: &str = include_str!("../assets/groups.js");
 const INVITATIONS_HTML: &str = include_str!("../assets/invitations.html");
 /// JS that drives the invitations page.
 const INVITATIONS_JS: &str = include_str!("../assets/invitations.js");
+/// JS that provides in-page replacements for `confirm`/`prompt`/`alert`,
+/// shared by the library, groups, and invitations pages.
+const MODAL_JS: &str = include_str!("../assets/modal.js");
 
 /// `GET /library` — serve the library UI.
 pub async fn library() -> Html<&'static str> {
@@ -48,6 +51,11 @@ pub async fn groups_js() -> Response {
 /// `GET /static/invitations.js`.
 pub async fn invitations_js() -> Response {
     js_response(INVITATIONS_JS)
+}
+
+/// `GET /static/modal.js`.
+pub async fn modal_js() -> Response {
+    js_response(MODAL_JS)
 }
 
 /// Wrap a JS string in a `text/javascript` response.

@@ -44,7 +44,7 @@ async function refresh() {
           method: "POST",
         });
         if (!r.ok) {
-          alert(await r.text());
+          await showError(r);
           return;
         }
         refresh();
@@ -59,7 +59,7 @@ async function refresh() {
           method: "POST",
         });
         if (!r.ok) {
-          alert(await r.text());
+          await showError(r);
           return;
         }
         refresh();

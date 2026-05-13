@@ -137,13 +137,19 @@ async function showDetail(groupId) {
         kick.className = "row-action danger";
         kick.textContent = "Remove";
         kick.addEventListener("click", async () => {
-          if (!confirm(`Remove ${m.legacy_name} from this group?`)) return;
+          const ok = await confirmModal({
+            title: "Remove member",
+            message: `Remove ${m.legacy_name} from this group?`,
+            danger: true,
+            okText: "Remove",
+          });
+          if (!ok) return;
           const resp = await fetch(
             `/api/groups/${groupId}/members/${m.user_id}`,
             { method: "DELETE" },
           );
           if (!resp.ok) {
-            alert(await resp.text());
+            await showError(resp);
             return;
           }
           showDetail(groupId);
@@ -186,7 +192,7 @@ async function showDetail(groupId) {
       body: JSON.stringify({ identifier, target_role: role }),
     });
     if (!resp.ok) {
-      alert(await resp.text());
+      await showError(resp);
       return;
     }
     $("invite-identifier").value = "";
@@ -194,42 +200,52 @@ async function showDetail(groupId) {
   };
 
   $("rename-group").onclick = async () => {
-    const name = prompt("New group name?", group.name);
-    if (!name) return;
+    const name = await promptModal({
+      title: "Rename group",
+      message: "New group name:",
+      default: group.name,
+    });
+    if (name == null) return;
     const resp = await fetch(`/api/groups/${groupId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),
     });
     if (!resp.ok) {
-      alert(await resp.text());
+      await showError(resp);
       return;
     }
     showDetail(groupId);
   };
 
   $("delete-group").onclick = async () => {
-    if (
-      !confirm(
-        `Delete group "${group.name}"? This cannot be undone and will remove all group-owned notecards and renders.`,
-      )
-    )
-      return;
+    const ok = await confirmModal({
+      title: "Delete group",
+      message: `Delete group "${group.name}"? This cannot be undone and will remove all group-owned notecards and renders.`,
+      danger: true,
+      okText: "Delete",
+    });
+    if (!ok) return;
     const resp = await fetch(`/api/groups/${groupId}`, { method: "DELETE" });
     if (!resp.ok) {
-      alert(await resp.text());
+      await showError(resp);
       return;
     }
     window.location.assign("/groups");
   };
 
   $("leave-group").onclick = async () => {
-    if (!confirm(`Leave "${group.name}"?`)) return;
+    const ok = await confirmModal({
+      title: "Leave group",
+      message: `Leave "${group.name}"?`,
+      okText: "Leave",
+    });
+    if (!ok) return;
     const resp = await fetch(`/api/groups/${groupId}/leave`, {
       method: "POST",
     });
     if (!resp.ok) {
-      alert(await resp.text());
+      await showError(resp);
       return;
     }
     window.location.assign("/groups");
@@ -243,7 +259,7 @@ async function patchRole(groupId, userId, role) {
     body: JSON.stringify({ role }),
   });
   if (!resp.ok) {
-    alert(await resp.text());
+    await showError(resp);
     return;
   }
   showDetail(groupId);

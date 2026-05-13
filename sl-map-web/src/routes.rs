@@ -91,6 +91,7 @@ pub fn build(state: AppState) -> Router {
         .route("/static/library.js", get(library_pages::library_js))
         .route("/static/groups.js", get(library_pages::groups_js))
         .route("/static/invitations.js", get(library_pages::invitations_js))
+        .route("/static/modal.js", get(library_pages::modal_js))
         .route("/static/login.js", get(pages::login_js))
         .route("/static/set_password.js", get(pages::set_password_js));
 

@@ -77,12 +77,18 @@ function notecardRow(n) {
   del.textContent = "Delete";
   del.className = "row-action danger";
   del.addEventListener("click", async () => {
-    if (!confirm(`Delete notecard "${n.name}"?`)) return;
+    const ok = await confirmModal({
+      title: "Delete notecard",
+      message: `Delete notecard "${n.name}"?`,
+      danger: true,
+      okText: "Delete",
+    });
+    if (!ok) return;
     const resp = await fetch(`/api/notecards/${n.notecard_id}`, {
       method: "DELETE",
     });
     if (!resp.ok) {
-      alert(await resp.text());
+      await showError(resp);
       return;
     }
     refresh();
@@ -131,12 +137,18 @@ function renderRow(r) {
   del.textContent = "Delete";
   del.className = "row-action danger";
   del.addEventListener("click", async () => {
-    if (!confirm("Delete this render?")) return;
+    const ok = await confirmModal({
+      title: "Delete render",
+      message: "Delete this render?",
+      danger: true,
+      okText: "Delete",
+    });
+    if (!ok) return;
     const resp = await fetch(`/api/renders/${r.render_id}`, {
       method: "DELETE",
     });
     if (!resp.ok) {
-      alert(await resp.text());
+      await showError(resp);
       return;
     }
     refresh();

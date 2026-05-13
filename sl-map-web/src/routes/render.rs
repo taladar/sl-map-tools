@@ -228,8 +228,8 @@ pub async fn grid_rectangle(
         upper_right_y: req.upper_right_y,
         max_width: req.max_width,
         max_height: req.max_height,
-        missing_map_tile_color: req.missing_map_tile_color.clone(),
-        missing_region_color: req.missing_region_color.clone(),
+        missing_map_tile_color: common.missing_map_tile_color.map(hex_from_rgba),
+        missing_region_color: common.missing_region_color.map(hex_from_rgba),
         format: format_name(req.format).to_owned(),
     });
     let render_id = Uuid::new_v4();
@@ -277,8 +277,8 @@ pub async fn usb_notecard(
         color: hex_from_rgba(parsed.color),
         max_width: parsed.common.max_width,
         max_height: parsed.common.max_height,
-        missing_map_tile_color: parsed.missing_map_tile_color_hex.clone(),
-        missing_region_color: parsed.missing_region_color_hex.clone(),
+        missing_map_tile_color: parsed.common.missing_map_tile_color.map(hex_from_rgba),
+        missing_region_color: parsed.common.missing_region_color.map(hex_from_rgba),
         format: format_name(parsed.common.format).to_owned(),
         save_without_route: parsed.with_without_route,
     });
@@ -350,10 +350,6 @@ struct ParsedRenderForm {
     common: CommonParams,
     /// whether to also save the without-route variant.
     with_without_route: bool,
-    /// the missing-map-tile colour hex string, for the settings JSON.
-    missing_map_tile_color_hex: Option<String>,
-    /// the missing-region colour hex string, for the settings JSON.
-    missing_region_color_hex: Option<String>,
 }
 
 /// Where the notecard for a render comes from.
@@ -382,8 +378,6 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
     let mut max_height: Option<u32> = None;
     let mut missing_map_tile_color: Option<Rgba<u8>> = None;
     let mut missing_region_color: Option<Rgba<u8>> = None;
-    let mut missing_map_tile_color_hex: Option<String> = None;
-    let mut missing_region_color_hex: Option<String> = None;
     let mut format = OutputFormat::default();
     let mut with_without_route = false;
     let mut notecard_text: Option<String> = None;
@@ -438,7 +432,6 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
                 let trimmed = raw.trim();
                 if !trimmed.is_empty() {
                     missing_map_tile_color = Some(parse_color(trimmed)?);
-                    missing_map_tile_color_hex = Some(trimmed.to_owned());
                 }
             }
             "missing_region_color" => {
@@ -446,7 +439,6 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
                 let trimmed = raw.trim();
                 if !trimmed.is_empty() {
                     missing_region_color = Some(parse_color(trimmed)?);
-                    missing_region_color_hex = Some(trimmed.to_owned());
                 }
             }
             "format" => {
@@ -521,8 +513,6 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
         color,
         common,
         with_without_route,
-        missing_map_tile_color_hex,
-        missing_region_color_hex,
     })
 }
 

@@ -88,15 +88,16 @@ impl FromRequestParts<AppState> for CurrentUser {
         let Some(session_id) = decode_session_id(cookie.value()) else {
             return Err(Error::Unauthenticated);
         };
+        let session_id_hash = Sha256::digest(session_id).to_vec();
         let now = Utc::now();
         // load the session and its user in one shot; reject if expired.
         let row: Option<SessionRow> = sqlx::query_as(
             "SELECT users.user_id, users.legacy_name, users.username, sessions.expires_at \
              FROM sessions \
              JOIN users ON users.user_id = sessions.user_id \
-             WHERE sessions.session_id = ?1",
+             WHERE sessions.session_id_hash = ?1",
         )
-        .bind(session_id.as_slice())
+        .bind(session_id_hash.as_slice())
         .fetch_optional(&state.db)
         .await
         .map_err(|err| {
@@ -112,11 +113,12 @@ impl FromRequestParts<AppState> for CurrentUser {
         let user_id = uuid_from_bytes(&uid_bytes).ok_or(Error::Unauthenticated)?;
         // best-effort bump of last_seen_at; failures here should not break
         // request handling.
-        if let Err(err) = sqlx::query("UPDATE sessions SET last_seen_at = ?1 WHERE session_id = ?2")
-            .bind(now)
-            .bind(session_id.as_slice())
-            .execute(&state.db)
-            .await
+        if let Err(err) =
+            sqlx::query("UPDATE sessions SET last_seen_at = ?1 WHERE session_id_hash = ?2")
+                .bind(now)
+                .bind(session_id_hash.as_slice())
+                .execute(&state.db)
+                .await
         {
             tracing::warn!("failed to bump sessions.last_seen_at: {err}");
         }
@@ -328,12 +330,13 @@ pub async fn create_session(
     let expires_at = now
         .checked_add_signed(chrono::Duration::seconds(cfg.session_ttl_seconds))
         .unwrap_or(chrono::DateTime::<Utc>::MAX_UTC);
+    let session_id_hash = Sha256::digest(raw).to_vec();
     sqlx::query(
         "INSERT INTO sessions \
-            (session_id, user_id, expires_at, created_at, last_seen_at, client_ip) \
+            (session_id_hash, user_id, expires_at, created_at, last_seen_at, client_ip) \
          VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
     )
-    .bind(raw.to_vec())
+    .bind(session_id_hash)
     .bind(user_id.as_bytes().to_vec())
     .bind(expires_at)
     .bind(now)
@@ -352,14 +355,16 @@ pub async fn create_session(
     ))
 }
 
-/// Delete a session row by raw id. Used on logout.
+/// Delete a session row by the raw 32-byte id from the cookie. Used on
+/// logout. Hashes internally so callers continue to pass cookie bytes.
 ///
 /// # Errors
 ///
 /// Returns [`Error::Database`] on delete failure.
 pub async fn delete_session(pool: &SqlitePool, session_id: &[u8]) -> Result<(), Error> {
-    sqlx::query("DELETE FROM sessions WHERE session_id = ?1")
-        .bind(session_id)
+    let session_id_hash = Sha256::digest(session_id).to_vec();
+    sqlx::query("DELETE FROM sessions WHERE session_id_hash = ?1")
+        .bind(session_id_hash)
         .execute(pool)
         .await
         .map_err(|err| {

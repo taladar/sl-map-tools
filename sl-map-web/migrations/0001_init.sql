@@ -33,10 +33,11 @@ CREATE INDEX set_password_tokens_expires_at_idx ON set_password_tokens (
     expires_at
 );
 
--- Server-side session store. The session cookie carries the session_id
--- (random 32 bytes, signed via cookie::Key); the row holds expiry / audit.
+-- Server-side session store. The session cookie carries the raw session id
+-- (random 32 bytes, signed via cookie::Key); the row stores only
+-- SHA-256(raw) so that a DB read alone does not yield working session ids.
 CREATE TABLE sessions (
-    session_id BLOB PRIMARY KEY NOT NULL,
+    session_id_hash BLOB PRIMARY KEY NOT NULL,
     user_id BLOB NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL,

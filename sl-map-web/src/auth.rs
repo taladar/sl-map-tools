@@ -216,7 +216,13 @@ impl FromRequestParts<AppState> for LslBearer {
         }
         let presented = bytes.get(prefix.len()..).unwrap_or(&[]);
         let expected = state.config.lsl_registration_bearer_token.as_bytes();
-        if presented.ct_eq(expected).into() {
+        // Run ct_eq over `expected.len()` bytes on every path so the
+        // mismatched-length case takes the same time as a wrong-content
+        // compare and the bearer's length doesn't leak via timing.
+        let len_ok = presented.len() == expected.len();
+        let lhs = if len_ok { presented } else { expected };
+        let eq: bool = lhs.ct_eq(expected).into();
+        if len_ok && eq {
             Ok(Self)
         } else {
             Err(Error::Unauthenticated)

@@ -16,6 +16,17 @@ use crate::client_ip::ClientIp;
 use crate::error::Error;
 use crate::state::AppState;
 
+/// Minimum length of a new password, in bytes. Long-and-simple beats
+/// short-and-complex; we don't enforce complexity rules (per NIST 800-63B
+/// guidance) but we want enough characters that brute force is not
+/// trivial.
+const MIN_PASSWORD_LENGTH: usize = 12;
+
+/// Maximum length of a new password, in bytes. Bounds the Argon2 input so
+/// an attacker can't burn CPU per attempt by submitting megabyte-scale
+/// "passwords". 128 bytes is far longer than any human-typed passphrase.
+const MAX_PASSWORD_LENGTH: usize = 128;
+
 /// Body sent by the LSL script to register a new avatar or refresh the
 /// names of an existing one.
 #[derive(Debug, Deserialize)]
@@ -154,10 +165,15 @@ pub async fn set_password(
     State(state): State<AppState>,
     Json(req): Json<SetPasswordRequest>,
 ) -> Result<Response, Error> {
-    if req.new_password.len() < 8 {
-        return Err(Error::BadRequest(
-            "password must be at least 8 characters".to_owned(),
-        ));
+    if req.new_password.len() < MIN_PASSWORD_LENGTH {
+        return Err(Error::BadRequest(format!(
+            "password must be at least {MIN_PASSWORD_LENGTH} characters"
+        )));
+    }
+    if req.new_password.len() > MAX_PASSWORD_LENGTH {
+        return Err(Error::BadRequest(format!(
+            "password must be at most {MAX_PASSWORD_LENGTH} characters"
+        )));
     }
     let Some(token_hash) = hash_token(&req.token) else {
         return Err(Error::InvalidOrExpiredToken);

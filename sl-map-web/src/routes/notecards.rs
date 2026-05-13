@@ -228,9 +228,8 @@ async fn parse_create_form(mut multipart: Multipart) -> Result<CreateForm, Error
     // Validate by parsing; we still store the raw text for fidelity (the
     // upstream USBNotecard type may strip whitespace etc. during parse).
     let _parsed: USBNotecard = raw.parse()?;
-    let name = name
-        .map(|n| n.trim().to_owned())
-        .ok_or_else(|| Error::BadRequest("name is required".to_owned()))?;
+    let name_raw = name.ok_or_else(|| Error::BadRequest("name is required".to_owned()))?;
+    let name = library::sanitise_display_name(&name_raw, "notecard name")?;
     let destination = Destination::parse(destination_raw.as_deref().unwrap_or("personal"))?;
     Ok(CreateForm {
         destination,

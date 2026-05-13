@@ -73,6 +73,37 @@ impl Destination {
     }
 }
 
+/// Maximum length, in unicode codepoints, of a user-supplied display
+/// name. Applies to `groups.name` and `saved_notecards.name`.
+pub const MAX_DISPLAY_NAME_LEN: usize = 128;
+
+/// Trim a user-supplied display name and reject it if it is empty,
+/// longer than [`MAX_DISPLAY_NAME_LEN`] codepoints, or contains any
+/// unicode control character (`char::is_control` — covers NUL, TAB, LF,
+/// CR, the C1 control block, and DEL). `field` is interpolated into the
+/// error message so the caller does not need to repeat the label.
+///
+/// # Errors
+///
+/// Returns [`Error::BadRequest`] for any of the rejection cases above.
+pub fn sanitise_display_name(raw: &str, field: &str) -> Result<String, Error> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(Error::BadRequest(format!("{field} must not be empty")));
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err(Error::BadRequest(format!(
+            "{field} must not contain control characters"
+        )));
+    }
+    if trimmed.chars().count() > MAX_DISPLAY_NAME_LEN {
+        return Err(Error::BadRequest(format!(
+            "{field} must be at most {MAX_DISPLAY_NAME_LEN} characters"
+        )));
+    }
+    Ok(trimmed.to_owned())
+}
+
 /// Public, serializable record of a saved notecard.
 #[derive(Debug, Clone, Serialize)]
 pub struct NotecardView {

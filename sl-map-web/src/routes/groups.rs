@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::auth::CurrentUser;
 use crate::error::Error;
 use crate::groups::{self, GroupMemberView, GroupRole, GroupView};
+use crate::library;
 use crate::state::AppState;
 
 /// Body for `POST /api/groups`.
@@ -81,11 +82,8 @@ pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateGroupRequest>,
 ) -> Result<(ReqwestStatusCode, Json<GroupResponse>), Error> {
-    let name = req.name.trim();
-    if name.is_empty() {
-        return Err(Error::BadRequest("group name must not be empty".to_owned()));
-    }
-    let group_id = groups::create_group(&state.db, name, user.user_id).await?;
+    let name = library::sanitise_display_name(&req.name, "group name")?;
+    let group_id = groups::create_group(&state.db, &name, user.user_id).await?;
     let group = groups::get_for_user(&state.db, group_id, user.user_id).await?;
     Ok((ReqwestStatusCode::CREATED, Json(GroupResponse { group })))
 }
@@ -118,11 +116,8 @@ pub async fn rename(
     Json(req): Json<RenameGroupRequest>,
 ) -> Result<Json<GroupResponse>, Error> {
     require_owner(&state, group_id, user.user_id).await?;
-    let name = req.name.trim();
-    if name.is_empty() {
-        return Err(Error::BadRequest("group name must not be empty".to_owned()));
-    }
-    groups::rename_group(&state.db, group_id, name).await?;
+    let name = library::sanitise_display_name(&req.name, "group name")?;
+    groups::rename_group(&state.db, group_id, &name).await?;
     let group = groups::get_for_user(&state.db, group_id, user.user_id).await?;
     Ok(Json(GroupResponse { group }))
 }

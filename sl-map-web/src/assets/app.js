@@ -7,6 +7,15 @@
 // keeps the preview under ~1024×1024 and drop `<img>` tags positioned in
 // region space. No tiles flow through our server.
 
+// Strict 8-4-4-4-12 hex form, matching the canonical UUID layout emitted
+// by the server. Used to validate UUID-shaped query params before they
+// are interpolated into fetch URLs or assigned to form fields.
+const UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+function isUuid(s) {
+  return typeof s === "string" && UUID_RE.test(s);
+}
+
 // --- auth: redirect to /login on 401 and populate the header bar ---
 
 function redirectToLogin() {
@@ -663,7 +672,11 @@ async function applyPrefillFromQuery() {
   const params = new URLSearchParams(window.location.search);
   const reuse = params.get("reuse_notecard");
   const regen = params.get("regenerate");
-  if (reuse) {
+  // Both params flow into either a select-element value or a fetch URL,
+  // so a non-UUID payload could shape arbitrary same-origin requests
+  // via the user's session. The server already rejects with 404, but
+  // we silently drop bad values here so the request is never sent.
+  if (isUuid(reuse)) {
     // Wait for the notecard picker to populate; then select.
     setTimeout(() => {
       const sel = $("notecard_id");
@@ -675,7 +688,7 @@ async function applyPrefillFromQuery() {
       }
     }, 300);
   }
-  if (regen) {
+  if (isUuid(regen)) {
     try {
       const resp = await fetch(`/api/renders/${regen}/settings`);
       if (!resp.ok) throw new Error(await resp.text());

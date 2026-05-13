@@ -1,11 +1,17 @@
-//! Render endpoints: start a render job and return its id.
+//! Render endpoints: start a render job, persist it to the library, and
+//! return its id. The same UUID is used for the in-memory `JobStore` and the
+//! `saved_renders` row, so the existing `/api/render/{id}/*` endpoints
+//! (live SSE / in-memory image) and the new `/api/renders/{id}/*` endpoints
+//! (persisted) address the same render.
 
 use std::io::Cursor;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use axum::Json;
 use axum::extract::{Multipart, State};
 use bytes::Bytes;
+use chrono::Utc;
 use image::{ImageFormat, Rgba};
 use serde::{Deserialize, Serialize};
 use sl_map_apis::map_tiles::{Map, MapProgressEvent, MapTileCache};
@@ -14,9 +20,13 @@ use sl_types::map::{GridCoordinates, GridRectangle, GridRectangleLike as _, USBN
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::auth::CurrentUser;
 use crate::error::Error;
 use crate::jobs::{JobId, JobOutcome, JobState, Metadata, ProgressDto, record_event};
+use crate::library::{self, Destination};
+use crate::routes::notecards as notecard_routes;
 use crate::state::AppState;
+use crate::storage;
 
 /// Output format for the rendered image.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -86,24 +96,90 @@ pub struct GridRectangleRequest {
     /// output format.
     #[serde(default)]
     pub format: OutputFormat,
+    /// destination for the saved render. Defaults to the user's personal
+    /// library. Format: `"personal"` or `"group:<uuid>"`.
+    #[serde(default)]
+    pub save_to: Option<String>,
 }
 
 /// Response shape for both render endpoints.
 #[derive(Debug, Clone, Serialize)]
 pub struct StartedResponse {
-    /// the id of the newly created job.
+    /// the id of the newly created job (also the `saved_renders.render_id`).
     pub job_id: Uuid,
+}
+
+/// Settings JSON stored in `saved_renders.settings_json`. Designed to be
+/// fed back into the form for "Regenerate".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SavedRenderSettings {
+    /// settings used for a grid-rectangle render.
+    GridRectangle(SavedGridRectangleSettings),
+    /// settings used for a USB-notecard render.
+    UsbNotecard(SavedUsbNotecardSettings),
+}
+
+/// Persisted form fields for a grid-rectangle render.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedGridRectangleSettings {
+    /// lower-left x grid coordinate.
+    pub lower_left_x: u16,
+    /// lower-left y grid coordinate.
+    pub lower_left_y: u16,
+    /// upper-right x grid coordinate.
+    pub upper_right_x: u16,
+    /// upper-right y grid coordinate.
+    pub upper_right_y: u16,
+    /// max output width in pixels.
+    pub max_width: u32,
+    /// max output height in pixels.
+    pub max_height: u32,
+    /// optional hex colour string for missing map tiles.
+    pub missing_map_tile_color: Option<String>,
+    /// optional hex colour string for missing regions.
+    pub missing_region_color: Option<String>,
+    /// output format (`png` / `jpeg`).
+    pub format: String,
+}
+
+/// Persisted form fields for a USB-notecard render.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedUsbNotecardSettings {
+    /// the saved notecard the render was launched from.
+    pub notecard_id: Uuid,
+    /// per-side borders in regions: north, south, east, west.
+    pub border_north: u16,
+    /// south border.
+    pub border_south: u16,
+    /// east border.
+    pub border_east: u16,
+    /// west border.
+    pub border_west: u16,
+    /// route colour as a hex string.
+    pub color: String,
+    /// max width.
+    pub max_width: u32,
+    /// max height.
+    pub max_height: u32,
+    /// missing-tile hex colour, if enabled.
+    pub missing_map_tile_color: Option<String>,
+    /// missing-region hex colour, if enabled.
+    pub missing_region_color: Option<String>,
+    /// output format (`png` / `jpeg`).
+    pub format: String,
+    /// whether a without-route variant was also produced.
+    pub save_without_route: bool,
 }
 
 /// `POST /api/render/grid-rectangle` — start a render from explicit corners.
 ///
 /// # Errors
 ///
-/// Returns an error if any of the optional hex colour fields fails to parse;
-/// otherwise the request always succeeds (the actual render runs in the
-/// background; failures there are surfaced via the SSE stream and the
-/// result endpoints).
+/// Returns an error if any of the optional hex colour fields fails to parse,
+/// the destination is invalid, or the user is not allowed to save to it.
 pub async fn grid_rectangle(
+    user: CurrentUser,
     State(state): State<AppState>,
     Json(req): Json<GridRectangleRequest>,
 ) -> Result<Json<StartedResponse>, Error> {
@@ -122,11 +198,35 @@ pub async fn grid_rectangle(
             .transpose()?,
         format: req.format,
     };
+    let destination = Destination::parse(req.save_to.as_deref().unwrap_or("personal"))?;
+    library::assert_can_write(&state.db, user.user_id, destination).await?;
     let rect = GridRectangle::new(
         GridCoordinates::new(req.lower_left_x, req.lower_left_y),
         GridCoordinates::new(req.upper_right_x, req.upper_right_y),
     );
-    let (job_id, job) = state.jobs.create().await;
+    let settings = SavedRenderSettings::GridRectangle(SavedGridRectangleSettings {
+        lower_left_x: req.lower_left_x,
+        lower_left_y: req.lower_left_y,
+        upper_right_x: req.upper_right_x,
+        upper_right_y: req.upper_right_y,
+        max_width: req.max_width,
+        max_height: req.max_height,
+        missing_map_tile_color: req.missing_map_tile_color.clone(),
+        missing_region_color: req.missing_region_color.clone(),
+        format: format_name(req.format).to_owned(),
+    });
+    let render_id = Uuid::new_v4();
+    insert_render_row(
+        &state,
+        render_id,
+        destination,
+        user.user_id,
+        "grid_rectangle",
+        None,
+        &settings,
+    )
+    .await?;
+    let (job_id, job) = state.jobs.create_with_id(render_id).await;
     spawn_grid_rectangle_job(state, job_id, job, rect, common);
     Ok(Json(StartedResponse { job_id }))
 }
@@ -136,25 +236,78 @@ pub async fn grid_rectangle(
 /// # Errors
 ///
 /// Returns an error if the multipart form is malformed, the notecard fails
-/// to parse, or required fields are missing.
+/// to parse, required fields are missing, the destination is invalid, or
+/// the user is not allowed to save there.
 pub async fn usb_notecard(
+    user: CurrentUser,
     State(state): State<AppState>,
     multipart: Multipart,
 ) -> Result<Json<StartedResponse>, Error> {
-    let (notecard, borders, color, common, with_without_route) =
-        parse_render_form(multipart).await?;
-    let (job_id, job) = state.jobs.create().await;
+    let parsed = parse_render_form(multipart).await?;
+    library::assert_can_write(&state.db, user.user_id, parsed.destination).await?;
+
+    // Resolve the notecard: either reuse an existing saved one or upload
+    // (and always save) a fresh one to the chosen notecard destination.
+    let (notecard, notecard_id) = resolve_notecard(&state, &user, &parsed).await?;
+
+    let settings = SavedRenderSettings::UsbNotecard(SavedUsbNotecardSettings {
+        notecard_id,
+        border_north: parsed.borders.0,
+        border_south: parsed.borders.1,
+        border_east: parsed.borders.2,
+        border_west: parsed.borders.3,
+        color: hex_from_rgba(parsed.color),
+        max_width: parsed.common.max_width,
+        max_height: parsed.common.max_height,
+        missing_map_tile_color: parsed.missing_map_tile_color_hex.clone(),
+        missing_region_color: parsed.missing_region_color_hex.clone(),
+        format: format_name(parsed.common.format).to_owned(),
+        save_without_route: parsed.with_without_route,
+    });
+
+    let render_id = Uuid::new_v4();
+    insert_render_row(
+        &state,
+        render_id,
+        parsed.destination,
+        user.user_id,
+        "usb_notecard",
+        Some(notecard_id),
+        &settings,
+    )
+    .await?;
+
+    let (job_id, job) = state.jobs.create_with_id(render_id).await;
     spawn_usb_notecard_job(
         state,
         job_id,
         job,
         notecard,
-        borders,
-        color,
-        common,
-        with_without_route,
+        parsed.borders,
+        parsed.color,
+        parsed.common,
+        parsed.with_without_route,
     );
     Ok(Json(StartedResponse { job_id }))
+}
+
+/// Map a [`OutputFormat`] to its lowercase name used in the persisted
+/// settings JSON.
+const fn format_name(format: OutputFormat) -> &'static str {
+    match format {
+        OutputFormat::Png => "png",
+        OutputFormat::Jpeg => "jpeg",
+    }
+}
+
+/// Format an `Rgba<u8>` as `#rrggbb` (the alpha is dropped because the form
+/// colour pickers don't expose alpha).
+fn hex_from_rgba(rgba: Rgba<u8>) -> String {
+    let Rgba(parts) = rgba;
+    let r = parts.first().copied().unwrap_or(0);
+    let g = parts.get(1).copied().unwrap_or(0);
+    let b = parts.get(2).copied().unwrap_or(0);
+    format!("#{r:02x}{g:02x}{b:02x}")
 }
 
 /// Parse a hex colour string (e.g. `#ff0000`) into an `image::Rgba<u8>`.
@@ -164,31 +317,63 @@ fn parse_color(s: &str) -> Result<Rgba<u8>, Error> {
     Ok(Rgba(parsed.to_be_bytes()))
 }
 
-/// Parse the multipart form for the USB-notecard render endpoint. Returns
-/// the notecard, per-side borders, route colour, shared params, and whether
-/// the caller asked to keep a no-route version.
-async fn parse_render_form(
-    multipart: Multipart,
-) -> Result<
-    (
-        USBNotecard,
-        (u16, u16, u16, u16),
-        Rgba<u8>,
-        CommonParams,
-        bool,
-    ),
-    Error,
-> {
+/// Parsed multipart form for the USB-notecard render endpoint.
+struct ParsedRenderForm {
+    /// the notecard source: an existing saved notecard id, or a freshly
+    /// uploaded one (text + optional name + destination).
+    notecard_source: NotecardSource,
+    /// the destination for the *render*.
+    destination: Destination,
+    /// per-side borders in regions: north, south, east, west.
+    borders: (u16, u16, u16, u16),
+    /// route colour.
+    color: Rgba<u8>,
+    /// shared output parameters.
+    common: CommonParams,
+    /// whether to also save the without-route variant.
+    with_without_route: bool,
+    /// the missing-map-tile colour hex string, for the settings JSON.
+    missing_map_tile_color_hex: Option<String>,
+    /// the missing-region colour hex string, for the settings JSON.
+    missing_region_color_hex: Option<String>,
+}
+
+/// Where the notecard for a render comes from.
+enum NotecardSource {
+    /// Reuse a saved notecard by id.
+    Existing {
+        /// the saved notecard's id.
+        notecard_id: Uuid,
+    },
+    /// Use a freshly uploaded notecard; save it to the destination first.
+    Fresh {
+        /// the raw notecard text.
+        text: String,
+        /// the display name for the saved-notecards row.
+        name: String,
+        /// destination for the *notecard* (may differ from the render's).
+        destination: Destination,
+    },
+}
+
+/// Parse the multipart form for the USB-notecard render endpoint.
+async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Error> {
     let mut form = crate::usb_notecard::NotecardForm::default();
     let mut color: Rgba<u8> = Rgba([0xff, 0x00, 0x00, 0xff]);
     let mut max_width: Option<u32> = None;
     let mut max_height: Option<u32> = None;
     let mut missing_map_tile_color: Option<Rgba<u8>> = None;
     let mut missing_region_color: Option<Rgba<u8>> = None;
+    let mut missing_map_tile_color_hex: Option<String> = None;
+    let mut missing_region_color_hex: Option<String> = None;
     let mut format = OutputFormat::default();
     let mut with_without_route = false;
     let mut notecard_text: Option<String> = None;
     let mut notecard_file: Option<String> = None;
+    let mut notecard_id: Option<Uuid> = None;
+    let mut destination_raw: Option<String> = None;
+    let mut notecard_destination_raw: Option<String> = None;
+    let mut notecard_name: Option<String> = None;
     let mut multipart = multipart;
     while let Some(field) = multipart.next_field().await? {
         let Some(name) = field.name().map(str::to_owned) else {
@@ -209,6 +394,16 @@ async fn parse_render_form(
                     notecard_text = Some(text);
                 }
             }
+            "notecard_id" => {
+                let raw = field.text().await?;
+                let trimmed = raw.trim();
+                if !trimmed.is_empty() {
+                    notecard_id = Some(
+                        Uuid::parse_str(trimmed)
+                            .map_err(|e| Error::BadRequest(format!("invalid notecard_id: {e}")))?,
+                    );
+                }
+            }
             "border_regions" => form.border_regions = parse_optional_u16(&field.text().await?)?,
             "border_north" => form.border_north = parse_optional_u16(&field.text().await?)?,
             "border_south" => form.border_south = parse_optional_u16(&field.text().await?)?,
@@ -225,6 +420,7 @@ async fn parse_render_form(
                 let trimmed = raw.trim();
                 if !trimmed.is_empty() {
                     missing_map_tile_color = Some(parse_color(trimmed)?);
+                    missing_map_tile_color_hex = Some(trimmed.to_owned());
                 }
             }
             "missing_region_color" => {
@@ -232,6 +428,7 @@ async fn parse_render_form(
                 let trimmed = raw.trim();
                 if !trimmed.is_empty() {
                     missing_region_color = Some(parse_color(trimmed)?);
+                    missing_region_color_hex = Some(trimmed.to_owned());
                 }
             }
             "format" => {
@@ -251,51 +448,248 @@ async fn parse_render_form(
                     "1" | "on" | "true" | "yes"
                 );
             }
+            "save_to" => destination_raw = Some(field.text().await?),
+            "notecard_save_to" => notecard_destination_raw = Some(field.text().await?),
+            "notecard_name" => {
+                let t = field.text().await?;
+                if !t.trim().is_empty() {
+                    notecard_name = Some(t);
+                }
+            }
             _ => {}
         }
     }
-    let raw = notecard_file.or(notecard_text).ok_or_else(|| {
-        Error::BadRequest(
-            "either a `notecard` file upload or a `notecard_text` field is required".to_owned(),
-        )
-    })?;
-    let notecard: USBNotecard = raw.parse()?;
+    let destination = Destination::parse(destination_raw.as_deref().unwrap_or("personal"))?;
     let max_width = max_width.ok_or_else(|| Error::BadRequest("missing max_width".to_owned()))?;
     let max_height =
         max_height.ok_or_else(|| Error::BadRequest("missing max_height".to_owned()))?;
     let borders = form.borders();
-    Ok((
-        notecard,
+    let common = CommonParams {
+        max_width,
+        max_height,
+        missing_map_tile_color,
+        missing_region_color,
+        format,
+    };
+    let notecard_source = if let Some(id) = notecard_id {
+        if notecard_file.is_some() || notecard_text.is_some() {
+            return Err(Error::BadRequest(
+                "supply either `notecard_id` or notecard text/file, not both".to_owned(),
+            ));
+        }
+        NotecardSource::Existing { notecard_id: id }
+    } else {
+        let raw = notecard_file.or(notecard_text).ok_or_else(|| {
+            Error::BadRequest(
+                "supply `notecard_id`, `notecard` file upload, or `notecard_text`".to_owned(),
+            )
+        })?;
+        let name = notecard_name.map_or_else(default_notecard_name, |n| n.trim().to_owned());
+        let notecard_dest = match notecard_destination_raw {
+            Some(s) => Destination::parse(&s)?,
+            None => destination,
+        };
+        NotecardSource::Fresh {
+            text: raw,
+            name,
+            destination: notecard_dest,
+        }
+    };
+    Ok(ParsedRenderForm {
+        notecard_source,
+        destination,
         borders,
         color,
-        CommonParams {
-            max_width,
-            max_height,
-            missing_map_tile_color,
-            missing_region_color,
-            format,
-        },
+        common,
         with_without_route,
-    ))
+        missing_map_tile_color_hex,
+        missing_region_color_hex,
+    })
 }
 
-/// Parse a possibly-empty u16 from a form field.
-fn parse_optional_u16(s: &str) -> Result<Option<u16>, Error> {
-    let trimmed = s.trim();
-    if trimmed.is_empty() {
-        return Ok(None);
+/// Compose a fallback display name for an unnamed notecard.
+fn default_notecard_name() -> String {
+    let now = Utc::now();
+    format!("Uploaded {}", now.format("%Y-%m-%d %H:%M:%S UTC"))
+}
+
+/// Resolve the notecard source for a USB-notecard render. Returns the parsed
+/// `USBNotecard` (for the renderer) and the `saved_notecards.notecard_id`
+/// the render will link to.
+async fn resolve_notecard(
+    state: &AppState,
+    user: &CurrentUser,
+    parsed: &ParsedRenderForm,
+) -> Result<(USBNotecard, Uuid), Error> {
+    match &parsed.notecard_source {
+        NotecardSource::Existing { notecard_id } => {
+            let row =
+                library::assert_can_read_notecard(&state.db, user.user_id, *notecard_id).await?;
+            let parsed_notecard: USBNotecard = row.body.parse()?;
+            Ok((parsed_notecard, *notecard_id))
+        }
+        NotecardSource::Fresh {
+            text,
+            name,
+            destination,
+        } => {
+            library::assert_can_write(&state.db, user.user_id, *destination).await?;
+            let parsed_notecard: USBNotecard = text.parse()?;
+            let notecard_id =
+                notecard_routes::insert_notecard_row(state, *destination, user.user_id, name, text)
+                    .await?;
+            Ok((parsed_notecard, notecard_id))
+        }
     }
-    trimmed
-        .parse::<u16>()
-        .map(Some)
-        .map_err(|e| Error::BadRequest(format!("invalid u16 `{trimmed}`: {e}")))
 }
 
-/// Parse a required u32 from a form field.
-fn parse_u32(s: &str) -> Result<u32, Error> {
-    s.trim()
-        .parse::<u32>()
-        .map_err(|e| Error::BadRequest(format!("invalid u32 `{s}`: {e}")))
+/// Insert a `saved_renders` row with `status='in_progress'` and the supplied
+/// settings JSON. Returns the new render id (same as the caller supplied).
+async fn insert_render_row(
+    state: &AppState,
+    render_id: Uuid,
+    destination: Destination,
+    created_by: Uuid,
+    kind: &str,
+    notecard_id: Option<Uuid>,
+    settings: &SavedRenderSettings,
+) -> Result<(), Error> {
+    let (owner_user, owner_group) = match destination {
+        Destination::Personal => (Some(created_by.as_bytes().to_vec()), None),
+        Destination::Group { group_id } => (None, Some(group_id.as_bytes().to_vec())),
+    };
+    let now = Utc::now();
+    let settings_json = serde_json::to_string(settings)?;
+    sqlx::query(
+        "INSERT INTO saved_renders \
+            (render_id, owner_user_id, owner_group_id, created_by, notecard_id, kind, \
+             status, settings_json, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'in_progress', ?7, ?8)",
+    )
+    .bind(render_id.as_bytes().to_vec())
+    .bind(owner_user)
+    .bind(owner_group)
+    .bind(created_by.as_bytes().to_vec())
+    .bind(notecard_id.map(|id| id.as_bytes().to_vec()))
+    .bind(kind)
+    .bind(settings_json)
+    .bind(now)
+    .execute(&state.db)
+    .await
+    .map_err(|err| {
+        tracing::error!("insert saved_renders failed: {err}");
+        Error::Database
+    })?;
+    Ok(())
+}
+
+/// Update a `saved_renders` row to its terminal state. On `Ok`, writes the
+/// image files to disk and updates metadata + filenames. On `Err`, records
+/// the error message.
+async fn finalize_render_row(state: &AppState, render_id: Uuid, outcome: &JobOutcome) {
+    let now = Utc::now();
+    match outcome {
+        JobOutcome::Ok {
+            image,
+            image_without_route,
+            content_type,
+            metadata,
+        } => {
+            let ext = storage::ext_for_content_type(content_type);
+            let image_filename = match storage::write_render_file(
+                &state.config.storage_dir,
+                render_id,
+                storage::IMAGE_SUFFIX,
+                ext,
+                image.clone(),
+            )
+            .await
+            {
+                Ok(f) => Some(f),
+                Err(err) => {
+                    tracing::error!("write primary render image failed: {err}");
+                    update_failed(state, render_id, &format!("write image failed: {err}"), now)
+                        .await;
+                    return;
+                }
+            };
+            let without_filename = if let Some(bytes) = image_without_route {
+                match storage::write_render_file(
+                    &state.config.storage_dir,
+                    render_id,
+                    storage::IMAGE_WITHOUT_ROUTE_SUFFIX,
+                    ext,
+                    bytes.clone(),
+                )
+                .await
+                {
+                    Ok(f) => Some(f),
+                    Err(err) => {
+                        tracing::warn!("write without-route render image failed: {err}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            let metadata_json = match serde_json::to_string(metadata) {
+                Ok(s) => s,
+                Err(err) => {
+                    tracing::error!("serialize metadata failed: {err}");
+                    update_failed(
+                        state,
+                        render_id,
+                        &format!("serialize metadata failed: {err}"),
+                        now,
+                    )
+                    .await;
+                    return;
+                }
+            };
+            let result = sqlx::query(
+                "UPDATE saved_renders SET status = 'done', finished_at = ?1, \
+                    metadata_json = ?2, content_type = ?3, \
+                    image_filename = ?4, image_without_route_filename = ?5 \
+                 WHERE render_id = ?6",
+            )
+            .bind(now)
+            .bind(metadata_json)
+            .bind(*content_type)
+            .bind(image_filename)
+            .bind(without_filename)
+            .bind(render_id.as_bytes().to_vec())
+            .execute(&state.db)
+            .await;
+            if let Err(err) = result {
+                tracing::error!("update saved_renders to done failed: {err}");
+                state.library_cleanup_dirty.store(true, Ordering::Release);
+            }
+        }
+        JobOutcome::Err(msg) => {
+            update_failed(state, render_id, msg, now).await;
+        }
+    }
+}
+
+/// Update a render row to `failed` with the supplied error message.
+async fn update_failed(
+    state: &AppState,
+    render_id: Uuid,
+    message: &str,
+    now: chrono::DateTime<Utc>,
+) {
+    if let Err(err) = sqlx::query(
+        "UPDATE saved_renders SET status = 'failed', finished_at = ?1, error_message = ?2 \
+         WHERE render_id = ?3",
+    )
+    .bind(now)
+    .bind(message)
+    .bind(render_id.as_bytes().to_vec())
+    .execute(&state.db)
+    .await
+    {
+        tracing::error!("update saved_renders to failed failed: {err}");
+    }
 }
 
 /// Spawn the background task that renders a grid rectangle.
@@ -314,7 +708,8 @@ fn spawn_grid_rectangle_job(
             common,
         )
         .await;
-        finish_job(&job, result).await;
+        let outcome = finish_job(&job, result).await;
+        finalize_render_row(&state, job_id, &outcome).await;
         tracing::info!("render job {job_id} finished");
     }));
 }
@@ -346,7 +741,8 @@ fn spawn_usb_notecard_job(
             with_without_route,
         )
         .await;
-        finish_job(&job, result).await;
+        let outcome = finish_job(&job, result).await;
+        finalize_render_row(&state, job_id, &outcome).await;
         tracing::info!("render job {job_id} finished");
     }));
 }
@@ -482,7 +878,8 @@ fn encode_map(map: &Map, format: OutputFormat) -> Result<Bytes, Error> {
 
 /// Finalise the job: record either Ok or Err and publish via the watch
 /// channel so SSE handlers can emit the final `done` / `error` event.
-async fn finish_job(job: &Arc<JobState>, result: Result<JobOutcome, Error>) {
+/// Returns the [`JobOutcome`] for the persistence step.
+async fn finish_job(job: &Arc<JobState>, result: Result<JobOutcome, Error>) -> JobOutcome {
     let outcome = match result {
         Ok(o) => o,
         Err(e) => {
@@ -500,8 +897,26 @@ async fn finish_job(job: &Arc<JobState>, result: Result<JobOutcome, Error>) {
     if matches!(outcome, JobOutcome::Ok { .. }) {
         record_event(job, ProgressDto::Done).await;
     }
-    // `send_replace` (rather than `send`) stores the value even when no
-    // receivers exist yet, so the result endpoints can still serve the
-    // outcome when an SSE subscriber connects after the render finishes.
-    drop(job.outcome.send_replace(Some(Arc::new(outcome))));
+    let arc = Arc::new(outcome.clone());
+    drop(job.outcome.send_replace(Some(arc)));
+    outcome
+}
+
+/// Parse a possibly-empty u16 from a form field.
+fn parse_optional_u16(s: &str) -> Result<Option<u16>, Error> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    trimmed
+        .parse::<u16>()
+        .map(Some)
+        .map_err(|e| Error::BadRequest(format!("invalid u16 `{trimmed}`: {e}")))
+}
+
+/// Parse a required u32 from a form field.
+fn parse_u32(s: &str) -> Result<u32, Error> {
+    s.trim()
+        .parse::<u32>()
+        .map_err(|e| Error::BadRequest(format!("invalid u32 `{s}`: {e}")))
 }

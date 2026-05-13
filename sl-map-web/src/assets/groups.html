@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Groups — sl-map-web</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="topbar">
+        <h1>Groups</h1>
+        <div class="topbar-user">
+          <span id="logged-in-as"></span>
+          <button type="button" id="logout-button" class="topbar-logout hidden">
+            Logout
+          </button>
+        </div>
+      </div>
+      <nav class="primary-nav">
+        <a href="/">Render</a>
+        <a href="/library">Library</a>
+        <a href="/groups" class="active">Groups</a>
+        <a href="/invitations" id="invitations-link">Invitations</a>
+      </nav>
+    </header>
+
+    <section id="groups-list-section">
+      <h2>Your groups</h2>
+      <table class="library-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Role</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="groups-tbody"></tbody>
+      </table>
+      <p id="groups-status" class="status"></p>
+      <h3>Create a new group</h3>
+      <form id="create-group-form">
+        <div class="row">
+          <label class="grow">
+            Name
+            <input type="text" id="new-group-name" required minlength="1" />
+          </label>
+          <button type="submit">Create</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="group-detail-section" class="hidden">
+      <h2 id="group-detail-name"></h2>
+      <p id="group-detail-status" class="status"></p>
+
+      <h3>Members</h3>
+      <table class="library-table">
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Legacy name</th>
+            <th>Role</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="members-tbody"></tbody>
+      </table>
+
+      <div id="owner-actions" class="hidden">
+        <h3>Invite a user</h3>
+        <form id="invite-form">
+          <div class="row">
+            <label class="grow">
+              Identifier (UUID, username, or legacy name)
+              <input type="text" id="invite-identifier" required />
+            </label>
+            <label>
+              Role
+              <select id="invite-role">
+                <option value="member" selected>Member</option>
+                <option value="owner">Owner</option>
+              </select>
+            </label>
+            <button type="submit">Invite</button>
+          </div>
+        </form>
+
+        <h3>Pending invitations</h3>
+        <table class="library-table">
+          <thead>
+            <tr>
+              <th>Invitee</th>
+              <th>Target role</th>
+              <th>Sent</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="invitations-tbody"></tbody>
+        </table>
+
+        <h3>Danger zone</h3>
+        <button type="button" id="rename-group">Rename group</button>
+        <button type="button" id="delete-group" class="row-action danger">
+          Delete group
+        </button>
+      </div>
+
+      <div class="row">
+        <button type="button" id="leave-group" class="row-action danger">
+          Leave group
+        </button>
+      </div>
+
+      <p>
+        <a href="/library" id="library-link">Open this group's library →</a>
+      </p>
+    </section>
+
+    <script src="/static/app.js"></script>
+    <script src="/static/groups.js"></script>
+  </body>
+</html>

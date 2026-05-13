@@ -239,7 +239,14 @@ impl JobStore {
 
     /// Register a new job, returning its id and shared state handle.
     pub async fn create(&self) -> (JobId, Arc<JobState>) {
-        let id = Uuid::new_v4();
+        self.create_with_id(Uuid::new_v4()).await
+    }
+
+    /// Register a new job using a caller-supplied id. Used so the persisted
+    /// `saved_renders.render_id` and the in-memory job id are the same UUID,
+    /// keeping the existing `/api/render/{id}/...` endpoints addressing the
+    /// same render as the new `/api/renders/{id}/...` ones.
+    pub async fn create_with_id(&self, id: JobId) -> (JobId, Arc<JobState>) {
         let state = Arc::new(JobState::new());
         {
             let mut guard = self.inner.lock().await;

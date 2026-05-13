@@ -1,7 +1,9 @@
 #![doc = include_str!("../../README.md")]
 
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use axum_extra::extract::cookie::Key;
@@ -11,9 +13,12 @@ use sl_map_apis::region::RegionNameToGridCoordinatesCache;
 use sl_map_web::auth::run_cleanup;
 use sl_map_web::config::{Config, ConfigError};
 use sl_map_web::db::{DbError, open_and_migrate};
+use sl_map_web::error::Error as LibError;
 use sl_map_web::jobs::JobStore;
+use sl_map_web::library::run_orphan_sweeper;
 use sl_map_web::routes::build as build_router;
 use sl_map_web::state::AppState;
+use sl_map_web::storage;
 use tokio::sync::Mutex;
 use tracing_subscriber::{
     EnvFilter, Layer as _, Registry, filter::LevelFilter, layer::SubscriberExt as _,
@@ -45,6 +50,9 @@ enum Error {
     /// error running the axum server.
     #[error("HTTP server error: {0}")]
     Server(#[source] std::io::Error),
+    /// error setting up the on-disk storage layout.
+    #[error("storage layout error: {0}")]
+    Storage(#[source] LibError),
 }
 
 #[tokio::main]
@@ -67,6 +75,10 @@ async fn run() -> Result<(), Error> {
     if !config.cache_dir.exists() {
         fs_err::create_dir_all(&config.cache_dir).map_err(Error::Listener)?;
     }
+    if !config.storage_dir.exists() {
+        fs_err::create_dir_all(&config.storage_dir).map_err(Error::Listener)?;
+    }
+    storage::ensure_layout(&config.storage_dir).map_err(Error::Storage)?;
     let ratelimiter = ratelimit::Ratelimiter::builder(config.rate_limit).build()?;
     let map_tile_cache = MapTileCache::new(config.cache_dir.clone(), Some(ratelimiter));
     let region_cache = RegionNameToGridCoordinatesCache::new(config.cache_dir.clone())?;
@@ -78,6 +90,11 @@ async fn run() -> Result<(), Error> {
     let signing_bytes = config.decoded_signing_key()?;
     let cookie_key = Key::from(signing_bytes.as_slice());
 
+    // Start dirty so the first sweeper tick reaps any orphan files left
+    // over from a crash before this restart.
+    let library_cleanup_dirty = Arc::new(AtomicBool::new(true));
+    let storage_dir: Arc<Path> = Arc::from(config.storage_dir.clone().into_boxed_path());
+
     let state = AppState {
         map_tile_cache: Arc::new(Mutex::new(map_tile_cache)),
         region_cache: Arc::new(Mutex::new(region_cache)),
@@ -85,9 +102,11 @@ async fn run() -> Result<(), Error> {
         config: Arc::new(config.clone()),
         db: db.clone(),
         cookie_key,
+        library_cleanup_dirty: Arc::clone(&library_cleanup_dirty),
     };
     spawn_job_evictor(jobs, job_ttl);
-    spawn_auth_cleanup(db);
+    spawn_auth_cleanup(db.clone());
+    spawn_library_sweeper(db, storage_dir, library_cleanup_dirty);
     let router = build_router(state);
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await
@@ -118,6 +137,15 @@ fn spawn_job_evictor(jobs: Arc<JobStore>, max_age: Duration) {
 fn spawn_auth_cleanup(pool: sqlx::SqlitePool) {
     drop(tokio::spawn(async move {
         run_cleanup(pool).await;
+    }));
+}
+
+/// Background task that reaps orphan render image files from disk. Wakes
+/// every 10 minutes; the actual filesystem scan only runs when the in-
+/// process dirty flag is set.
+fn spawn_library_sweeper(pool: sqlx::SqlitePool, storage_dir: Arc<Path>, dirty: Arc<AtomicBool>) {
+    drop(tokio::spawn(async move {
+        run_orphan_sweeper(pool, storage_dir, dirty, Duration::from_secs(600)).await;
     }));
 }
 

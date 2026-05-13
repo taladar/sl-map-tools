@@ -57,7 +57,30 @@ document.addEventListener("DOMContentLoaded", () => {
       window.location.assign("/login");
     });
   }
+  decorateInvitationsLink();
 });
+
+// Populate the invitations nav link with a count of pending invites. Called
+// on every page that uses app.js.
+async function decorateInvitationsLink() {
+  const link = document.getElementById("invitations-link");
+  if (!link) return;
+  try {
+    const resp = await _originalFetch("/api/invitations");
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const n = (data.invitations || []).length;
+    if (n > 0) {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = String(n);
+      link.appendChild(document.createTextNode(" "));
+      link.appendChild(badge);
+    }
+  } catch (_err) {
+    // ignore
+  }
+}
 
 const TILE_URL = (z, x, y) =>
   `https://secondlife-maps-cdn.akamaized.net/map-${z}-${x}-${y}-objects.jpg`;
@@ -119,6 +142,71 @@ $("missing_map_tile_enabled").addEventListener("change", (e) => {
 $("missing_region_enabled").addEventListener("change", (e) => {
   $("missing_region_color").disabled = !e.target.checked;
 });
+
+// --- destination + saved-notecard pickers ---
+
+async function loadGroupsAndNotecards() {
+  let groups = { groups: [] };
+  try {
+    const r = await fetch("/api/groups");
+    if (r.ok) groups = await r.json();
+  } catch (_err) {
+    // leave empty
+  }
+  const saveTo = $("save_to");
+  const ncSaveTo = $("notecard_save_to");
+  if (saveTo) {
+    for (const g of groups.groups || []) {
+      if (g.my_role !== "owner") continue;
+      const o = document.createElement("option");
+      o.value = `group:${g.group_id}`;
+      o.textContent = `Group: ${g.name}`;
+      saveTo.appendChild(o);
+    }
+  }
+  if (ncSaveTo) {
+    const personal = document.createElement("option");
+    personal.value = "personal";
+    personal.textContent = "Personal library";
+    ncSaveTo.appendChild(personal);
+    for (const g of groups.groups || []) {
+      if (g.my_role !== "owner") continue;
+      const o = document.createElement("option");
+      o.value = `group:${g.group_id}`;
+      o.textContent = `Group: ${g.name}`;
+      ncSaveTo.appendChild(o);
+    }
+  }
+  const ncPicker = $("notecard_id");
+  if (ncPicker) {
+    // List notecards across personal + member groups (any scope the user can
+    // view).
+    const seen = new Set();
+    const scopes = ["personal"];
+    for (const g of groups.groups || []) scopes.push(`group:${g.group_id}`);
+    for (const scope of scopes) {
+      try {
+        const r = await fetch(
+          `/api/notecards?scope=${encodeURIComponent(scope)}`,
+        );
+        if (!r.ok) continue;
+        const data = await r.json();
+        for (const n of data.notecards || []) {
+          if (seen.has(n.notecard_id)) continue;
+          seen.add(n.notecard_id);
+          const o = document.createElement("option");
+          o.value = n.notecard_id;
+          o.textContent = `${n.name} (${scope === "personal" ? "personal" : "group"})`;
+          ncPicker.appendChild(o);
+        }
+      } catch (_err) {
+        // ignore
+      }
+    }
+  }
+}
+
+document.addEventListener("DOMContentLoaded", loadGroupsAndNotecards);
 
 function readSharedParams() {
   return {
@@ -503,6 +591,7 @@ $("grid_render").addEventListener("click", async () => {
       upper_right_x: parseInt($("ur_x").value, 10),
       upper_right_y: parseInt($("ur_y").value, 10),
       ...readSharedParams(),
+      save_to: $("save_to").value,
     };
     const resp = await fetch("/api/render/grid-rectangle", {
       method: "POST",
@@ -520,7 +609,28 @@ $("grid_render").addEventListener("click", async () => {
 $("notecard_render").addEventListener("click", async () => {
   startRenderUI();
   try {
-    const fd = await buildNotecardForm();
+    const reuseId = $("notecard_id").value.trim();
+    const fd = new FormData();
+    if (reuseId !== "") {
+      fd.append("notecard_id", reuseId);
+    } else {
+      const file = $("notecard_file").files[0];
+      const text = $("notecard_text").value;
+      if (file) {
+        fd.append("notecard", file);
+      } else if (text.trim() !== "") {
+        fd.append("notecard_text", text);
+      } else {
+        throw new Error(
+          "supply either a notecard file, paste text, or reuse a saved notecard",
+        );
+      }
+      const ncName = $("notecard_name").value.trim();
+      if (ncName !== "") fd.append("notecard_name", ncName);
+      const ncDest = $("notecard_save_to").value;
+      if (ncDest !== "") fd.append("notecard_save_to", ncDest);
+    }
+    appendBordersToForm(fd);
     const shared = readSharedParams();
     fd.append("max_width", String(shared.max_width));
     fd.append("max_height", String(shared.max_height));
@@ -532,6 +642,7 @@ $("notecard_render").addEventListener("click", async () => {
       fd.append("missing_region_color", shared.missing_region_color);
     }
     fd.append("color", $("route_color").value);
+    fd.append("save_to", $("save_to").value);
     const withWithoutRoute = $("save_without_route").checked;
     if (withWithoutRoute) fd.append("save_without_route", "true");
     const resp = await fetch("/api/render/usb-notecard", {
@@ -545,3 +656,86 @@ $("notecard_render").addEventListener("click", async () => {
     renderStatusEl.textContent = `Render failed: ${err.message}`;
   }
 });
+
+// --- prefill from regenerate / reuse query params ---
+
+async function applyPrefillFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const reuse = params.get("reuse_notecard");
+  const regen = params.get("regenerate");
+  if (reuse) {
+    // Wait for the notecard picker to populate; then select.
+    setTimeout(() => {
+      const sel = $("notecard_id");
+      if (sel) {
+        sel.value = reuse;
+        // switch to the notecard tab
+        const tab = document.querySelector('.tab[data-tab="notecard"]');
+        if (tab) tab.click();
+      }
+    }, 300);
+  }
+  if (regen) {
+    try {
+      const resp = await fetch(`/api/renders/${regen}/settings`);
+      if (!resp.ok) throw new Error(await resp.text());
+      const settings = await resp.json();
+      applySettings(settings);
+    } catch (err) {
+      console.error("regenerate prefill failed:", err);
+    }
+  }
+}
+
+function applySettings(s) {
+  if (s.kind === "grid_rectangle") {
+    $("ll_x").value = s.lower_left_x;
+    $("ll_y").value = s.lower_left_y;
+    $("ur_x").value = s.upper_right_x;
+    $("ur_y").value = s.upper_right_y;
+    $("max_width").value = s.max_width;
+    $("max_height").value = s.max_height;
+    $("format").value = s.format;
+    if (s.missing_map_tile_color) {
+      $("missing_map_tile_enabled").checked = true;
+      $("missing_map_tile_color").disabled = false;
+      $("missing_map_tile_color").value = s.missing_map_tile_color;
+    }
+    if (s.missing_region_color) {
+      $("missing_region_enabled").checked = true;
+      $("missing_region_color").disabled = false;
+      $("missing_region_color").value = s.missing_region_color;
+    }
+    const tab = document.querySelector('.tab[data-tab="grid"]');
+    if (tab) tab.click();
+  } else if (s.kind === "usb_notecard") {
+    $("max_width").value = s.max_width;
+    $("max_height").value = s.max_height;
+    $("format").value = s.format;
+    if (s.missing_map_tile_color) {
+      $("missing_map_tile_enabled").checked = true;
+      $("missing_map_tile_color").disabled = false;
+      $("missing_map_tile_color").value = s.missing_map_tile_color;
+    }
+    if (s.missing_region_color) {
+      $("missing_region_enabled").checked = true;
+      $("missing_region_color").disabled = false;
+      $("missing_region_color").value = s.missing_region_color;
+    }
+    $("border_north").value = s.border_north || "";
+    $("border_south").value = s.border_south || "";
+    $("border_east").value = s.border_east || "";
+    $("border_west").value = s.border_west || "";
+    if (s.color) $("route_color").value = s.color;
+    $("save_without_route").checked = !!s.save_without_route;
+    // Pre-select the source notecard once the picker has populated.
+    setTimeout(() => {
+      const sel = $("notecard_id");
+      if (sel && s.notecard_id) sel.value = s.notecard_id;
+    }, 300);
+    const tab = document.querySelector('.tab[data-tab="notecard"]');
+    if (tab) tab.click();
+  }
+}
+
+document.addEventListener("DOMContentLoaded", applyPrefillFromQuery);

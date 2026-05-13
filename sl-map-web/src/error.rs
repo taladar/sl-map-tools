@@ -69,6 +69,9 @@ pub enum Error {
     /// the request lacks a valid session cookie or bearer token.
     #[error("unauthenticated")]
     Unauthenticated,
+    /// the authenticated user is not permitted to perform this action.
+    #[error("forbidden: {0}")]
+    Forbidden(String),
     /// the credentials presented at login do not match a known user.
     #[error("invalid credentials")]
     InvalidCredentials,
@@ -115,6 +118,22 @@ impl From<image::ImageError> for Error {
     }
 }
 
+/// Returns `true` when the given sqlx error wraps a SQLite foreign-key
+/// constraint violation. SQLite reports these as either extended code 787
+/// (`SQLITE_CONSTRAINT_FOREIGNKEY`) or, for deferred / trigger-mediated
+/// failures, 1811 (`SQLITE_CONSTRAINT_TRIGGER`). To be robust across both
+/// we also fall back to a substring check of the error message.
+#[must_use]
+pub fn is_fk_violation(err: &sqlx::Error) -> bool {
+    let sqlx::Error::Database(db) = err else {
+        return false;
+    };
+    if matches!(db.code().as_deref(), Some("787" | "1811")) {
+        return true;
+    }
+    db.message().contains("FOREIGN KEY")
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let status = match &self {
@@ -124,6 +143,7 @@ impl IntoResponse for Error {
             | Self::USBNotecardLoad(_)
             | Self::InvalidOrExpiredToken => ReqwestStatusCode::BAD_REQUEST,
             Self::Unauthenticated | Self::InvalidCredentials => ReqwestStatusCode::UNAUTHORIZED,
+            Self::Forbidden(_) => ReqwestStatusCode::FORBIDDEN,
             Self::JobNotFound | Self::NotFound(_) => ReqwestStatusCode::NOT_FOUND,
             Self::JobNotFinished => ReqwestStatusCode::ACCEPTED,
             Self::RenderFailed(_) => ReqwestStatusCode::CONFLICT,

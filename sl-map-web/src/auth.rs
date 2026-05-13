@@ -377,6 +377,64 @@ pub fn session_id_from_jar(jar: &SignedCookieJar, cookie_name: &str) -> Option<[
     decode_session_id(cookie.value())
 }
 
+/// `(user_id_bytes, legacy_name, username, password_hash)` — the four
+/// columns returned by every users lookup variant.
+pub type UserRow = (Vec<u8>, String, String, Option<String>);
+
+/// Look up a user row by identifier. Tries (in order): UUID parse,
+/// `firstname.lastname` username, "Firstname Lastname" legacy name. Used by
+/// both the login flow and the invitation creation flow, which is why it
+/// lives here in `auth.rs` rather than in a route module.
+///
+/// # Errors
+///
+/// Returns [`Error::Database`] if any of the DB lookups fail.
+pub async fn lookup_user_by_identifier(
+    pool: &SqlitePool,
+    identifier: &str,
+) -> Result<Option<UserRow>, Error> {
+    if let Ok(uuid) = Uuid::parse_str(identifier) {
+        let bytes = uuid.as_bytes().to_vec();
+        let row: Option<UserRow> = sqlx::query_as(
+            "SELECT user_id, legacy_name, username, password_hash FROM users WHERE user_id = ?1",
+        )
+        .bind(bytes)
+        .fetch_optional(pool)
+        .await
+        .map_err(|err| {
+            tracing::error!("user lookup (uuid) failed: {err}");
+            Error::Database
+        })?;
+        if row.is_some() {
+            return Ok(row);
+        }
+    }
+    let by_username: Option<UserRow> = sqlx::query_as(
+        "SELECT user_id, legacy_name, username, password_hash FROM users WHERE username = ?1",
+    )
+    .bind(identifier)
+    .fetch_optional(pool)
+    .await
+    .map_err(|err| {
+        tracing::error!("user lookup (username) failed: {err}");
+        Error::Database
+    })?;
+    if by_username.is_some() {
+        return Ok(by_username);
+    }
+    let by_legacy: Option<UserRow> = sqlx::query_as(
+        "SELECT user_id, legacy_name, username, password_hash FROM users WHERE legacy_name = ?1",
+    )
+    .bind(identifier)
+    .fetch_optional(pool)
+    .await
+    .map_err(|err| {
+        tracing::error!("user lookup (legacy_name) failed: {err}");
+        Error::Database
+    })?;
+    Ok(by_legacy)
+}
+
 /// Background task that prunes expired sessions and set-password tokens.
 /// Spawned alongside the existing job evictor in `bin/sl_map_web.rs`.
 pub async fn run_cleanup(pool: SqlitePool) {

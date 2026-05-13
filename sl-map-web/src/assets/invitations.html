@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Invitations — sl-map-web</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="topbar">
+        <h1>Invitations</h1>
+        <div class="topbar-user">
+          <span id="logged-in-as"></span>
+          <button type="button" id="logout-button" class="topbar-logout hidden">
+            Logout
+          </button>
+        </div>
+      </div>
+      <nav class="primary-nav">
+        <a href="/">Render</a>
+        <a href="/library">Library</a>
+        <a href="/groups">Groups</a>
+        <a href="/invitations" class="active" id="invitations-link"
+          >Invitations</a
+        >
+      </nav>
+    </header>
+
+    <section>
+      <p id="invitations-status" class="status"></p>
+      <table class="library-table">
+        <thead>
+          <tr>
+            <th>Group</th>
+            <th>From</th>
+            <th>Role</th>
+            <th>Sent</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="invitations-tbody"></tbody>
+      </table>
+    </section>
+
+    <script src="/static/app.js"></script>
+    <script src="/static/invitations.js"></script>
+  </body>
+</html>

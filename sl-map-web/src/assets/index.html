@@ -17,11 +17,25 @@
           </button>
         </div>
       </div>
+      <nav class="primary-nav">
+        <a href="/" class="active">Render</a>
+        <a href="/library">Library</a>
+        <a href="/groups">Groups</a>
+        <a href="/invitations" id="invitations-link">Invitations</a>
+      </nav>
       <p>Render Second Life maps from a grid rectangle or a USB notecard.</p>
     </header>
 
     <section class="shared-params">
       <h2>Output settings</h2>
+      <div class="row">
+        <label class="grow">
+          Save render to
+          <select id="save_to">
+            <option value="personal" selected>Personal library</option>
+          </select>
+        </label>
+      </div>
       <div class="row">
         <label
           >Max width (px)
@@ -113,12 +127,31 @@
       <h2>USB notecard</h2>
       <p>
         Supply a notecard either by uploading a file <em>or</em> by pasting its
-        text.
+        text. The uploaded notecard is always saved to the library — choose
+        below where it goes.
       </p>
+      <div class="row">
+        <label class="grow">
+          Reuse a saved notecard
+          <select id="notecard_id">
+            <option value="" selected>(upload a fresh one below)</option>
+          </select>
+        </label>
+      </div>
       <div class="row">
         <label class="grow"
           >Notecard file
           <input type="file" id="notecard_file" accept=".txt,text/plain" />
+        </label>
+        <label class="grow">
+          Saved notecard name
+          <input type="text" id="notecard_name" placeholder="(auto)" />
+        </label>
+        <label class="grow">
+          Save notecard to
+          <select id="notecard_save_to">
+            <option value="" selected>(same as render destination)</option>
+          </select>
         </label>
       </div>
       <div class="row">

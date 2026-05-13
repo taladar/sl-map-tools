@@ -273,7 +273,7 @@ pub async fn login(
         return Err(Error::InvalidCredentials);
     }
 
-    let row = lookup_user_by_identifier(&state, identifier).await?;
+    let row = auth::lookup_user_by_identifier(&state.db, identifier).await?;
     let Some((user_id_bytes, legacy_name, username, password_hash)) = row else {
         return Err(Error::InvalidCredentials);
     };
@@ -301,58 +301,6 @@ pub async fn login(
             },
         }),
     ))
-}
-
-/// `(user_id_bytes, legacy_name, username, password_hash)`. The four
-/// columns returned by every `users` lookup variant in the login flow.
-type UserRow = (Vec<u8>, String, String, Option<String>);
-
-/// Look up a user row by identifier. Tries (in order): UUID parse,
-/// `firstname.lastname` username, "Firstname Lastname" legacy name.
-async fn lookup_user_by_identifier(
-    state: &AppState,
-    identifier: &str,
-) -> Result<Option<UserRow>, Error> {
-    if let Ok(uuid) = Uuid::parse_str(identifier) {
-        let bytes = uuid.as_bytes().to_vec();
-        let row: Option<UserRow> = sqlx::query_as(
-            "SELECT user_id, legacy_name, username, password_hash FROM users WHERE user_id = ?1",
-        )
-        .bind(bytes)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|err| {
-            tracing::error!("login user lookup (uuid) failed: {err}");
-            Error::Database
-        })?;
-        if row.is_some() {
-            return Ok(row);
-        }
-    }
-    let by_username: Option<UserRow> = sqlx::query_as(
-        "SELECT user_id, legacy_name, username, password_hash FROM users WHERE username = ?1",
-    )
-    .bind(identifier)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|err| {
-        tracing::error!("login user lookup (username) failed: {err}");
-        Error::Database
-    })?;
-    if by_username.is_some() {
-        return Ok(by_username);
-    }
-    let by_legacy: Option<UserRow> = sqlx::query_as(
-        "SELECT user_id, legacy_name, username, password_hash FROM users WHERE legacy_name = ?1",
-    )
-    .bind(identifier)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|err| {
-        tracing::error!("login user lookup (legacy_name) failed: {err}");
-        Error::Database
-    })?;
-    Ok(by_legacy)
 }
 
 /// `POST /api/auth/logout` — delete the server-side session row and clear

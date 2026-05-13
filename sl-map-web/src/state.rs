@@ -1,6 +1,7 @@
 //! Shared application state passed to every handler.
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
@@ -38,6 +39,12 @@ pub struct AppState {
     /// `session_signing_key` at startup. `Key` is internally a buffer of
     /// bytes; cloning is cheap.
     pub cookie_key: Key,
+    /// in-process flag raised whenever a code path may have produced stale
+    /// files under `<storage_dir>/renders/` without unlinking them inline
+    /// (e.g. a cascade delete from removing a group). The orphan sweeper
+    /// only scans the filesystem when this flag is set so an idle server
+    /// does no filesystem work.
+    pub library_cleanup_dirty: Arc<AtomicBool>,
 }
 
 // `axum_extra::extract::cookie::SignedCookieJar` extracts itself via

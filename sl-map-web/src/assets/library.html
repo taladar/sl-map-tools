@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Library — sl-map-web</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="topbar">
+        <h1>Library</h1>
+        <div class="topbar-user">
+          <span id="logged-in-as"></span>
+          <button type="button" id="logout-button" class="topbar-logout hidden">
+            Logout
+          </button>
+        </div>
+      </div>
+      <nav class="primary-nav">
+        <a href="/">Render</a>
+        <a href="/library" class="active">Library</a>
+        <a href="/groups">Groups</a>
+        <a href="/invitations" id="invitations-link">Invitations</a>
+      </nav>
+    </header>
+
+    <section>
+      <div class="row">
+        <label>
+          Scope
+          <select id="scope-select"></select>
+        </label>
+      </div>
+    </section>
+
+    <section>
+      <h2>Saved notecards</h2>
+      <p id="notecards-status" class="status"></p>
+      <table id="notecards-table" class="library-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Uploaded by</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="notecards-tbody"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Saved renders</h2>
+      <p id="renders-status" class="status"></p>
+      <table id="renders-table" class="library-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Kind</th>
+            <th>Created by</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="renders-tbody"></tbody>
+      </table>
+    </section>
+
+    <script src="/static/app.js"></script>
+    <script src="/static/library.js"></script>
+  </body>
+</html>

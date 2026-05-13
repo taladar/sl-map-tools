@@ -1,6 +1,13 @@
 //! Axum extractor that resolves the real client IP address, honouring
 //! `X-Forwarded-For` or `Forwarded` only when the direct peer is in the
 //! configured `trusted_proxies` list.
+//!
+//! Every proxy in that list is assumed to **strip and replace** any
+//! client-supplied `X-Forwarded-For` / `Forwarded` header rather than
+//! append to it. See [`crate::config::Config::trusted_proxies`] for the
+//! full security contract — without that assumption the extractor
+//! cannot tell a spoofed loopback / private / link-local entry from a
+//! real client.
 
 use std::net::{IpAddr, SocketAddr};
 

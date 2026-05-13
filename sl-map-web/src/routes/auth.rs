@@ -84,6 +84,19 @@ pub async fn register(
     let user_uuid = req.agent_key;
     let user_id_bytes = user_uuid.as_bytes().to_vec();
 
+    // Generate a fresh single-use token, store only the hash.
+    let (raw_token, token_hash) = generate_token();
+    let expires_at = now
+        .checked_add_signed(chrono::Duration::seconds(
+            state.config.set_password_token_ttl_seconds,
+        ))
+        .unwrap_or(chrono::DateTime::<Utc>::MAX_UTC);
+
+    let mut tx = state.db.begin().await.map_err(|err| {
+        tracing::error!("register begin tx failed: {err}");
+        Error::Database
+    })?;
+
     // UPSERT: on a fresh UUID create the row; on a re-register update the
     // name fields (the user may have paid SL to change their username or
     // legacy display).
@@ -99,20 +112,27 @@ pub async fn register(
     .bind(legacy_name)
     .bind(username)
     .bind(now)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|err| {
         tracing::error!("register UPSERT failed: {err}");
         Error::Database
     })?;
 
-    // Generate a fresh single-use token, store only the hash.
-    let (raw_token, token_hash) = generate_token();
-    let expires_at = now
-        .checked_add_signed(chrono::Duration::seconds(
-            state.config.set_password_token_ttl_seconds,
-        ))
-        .unwrap_or(chrono::DateTime::<Utc>::MAX_UTC);
+    // Invalidate any still-live unused tokens this user already has, so the
+    // table only ever carries one outstanding token per user. The periodic
+    // sweeper in `auth::run_cleanup` reaps expired-or-used rows on its own
+    // schedule; this DELETE bounds the in-between window where repeated
+    // re-registers would otherwise accumulate live tokens.
+    sqlx::query("DELETE FROM set_password_tokens WHERE user_id = ?1 AND used_at IS NULL")
+        .bind(&user_id_bytes)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| {
+            tracing::error!("prior token prune failed: {err}");
+            Error::Database
+        })?;
+
     sqlx::query(
         "INSERT INTO set_password_tokens (token_hash, user_id, expires_at, created_at) \
             VALUES (?1, ?2, ?3, ?4)",
@@ -121,10 +141,15 @@ pub async fn register(
     .bind(&user_id_bytes)
     .bind(expires_at)
     .bind(now)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|err| {
         tracing::error!("set-password token insert failed: {err}");
+        Error::Database
+    })?;
+
+    tx.commit().await.map_err(|err| {
+        tracing::error!("register commit failed: {err}");
         Error::Database
     })?;
 

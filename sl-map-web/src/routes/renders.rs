@@ -20,7 +20,6 @@ use uuid::Uuid;
 
 use crate::auth::{CurrentUser, uuid_from_bytes};
 use crate::error::Error;
-use crate::groups::GroupRole;
 use crate::library::{self, Destination, RenderView};
 use crate::state::AppState;
 use crate::storage;
@@ -62,19 +61,16 @@ pub async fn list(
     Query(query): Query<ListQuery>,
 ) -> Result<Json<ListRendersResponse>, Error> {
     let destination = Destination::parse(&query.scope)?;
-    let viewer_role = library::assert_can_view(&state.db, user.user_id, destination).await?;
-    // for group members force the status filter to "done"
-    let effective_status = match (destination, viewer_role) {
-        (Destination::Group { .. }, Some(GroupRole::Member)) => Some("done".to_owned()),
-        _ => query.status.as_ref().map(|s| s.trim().to_owned()),
-    };
-    let renders = fetch_renders_for(
-        &state,
-        user.user_id,
-        destination,
-        effective_status.as_deref(),
-    )
-    .await?;
+    library::assert_can_view(&state.db, user.user_id, destination).await?;
+    // The member-only-finished restriction is folded into the group SQL
+    // (`gm.role = 'owner' OR r.status = 'done'`); a member supplying
+    // `status=in_progress` simply gets an empty result.
+    let status = query
+        .status
+        .as_ref()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+    let renders = fetch_renders_for(&state, user.user_id, destination, status.as_deref()).await?;
     Ok(Json(ListRendersResponse { renders }))
 }
 
@@ -287,12 +283,14 @@ async fn fetch_renders_for(
         (Destination::Group { group_id }, None) => {
             sqlx::query_as(LIST_GROUP_SQL)
                 .bind(group_id.as_bytes().to_vec())
+                .bind(current_user.as_bytes().to_vec())
                 .fetch_all(&state.db)
                 .await
         }
         (Destination::Group { group_id }, Some(s)) => {
             sqlx::query_as(LIST_GROUP_STATUS_SQL)
                 .bind(group_id.as_bytes().to_vec())
+                .bind(current_user.as_bytes().to_vec())
                 .bind(s)
                 .fetch_all(&state.db)
                 .await
@@ -428,22 +426,32 @@ const LIST_PERSONAL_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.o
      WHERE r.owner_user_id = ?1 AND r.status = ?2 \
      ORDER BY r.created_at DESC";
 
-/// SQL: list a group's renders.
+/// SQL: list a group's renders. The JOIN against `group_memberships` and the
+/// `(gm.role = 'owner' OR r.status = 'done')` clause fold both the membership
+/// check and the member-only-finished rule into SQL so a forgotten
+/// `assert_can_view` call cannot leak rows.
 const LIST_GROUP_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
         r.created_by, u.username, u.legacy_name, r.notecard_id, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
         r.created_at, r.finished_at \
      FROM saved_renders AS r \
      JOIN users AS u ON u.user_id = r.created_by \
+     JOIN group_memberships AS gm \
+       ON gm.group_id = r.owner_group_id AND gm.user_id = ?2 \
      WHERE r.owner_group_id = ?1 \
+       AND (gm.role = 'owner' OR r.status = 'done') \
      ORDER BY r.created_at DESC";
 
-/// SQL: list a group's renders filtered by status.
+/// SQL: list a group's renders filtered by status. Same membership and
+/// visibility folding as `LIST_GROUP_SQL`.
 const LIST_GROUP_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
         r.created_by, u.username, u.legacy_name, r.notecard_id, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
         r.created_at, r.finished_at \
      FROM saved_renders AS r \
      JOIN users AS u ON u.user_id = r.created_by \
-     WHERE r.owner_group_id = ?1 AND r.status = ?2 \
+     JOIN group_memberships AS gm \
+       ON gm.group_id = r.owner_group_id AND gm.user_id = ?2 \
+     WHERE r.owner_group_id = ?1 AND r.status = ?3 \
+       AND (gm.role = 'owner' OR r.status = 'done') \
      ORDER BY r.created_at DESC";

@@ -330,14 +330,20 @@ async fn fetch_notecards_for(
             Error::Database
         })?,
         Destination::Group { group_id } => sqlx::query_as(
+            // The JOIN against `group_memberships` enforces visibility at the
+            // SQL layer so a forgotten `assert_can_view` call site cannot leak
+            // a group's notecards to a non-member.
             "SELECT n.notecard_id, n.owner_user_id, n.owner_group_id, n.uploaded_by, \
                     u.username, u.legacy_name, n.name, n.created_at \
              FROM saved_notecards AS n \
              JOIN users AS u ON u.user_id = n.uploaded_by \
+             JOIN group_memberships AS gm \
+               ON gm.group_id = n.owner_group_id AND gm.user_id = ?2 \
              WHERE n.owner_group_id = ?1 \
              ORDER BY n.created_at DESC",
         )
         .bind(group_id.as_bytes().to_vec())
+        .bind(current_user.as_bytes().to_vec())
         .fetch_all(&state.db)
         .await
         .map_err(|err| {

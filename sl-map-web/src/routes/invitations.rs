@@ -79,11 +79,11 @@ pub struct InvitationResponse {
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not an owner;
-/// [`Error::BadRequest`] for an unknown identifier (same message as login to
-/// avoid user enumeration), an invalid target role, an attempt to invite
-/// the caller themselves, or if a pending invitation for the same target
-/// already exists.
+/// Returns [`Error::NotFound`] if the group does not exist or the caller
+/// is not an owner; [`Error::BadRequest`] for an unknown identifier (same
+/// message as login to avoid user enumeration), an invalid target role, an
+/// attempt to invite the caller themselves, or if a pending invitation for
+/// the same target already exists.
 pub async fn create(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -179,7 +179,8 @@ pub async fn create(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not an owner.
+/// Returns [`Error::NotFound`] if the group does not exist or the caller
+/// is not an owner.
 pub async fn list_for_group(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -212,9 +213,10 @@ pub async fn list_mine(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not the invitee, or
-/// [`Error::BadRequest`] if the invitation is no longer pending (e.g.
-/// concurrently accepted or rejected from another session).
+/// Returns [`Error::NotFound`] if the invitation does not exist or is not
+/// addressed to the caller, or [`Error::BadRequest`] if the invitation is
+/// no longer pending (e.g. concurrently accepted or rejected from another
+/// session).
 pub async fn accept(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -273,8 +275,9 @@ pub async fn accept(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not the invitee, or
-/// [`Error::BadRequest`] if the invitation is no longer pending.
+/// Returns [`Error::NotFound`] if the invitation does not exist or is not
+/// addressed to the caller, or [`Error::BadRequest`] if the invitation is
+/// no longer pending.
 pub async fn reject(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -303,8 +306,11 @@ pub async fn reject(
 }
 
 /// Fetch the pending invitation row for the calling invitee. Returns
-/// `(group_id_bytes, target_role)`. Returns [`Error::NotFound`] if missing
-/// or [`Error::Forbidden`] if the caller is not the invitee.
+/// `(group_id_bytes, target_role)`. Returns [`Error::NotFound`] for both
+/// "no such invitation" and "this invitation is addressed to someone else"
+/// so a caller cannot probe whether an invitation id belongs to another
+/// user. [`Error::BadRequest`] still fires if the invitation exists, is
+/// addressed to the caller, but is no longer pending.
 async fn fetch_pending_for_invitee(
     state: &AppState,
     invitation_id: Uuid,
@@ -328,9 +334,7 @@ async fn fetch_pending_for_invitee(
         Error::Database
     })?;
     if row_invitee != invitee_id {
-        return Err(Error::Forbidden(
-            "only the invitee may accept or reject an invitation".to_owned(),
-        ));
+        return Err(Error::NotFound(format!("invitation {invitation_id}")));
     }
     if status != "pending" {
         return Err(Error::BadRequest(format!("invitation is already {status}")));
@@ -502,14 +506,13 @@ async fn group_name(state: &AppState, group_id: Uuid) -> Result<String, Error> {
         .ok_or_else(|| Error::NotFound(format!("group {group_id}")))
 }
 
-/// Ensure the calling user is an owner of the group.
+/// Ensure the calling user is an owner of the group. Returns
+/// [`Error::NotFound`] for both "group does not exist" and "caller is not
+/// an owner" so non-owners cannot probe for group existence.
 async fn require_owner(state: &AppState, group_id: Uuid, user_id: Uuid) -> Result<(), Error> {
-    groups::require_exists(&state.db, group_id).await?;
     if groups::lookup_role(&state.db, group_id, user_id).await? == Some(GroupRole::Owner) {
         Ok(())
     } else {
-        Err(Error::Forbidden(format!(
-            "must be an owner of group {group_id}"
-        )))
+        Err(Error::NotFound(format!("group {group_id}")))
     }
 }

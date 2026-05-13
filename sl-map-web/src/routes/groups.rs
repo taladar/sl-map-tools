@@ -109,7 +109,8 @@ pub async fn get(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not an owner.
+/// Returns [`Error::NotFound`] if the group does not exist or the caller
+/// is not an owner.
 pub async fn rename(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -133,7 +134,8 @@ pub async fn rename(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not an owner.
+/// Returns [`Error::NotFound`] if the group does not exist or the caller
+/// is not an owner.
 pub async fn delete(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -168,10 +170,10 @@ pub async fn list_members(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not an owner or attempts
-/// to demote a different owner, [`Error::BadRequest`] for a malformed role
-/// or a self-demotion that would orphan the group, or [`Error::NotFound`]
-/// if the target is not a member.
+/// Returns [`Error::NotFound`] if the group does not exist, the caller is
+/// not an owner, or the target is not a member; [`Error::Forbidden`] if
+/// the caller attempts to demote a different owner; [`Error::BadRequest`]
+/// for a malformed role or a self-demotion that would orphan the group.
 pub async fn set_member_role(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -224,9 +226,9 @@ pub async fn set_member_role(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the caller is not an owner or the
-/// target is an owner, or [`Error::NotFound`] if the target is not a
-/// member.
+/// Returns [`Error::NotFound`] if the group does not exist, the caller is
+/// not an owner, or the target is not a member; [`Error::Forbidden`] if
+/// the target is an owner.
 pub async fn remove_member(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -276,29 +278,27 @@ pub async fn leave(
     }
 }
 
-/// Require that the calling user is an owner of the given group.
+/// Require that the calling user is an owner of the given group. Returns
+/// [`Error::NotFound`] for both "group does not exist" and "caller is not
+/// an owner" so non-owners cannot probe for group existence.
 async fn require_owner(state: &AppState, group_id: Uuid, user_id: Uuid) -> Result<(), Error> {
-    groups::require_exists(&state.db, group_id).await?;
     if groups::lookup_role(&state.db, group_id, user_id).await? == Some(GroupRole::Owner) {
         Ok(())
     } else {
-        Err(Error::Forbidden(format!(
-            "must be an owner of group {group_id}"
-        )))
+        Err(Error::NotFound(format!("group {group_id}")))
     }
 }
 
 /// Require that the calling user is at least a member of the given group.
+/// Returns [`Error::NotFound`] for both "group does not exist" and "caller
+/// is not a member" so non-members cannot probe for group existence.
 async fn require_member(state: &AppState, group_id: Uuid, user_id: Uuid) -> Result<(), Error> {
-    groups::require_exists(&state.db, group_id).await?;
     if groups::lookup_role(&state.db, group_id, user_id)
         .await?
         .is_some()
     {
         Ok(())
     } else {
-        Err(Error::Forbidden(format!(
-            "not a member of group {group_id}"
-        )))
+        Err(Error::NotFound(format!("group {group_id}")))
     }
 }

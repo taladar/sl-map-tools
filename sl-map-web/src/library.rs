@@ -214,8 +214,9 @@ pub fn destination_from_columns(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the user is not allowed to view the
-/// notecard; [`Error::NotFound`] if the notecard does not exist.
+/// Returns [`Error::NotFound`] if the notecard does not exist or is not
+/// visible to the caller — the two cases are collapsed so an attacker
+/// holding a guessed id cannot confirm existence.
 pub async fn assert_can_read_notecard(
     db: &SqlitePool,
     current_user: Uuid,
@@ -224,29 +225,18 @@ pub async fn assert_can_read_notecard(
     let row = fetch_notecard_row(db, notecard_id).await?;
     let destination =
         destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
-    match destination {
+    let visible = match destination {
         Destination::Personal => {
-            let owner = row.owner_user_id.as_deref().and_then(uuid_from_bytes);
-            if owner == Some(current_user) {
-                Ok(row)
-            } else {
-                Err(Error::Forbidden(format!(
-                    "not allowed to view notecard {notecard_id}"
-                )))
-            }
+            row.owner_user_id.as_deref().and_then(uuid_from_bytes) == Some(current_user)
         }
-        Destination::Group { group_id } => {
-            if groups::lookup_role(db, group_id, current_user)
-                .await?
-                .is_some()
-            {
-                Ok(row)
-            } else {
-                Err(Error::Forbidden(format!(
-                    "not a member of group {group_id}"
-                )))
-            }
-        }
+        Destination::Group { group_id } => groups::lookup_role(db, group_id, current_user)
+            .await?
+            .is_some(),
+    };
+    if visible {
+        Ok(row)
+    } else {
+        Err(Error::NotFound(format!("notecard {notecard_id}")))
     }
 }
 
@@ -256,8 +246,9 @@ pub async fn assert_can_read_notecard(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Forbidden`] if the user is not allowed to view the
-/// render; [`Error::NotFound`] if the render does not exist.
+/// Returns [`Error::NotFound`] if the render does not exist or is not
+/// visible to the caller — the two cases are collapsed so the in-progress
+/// state of a render the caller cannot yet see is not leaked.
 pub async fn assert_can_read_render(
     db: &SqlitePool,
     current_user: Uuid,
@@ -266,35 +257,22 @@ pub async fn assert_can_read_render(
     let row = fetch_render_row(db, render_id).await?;
     let destination =
         destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
-    match destination {
+    let visible = match destination {
         Destination::Personal => {
-            let owner = row.owner_user_id.as_deref().and_then(uuid_from_bytes);
-            if owner == Some(current_user) {
-                Ok(row)
-            } else {
-                Err(Error::Forbidden(format!(
-                    "not allowed to view render {render_id}"
-                )))
-            }
+            row.owner_user_id.as_deref().and_then(uuid_from_bytes) == Some(current_user)
         }
         Destination::Group { group_id } => {
-            let role = groups::lookup_role(db, group_id, current_user).await?;
-            match role {
-                Some(GroupRole::Owner) => Ok(row),
-                Some(GroupRole::Member) => {
-                    if row.status == "done" {
-                        Ok(row)
-                    } else {
-                        Err(Error::Forbidden(
-                            "members may only view finished renders in a group library".to_owned(),
-                        ))
-                    }
-                }
-                None => Err(Error::Forbidden(format!(
-                    "not a member of group {group_id}"
-                ))),
+            match groups::lookup_role(db, group_id, current_user).await? {
+                Some(GroupRole::Owner) => true,
+                Some(GroupRole::Member) => row.status == "done",
+                None => false,
             }
         }
+    };
+    if visible {
+        Ok(row)
+    } else {
+        Err(Error::NotFound(format!("render {render_id}")))
     }
 }
 

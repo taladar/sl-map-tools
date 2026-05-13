@@ -9,18 +9,27 @@ use axum::response::{IntoResponse as _, Response};
 use bytes::Bytes;
 use uuid::Uuid;
 
+use crate::auth::CurrentUser;
 use crate::error::Error;
 use crate::jobs::{JobOutcome, JobState, Metadata};
+use crate::library;
 use crate::state::AppState;
 
 /// `GET /api/render/{id}/image` — serve the primary rendered image.
 ///
 /// # Errors
 ///
-/// Returns [`Error::JobNotFound`] if the id is unknown,
-/// [`Error::JobNotFinished`] if the render is still in progress, or
-/// [`Error::RenderFailed`] if the render task ended with an error.
-pub async fn image(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<Response, Error> {
+/// Returns [`Error::NotFound`] if the render does not exist or is not
+/// visible to the caller, [`Error::JobNotFound`] if the in-memory job has
+/// been evicted, [`Error::JobNotFinished`] if the render is still in
+/// progress, or [`Error::RenderFailed`] if the render task ended with an
+/// error.
+pub async fn image(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Error> {
+    library::assert_can_read_render(&state.db, user.user_id, id).await?;
     let job = job(&state, id).await?;
     let outcome = await_outcome(&job)?;
     let JobOutcome::Ok {
@@ -42,9 +51,11 @@ pub async fn image(State(state): State<AppState>, Path(id): Path<Uuid>) -> Resul
 /// As for [`image()`], plus [`Error::NotFound`] if the render did not save a
 /// without-route image.
 pub async fn image_without_route(
+    user: CurrentUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Response, Error> {
+    library::assert_can_read_render(&state.db, user.user_id, id).await?;
     let job = job(&state, id).await?;
     let outcome = await_outcome(&job)?;
     let JobOutcome::Ok {
@@ -69,9 +80,11 @@ pub async fn image_without_route(
 ///
 /// As for [`image()`].
 pub async fn metadata(
+    user: CurrentUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Metadata>, Error> {
+    library::assert_can_read_render(&state.db, user.user_id, id).await?;
     let job = job(&state, id).await?;
     let outcome = await_outcome(&job)?;
     let JobOutcome::Ok { metadata, .. } = outcome.as_ref() else {

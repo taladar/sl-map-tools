@@ -51,6 +51,7 @@ pub enum OutputFormat {
     #[default]
     Png,
     /// JPEG output.
+    #[serde(alias = "jpg")]
     Jpeg,
 }
 

@@ -311,6 +311,93 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
     }
 }
 
+/// where a map tile came from when fetched through the cache
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TileOutcome {
+    /// found in the in-memory LRU cache
+    LoadedFromMemoryCache,
+    /// found in the on-disk cache
+    LoadedFromDiskCache,
+    /// fetched from the upstream server
+    FetchedFromNetwork,
+    /// the tile is known to not exist (either fetched and got 403,
+    /// or a cached absence)
+    Missing,
+}
+
+/// events emitted during map rendering for progress reporting
+#[derive(Debug, Clone)]
+pub enum MapProgressEvent {
+    /// the rendering plan has been computed, lists the chosen zoom level
+    /// and the total number of map tiles that will be processed
+    PlanComputed {
+        /// the zoom level chosen for this render
+        zoom_level: ZoomLevel,
+        /// the total number of map tiles that will be processed
+        total_tiles: u32,
+    },
+    /// processing of a tile has started
+    TileStarted {
+        /// the descriptor of the tile being processed
+        descriptor: MapTileDescriptor,
+    },
+    /// processing of a tile has finished
+    TileFinished {
+        /// the descriptor of the tile that was processed
+        descriptor: MapTileDescriptor,
+        /// where the tile came from
+        outcome: TileOutcome,
+    },
+    /// the renderer will check every region inside each present tile for
+    /// existence (this only happens when `fill_missing_regions` is set;
+    /// each check may trigger several upstream fetches for higher-zoom
+    /// tiles, so this phase often dominates the wall-clock time)
+    RegionCheckPlanned {
+        /// upper bound on how many region checks will be performed; the
+        /// actual count can be lower if some primary tiles turn out to be
+        /// missing entirely (those regions get the missing-tile colour
+        /// instead of an individual check)
+        total_regions: u32,
+    },
+    /// a region's existence has been determined
+    RegionChecked {
+        /// x grid coordinate of the region
+        x: u16,
+        /// y grid coordinate of the region
+        y: u16,
+        /// whether the region was found on at least one zoom level
+        exists: bool,
+    },
+    /// the route drawing has been planned, lists the total number of
+    /// waypoints to process
+    RoutePlanned {
+        /// total number of waypoints in the route
+        total_waypoints: usize,
+    },
+    /// a waypoint in a route has been resolved to grid coordinates
+    RouteWaypointResolved {
+        /// the index of this waypoint (0-based)
+        index: usize,
+        /// the total number of waypoints
+        total: usize,
+        /// the region name of the waypoint
+        region: RegionName,
+    },
+}
+
+/// a best-effort progress reporter; emits an event on a `tokio::sync::mpsc`
+/// channel, ignoring the error if the channel is closed or full so that
+/// progress reporting never aborts a render
+fn emit_progress(
+    progress: Option<&tokio::sync::mpsc::Sender<MapProgressEvent>>,
+    event: MapProgressEvent,
+) {
+    if let Some(sender) = progress {
+        // best-effort: closed or full channel must not abort the render
+        drop(sender.try_send(event));
+    }
+}
+
 /// represents a map tile fetched from the server
 #[derive(Debug, Clone)]
 pub struct MapTile {
@@ -738,10 +825,29 @@ impl MapTileCache {
         &mut self,
         map_tile_descriptor: &MapTileDescriptor,
     ) -> Result<Option<MapTile>, MapTileCacheError> {
+        Ok(self.get_map_tile_with_outcome(map_tile_descriptor).await?.0)
+    }
+
+    /// fetches a map tile from the Second Life main map servers
+    /// or the local cache and additionally reports where the tile came from
+    /// (memory cache, disk cache, network, or known-missing) so callers can
+    /// surface progress information
+    ///
+    /// # Errors
+    ///
+    /// returns an error if the HTTP request fails of if the result fails to be
+    /// parsed as an image
+    pub async fn get_map_tile_with_outcome(
+        &mut self,
+        map_tile_descriptor: &MapTileDescriptor,
+    ) -> Result<(Option<MapTile>, TileOutcome), MapTileCacheError> {
         tracing::debug!("Map tile {map_tile_descriptor:?} requested");
         let url = Self::map_tile_url(map_tile_descriptor);
         let request = self.client.get(&url).build()?;
         let now = std::time::SystemTime::now();
+        // peek without disturbing the LRU order so we can distinguish a
+        // memory-cache hit from a disk-cache hit when classifying the outcome
+        let memory_cache_hit = self.cache.peek(map_tile_descriptor).is_some();
         if let Some((cached_map_tile, cache_policy)) =
             self.fetch_cached_map_tile(map_tile_descriptor).await?
         {
@@ -758,7 +864,14 @@ impl MapTileCache {
                 } else {
                     tracing::debug!("Using cached map tile absence");
                 }
-                return Ok(cached_map_tile);
+                let outcome = if cached_map_tile.is_none() {
+                    TileOutcome::Missing
+                } else if memory_cache_hit {
+                    TileOutcome::LoadedFromMemoryCache
+                } else {
+                    TileOutcome::LoadedFromDiskCache
+                };
+                return Ok((cached_map_tile, outcome));
             }
             tracing::debug!("Map tile cache not fresh, removing from cache");
             self.remove_cached_tile(map_tile_descriptor).await?;
@@ -796,7 +909,7 @@ impl MapTileCache {
                 );
                 self.cache_missing_tile(map_tile_descriptor, cache_policy)
                     .await?;
-                return Ok(None);
+                return Ok((None, TileOutcome::Missing));
             }
             return Err(MapTileCacheError::HttpError(
                 url.to_owned(),
@@ -819,7 +932,7 @@ impl MapTileCache {
         self.cache_tile(map_tile_descriptor, &map_tile, cache_policy)
             .await?;
         tracing::debug!("Returning freshly fetched map tile");
-        Ok(Some(map_tile))
+        Ok((Some(map_tile), TileOutcome::FetchedFromNetwork))
     }
 
     /// figures out if a map tile exist by checking the local in-memory and
@@ -970,6 +1083,37 @@ impl Map {
         fill_missing_map_tiles: Option<image::Rgba<u8>>,
         fill_missing_regions: Option<image::Rgba<u8>>,
     ) -> Result<Self, MapError> {
+        Self::new_with_progress(
+            map_tile_cache,
+            x,
+            y,
+            grid_rectangle,
+            fill_missing_map_tiles,
+            fill_missing_regions,
+            None,
+        )
+        .await
+    }
+
+    /// creates a new `Map`, emitting per-tile progress events on the
+    /// provided channel as it works (closed or full channels are tolerated
+    /// silently, so the caller can drop the receiver at any time without
+    /// aborting the render)
+    ///
+    /// See [`Self::new`] for the meaning of the other parameters.
+    ///
+    /// # Errors
+    ///
+    /// returns an error if fetching the map tiles fails
+    pub async fn new_with_progress(
+        map_tile_cache: &mut MapTileCache,
+        x: u32,
+        y: u32,
+        grid_rectangle: GridRectangle,
+        fill_missing_map_tiles: Option<image::Rgba<u8>>,
+        fill_missing_regions: Option<image::Rgba<u8>>,
+        progress: Option<&tokio::sync::mpsc::Sender<MapProgressEvent>>,
+    ) -> Result<Self, MapError> {
         let zoom_level = ZoomLevel::max_zoom_level_to_fit_regions_into_output_image(
             grid_rectangle.size_x(),
             grid_rectangle.size_y(),
@@ -991,6 +1135,42 @@ impl Map {
             grid_rectangle,
             image,
         };
+        // count the unique tile descriptors we will process so the caller
+        // can show a determinate progress indicator
+        let mut total_tiles: u32 = 0;
+        for region_x in result.x_range() {
+            for region_y in result.y_range() {
+                let grid_coordinates = GridCoordinates::new(region_x, region_y);
+                let map_tile_descriptor = MapTileDescriptor::new(zoom_level, grid_coordinates);
+                let Some(overlap) = result.intersect(&map_tile_descriptor) else {
+                    return Err(MapError::NoOverlapError);
+                };
+                if overlap.lower_left_corner().x() == region_x
+                    && overlap.lower_left_corner().y() == region_y
+                {
+                    total_tiles = total_tiles.saturating_add(1);
+                }
+            }
+        }
+        emit_progress(
+            progress,
+            MapProgressEvent::PlanComputed {
+                zoom_level,
+                total_tiles,
+            },
+        );
+        if fill_missing_regions.is_some() {
+            // upper bound: every region in the requested rectangle. The
+            // actual count can be lower if some primary tiles turn out to
+            // be missing (those regions get the missing-tile colour instead
+            // of an individual check).
+            let total_regions: u32 =
+                u32::from(result.size_x()).saturating_mul(u32::from(result.size_y()));
+            emit_progress(
+                progress,
+                MapProgressEvent::RegionCheckPlanned { total_regions },
+            );
+        }
         for region_x in result.x_range() {
             for region_y in result.y_range() {
                 let grid_coordinates = GridCoordinates::new(region_x, region_y);
@@ -1006,7 +1186,23 @@ impl Map {
                     continue;
                 }
                 tracing::debug!("Map tile for {grid_coordinates:?} is {map_tile_descriptor:?}");
-                if let Some(map_tile) = map_tile_cache.get_map_tile(&map_tile_descriptor).await? {
+                emit_progress(
+                    progress,
+                    MapProgressEvent::TileStarted {
+                        descriptor: map_tile_descriptor.to_owned(),
+                    },
+                );
+                let (fetched_tile, outcome) = map_tile_cache
+                    .get_map_tile_with_outcome(&map_tile_descriptor)
+                    .await?;
+                emit_progress(
+                    progress,
+                    MapProgressEvent::TileFinished {
+                        descriptor: map_tile_descriptor.to_owned(),
+                        outcome,
+                    },
+                );
+                if let Some(map_tile) = fetched_tile {
                     let crop = map_tile
                         .crop_imm_grid_rectangle(&overlap)
                         .ok_or(MapError::MapTileCropError)?;
@@ -1039,7 +1235,17 @@ impl Map {
                             for overlap_region_y in overlap.y_range() {
                                 let grid_coordinates =
                                     GridCoordinates::new(overlap_region_x, overlap_region_y);
-                                if !map_tile_cache.does_region_exist(&grid_coordinates).await? {
+                                let exists =
+                                    map_tile_cache.does_region_exist(&grid_coordinates).await?;
+                                emit_progress(
+                                    progress,
+                                    MapProgressEvent::RegionChecked {
+                                        x: overlap_region_x,
+                                        y: overlap_region_y,
+                                        exists,
+                                    },
+                                );
+                                if !exists {
                                     let pixel_min = result.pixel_coordinates_for_coordinates(
                                         &grid_coordinates,
                                         &RegionCoordinates::new(0f32, 256f32, 0f32),
@@ -1100,9 +1306,37 @@ impl Map {
         usb_notecard: &USBNotecard,
         color: image::Rgba<u8>,
     ) -> Result<(), MapError> {
+        self.draw_route_with_progress(
+            region_name_to_grid_coordinates_cache,
+            usb_notecard,
+            color,
+            None,
+        )
+        .await
+    }
+
+    /// draws a route from a `USBNotecard` onto the map, emitting progress
+    /// events for each waypoint resolved on the provided channel
+    ///
+    /// See [`Self::draw_route`] for the meaning of the other parameters.
+    ///
+    /// # Errors
+    ///
+    /// fails if the region name to grid coordinate conversion fails
+    /// or the conversion of those into pixel coordinates
+    pub async fn draw_route_with_progress(
+        &mut self,
+        region_name_to_grid_coordinates_cache: &mut RegionNameToGridCoordinatesCache,
+        usb_notecard: &USBNotecard,
+        color: image::Rgba<u8>,
+        progress: Option<&tokio::sync::mpsc::Sender<MapProgressEvent>>,
+    ) -> Result<(), MapError> {
         tracing::debug!("Drawing route:\n{:#?}", usb_notecard);
+        let waypoints = usb_notecard.waypoints();
+        let total_waypoints = waypoints.len();
+        emit_progress(progress, MapProgressEvent::RoutePlanned { total_waypoints });
         let mut pixel_waypoints = Vec::new();
-        for waypoint in usb_notecard.waypoints() {
+        for (index, waypoint) in waypoints.iter().enumerate() {
             let Some(grid_coordinates) = region_name_to_grid_coordinates_cache
                 .get_grid_coordinates(waypoint.location().region_name())
                 .await?
@@ -1111,6 +1345,14 @@ impl Map {
                     waypoint.location().region_name().to_owned(),
                 ));
             };
+            emit_progress(
+                progress,
+                MapProgressEvent::RouteWaypointResolved {
+                    index,
+                    total: total_waypoints,
+                    region: waypoint.location().region_name().to_owned(),
+                },
+            );
             let (x, y) = self
                 .pixel_coordinates_for_coordinates(
                     &grid_coordinates,

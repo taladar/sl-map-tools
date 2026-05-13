@@ -7,6 +7,58 @@
 // keeps the preview under ~1024×1024 and drop `<img>` tags positioned in
 // region space. No tiles flow through our server.
 
+// --- auth: redirect to /login on 401 and populate the header bar ---
+
+function redirectToLogin() {
+  const next = encodeURIComponent(
+    window.location.pathname + window.location.search,
+  );
+  window.location.assign(`/login?next=${next}`);
+}
+
+const _originalFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const resp = await _originalFetch(...args);
+  if (resp.status === 401) {
+    redirectToLogin();
+  }
+  return resp;
+};
+
+async function loadCurrentUser() {
+  try {
+    const resp = await _originalFetch("/api/auth/me");
+    if (resp.status === 401) {
+      redirectToLogin();
+      return;
+    }
+    if (!resp.ok) return;
+    const me = await resp.json();
+    const label = document.getElementById("logged-in-as");
+    if (label) label.textContent = `Logged in as ${me.legacy_name}`;
+    const logout = document.getElementById("logout-button");
+    if (logout) logout.classList.remove("hidden");
+  } catch (_err) {
+    // network failures during the optional "who am I" call shouldn't block
+    // the rest of the page from initialising
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadCurrentUser();
+  const logout = document.getElementById("logout-button");
+  if (logout) {
+    logout.addEventListener("click", async () => {
+      try {
+        await _originalFetch("/api/auth/logout", { method: "POST" });
+      } catch (_err) {
+        // ignore network errors; the redirect below either way clears UI
+      }
+      window.location.assign("/login");
+    });
+  }
+});
+
 const TILE_URL = (z, x, y) =>
   `https://secondlife-maps-cdn.akamaized.net/map-${z}-${x}-${y}-objects.jpg`;
 

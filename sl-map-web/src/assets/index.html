@@ -8,7 +8,15 @@
   </head>
   <body>
     <header>
-      <h1>sl-map-web</h1>
+      <div class="topbar">
+        <h1>sl-map-web</h1>
+        <div class="topbar-user">
+          <span id="logged-in-as"></span>
+          <button type="button" id="logout-button" class="topbar-logout hidden">
+            Logout
+          </button>
+        </div>
+      </div>
       <p>Render Second Life maps from a grid rectangle or a USB notecard.</p>
     </header>
 

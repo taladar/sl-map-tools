@@ -18,8 +18,12 @@ exclude = [
 ]
 
 [dependencies]
+argon2 = "0.5.3"
 axum = { version = "0.8", features = ["multipart", "macros"] }
+axum-extra = { version = "0.10.1", features = ["cookie", "cookie-signed", "typed-header"] }
+base64 = "0.22.1"
 bytes = "1.10.1"
+chrono = { version = "0.4.39", features = ["serde"] }
 clap = { version = "4.6.0", features = ["cargo", "derive", "env"] }
 fs-err = "3.3.0"
 futures = "0.3.31"
@@ -29,13 +33,21 @@ image = { version = "0.25.10", default-features = false, features = [
   "png",
   "rayon",
 ] }
+ipnet = "2.10.1"
 log-panics = { version = "2.1.0", features = ["with-backtrace"] }
+password-hash = "0.5.0"
+rand = "0.8.5"
 ratelimit = "1.0.0"
+reqwest = { version = "0.13.2", default-features = false, features = ["blocking", "json", "native-tls-vendored"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+sha2 = "0.10.8"
 sl-map-apis = { path = "../sl-map-apis", version = "0.3.3" }
 sl-types = { path = "../sl-types", version = "0.2.3" }
+sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+subtle = "2.6.1"
 thiserror = "2.0.18"
+time = "0.3.36"
 tokio = { version = "1.51.1", features = ["full"] }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 tower = "0.5.2"

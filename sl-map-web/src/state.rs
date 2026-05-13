@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use axum::extract::FromRef;
+use axum_extra::extract::cookie::Key;
 use sl_map_apis::map_tiles::MapTileCache;
 use sl_map_apis::region::RegionNameToGridCoordinatesCache;
 use tokio::sync::Mutex;
@@ -29,4 +31,19 @@ pub struct AppState {
     pub jobs: Arc<JobStore>,
     /// the runtime configuration.
     pub config: Arc<Config>,
+    /// SQLite pool used by the auth subsystem (users, sessions, set-password
+    /// tokens). Cheap to clone.
+    pub db: sqlx::SqlitePool,
+    /// signing key for the session cookie, derived from the configured
+    /// `session_signing_key` at startup. `Key` is internally a buffer of
+    /// bytes; cloning is cheap.
+    pub cookie_key: Key,
+}
+
+// `axum_extra::extract::cookie::SignedCookieJar` extracts itself via
+// `FromRef<S, Key>`, so we expose the `cookie_key` through `FromRef`.
+impl FromRef<AppState> for Key {
+    fn from_ref(input: &AppState) -> Self {
+        input.cookie_key.clone()
+    }
 }

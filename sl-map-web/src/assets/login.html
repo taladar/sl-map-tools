@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sl-map-web — sign in</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body class="auth-page">
+    <header>
+      <h1>sl-map-web</h1>
+      <p>Sign in to render Second Life maps.</p>
+    </header>
+
+    <section class="auth-card">
+      <h2>Sign in</h2>
+      <p id="login-status" class="status"></p>
+      <form id="login-form" autocomplete="on">
+        <label
+          >Avatar UUID, <code>firstname.lastname</code>, or "Firstname Lastname"
+          <input
+            type="text"
+            id="identifier"
+            name="identifier"
+            autocomplete="username"
+            required
+          />
+        </label>
+        <label
+          >Password
+          <input
+            type="password"
+            id="password"
+            name="password"
+            autocomplete="current-password"
+            required
+          />
+        </label>
+        <div class="row buttons">
+          <button type="submit">Sign in</button>
+        </div>
+      </form>
+      <p class="note">
+        No account yet? Click the in-world registration object to receive a
+        one-time link that lets you choose a password.
+      </p>
+    </section>
+
+    <script>
+      const form = document.getElementById("login-form");
+      const statusEl = document.getElementById("login-status");
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get("next") || "/";
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        statusEl.textContent = "Signing in…";
+        try {
+          const resp = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              identifier: document.getElementById("identifier").value,
+              password: document.getElementById("password").value,
+            }),
+          });
+          if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            throw new Error(data.error || `HTTP ${resp.status}`);
+          }
+          window.location.assign(next);
+        } catch (err) {
+          statusEl.textContent = `Sign-in failed: ${err.message}`;
+        }
+      });
+    </script>
+  </body>
+</html>

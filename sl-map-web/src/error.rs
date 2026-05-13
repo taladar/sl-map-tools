@@ -66,6 +66,23 @@ pub enum Error {
     /// JSON serialization failed.
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    /// the request lacks a valid session cookie or bearer token.
+    #[error("unauthenticated")]
+    Unauthenticated,
+    /// the credentials presented at login do not match a known user.
+    #[error("invalid credentials")]
+    InvalidCredentials,
+    /// the set-password / reset token is missing, malformed, used, or
+    /// expired.
+    #[error("invalid or expired token")]
+    InvalidOrExpiredToken,
+    /// a database operation failed. Detail is logged via `tracing` to avoid
+    /// leaking internals over HTTP.
+    #[error("database error")]
+    Database,
+    /// argon2 hashing or verification failed.
+    #[error("password hash error: {0}")]
+    PasswordHash(String),
 }
 
 impl From<MapError> for Error {
@@ -104,7 +121,9 @@ impl IntoResponse for Error {
             Self::BadRequest(_)
             | Self::Multipart(_)
             | Self::USBNotecardParse(_)
-            | Self::USBNotecardLoad(_) => ReqwestStatusCode::BAD_REQUEST,
+            | Self::USBNotecardLoad(_)
+            | Self::InvalidOrExpiredToken => ReqwestStatusCode::BAD_REQUEST,
+            Self::Unauthenticated | Self::InvalidCredentials => ReqwestStatusCode::UNAUTHORIZED,
             Self::JobNotFound | Self::NotFound(_) => ReqwestStatusCode::NOT_FOUND,
             Self::JobNotFinished => ReqwestStatusCode::ACCEPTED,
             Self::RenderFailed(_) => ReqwestStatusCode::CONFLICT,
@@ -114,9 +133,20 @@ impl IntoResponse for Error {
             | Self::MapTileCache(_)
             | Self::Image(_)
             | Self::Io(_)
-            | Self::Json(_) => ReqwestStatusCode::INTERNAL_SERVER_ERROR,
+            | Self::Json(_)
+            | Self::Database
+            | Self::PasswordHash(_) => ReqwestStatusCode::INTERNAL_SERVER_ERROR,
         };
         tracing::warn!("request failed: {self}");
-        (status, format!("{self}")).into_response()
+        let body = serde_json::json!({ "error": format!("{self}") }).to_string();
+        let mut response = (status, body).into_response();
+        if let Ok(value) = axum::http::HeaderValue::from_str("application/json; charset=utf-8") {
+            drop(
+                response
+                    .headers_mut()
+                    .insert(axum::http::header::CONTENT_TYPE, value),
+            );
+        }
+        response
     }
 }

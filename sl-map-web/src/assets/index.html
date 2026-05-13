@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sl-map-web</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>sl-map-web</h1>
+      <p>Render Second Life maps from a grid rectangle or a USB notecard.</p>
+    </header>
+
+    <section class="shared-params">
+      <h2>Output settings</h2>
+      <div class="row">
+        <label
+          >Max width (px)
+          <input type="number" id="max_width" value="2048" min="64" step="64" />
+        </label>
+        <label
+          >Max height (px)
+          <input
+            type="number"
+            id="max_height"
+            value="2048"
+            min="64"
+            step="64"
+          />
+        </label>
+        <label
+          >Format
+          <select id="format">
+            <option value="png" selected>PNG</option>
+            <option value="jpeg">JPEG</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label class="color-toggle">
+          <input type="checkbox" id="missing_map_tile_enabled" />
+          Fill missing map tiles:
+          <input
+            type="color"
+            id="missing_map_tile_color"
+            value="#000000"
+            disabled
+          />
+        </label>
+        <label class="color-toggle">
+          <input type="checkbox" id="missing_region_enabled" />
+          Fill missing regions:
+          <input
+            type="color"
+            id="missing_region_color"
+            value="#19485a"
+            disabled
+          />
+        </label>
+      </div>
+      <p class="note">
+        Enabling "Fill missing regions" significantly increases render time
+        because each region inside an existing map tile has to be checked
+        individually against the upstream server.
+      </p>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" class="tab active" data-tab="grid">
+        From grid rectangle
+      </button>
+      <button type="button" class="tab" data-tab="notecard">
+        From USB notecard
+      </button>
+    </nav>
+
+    <section id="tab-grid" class="tab-panel active">
+      <h2>Grid rectangle</h2>
+      <div class="row">
+        <label
+          >Lower-left X
+          <input type="number" id="ll_x" value="380" min="0" max="65535" />
+        </label>
+        <label
+          >Lower-left Y
+          <input type="number" id="ll_y" value="380" min="0" max="65535" />
+        </label>
+        <label
+          >Upper-right X
+          <input type="number" id="ur_x" value="1500" min="0" max="65535" />
+        </label>
+        <label
+          >Upper-right Y
+          <input type="number" id="ur_y" value="1500" min="0" max="65535" />
+        </label>
+      </div>
+      <div class="row buttons">
+        <button type="button" id="grid_preview">Preview</button>
+        <button type="button" id="grid_render">Generate</button>
+      </div>
+    </section>
+
+    <section id="tab-notecard" class="tab-panel">
+      <h2>USB notecard</h2>
+      <p>
+        Supply a notecard either by uploading a file <em>or</em> by pasting its
+        text.
+      </p>
+      <div class="row">
+        <label class="grow"
+          >Notecard file
+          <input type="file" id="notecard_file" accept=".txt,text/plain" />
+        </label>
+      </div>
+      <div class="row">
+        <label class="grow"
+          >…or paste contents
+          <textarea
+            id="notecard_text"
+            rows="6"
+            placeholder="Region%20Name/x/y/z one per line"
+          ></textarea>
+        </label>
+      </div>
+      <div class="row">
+        <label
+          >Route colour
+          <input type="color" id="route_color" value="#ff0000" />
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" id="save_without_route" />
+          Also save a copy without the route
+        </label>
+      </div>
+      <fieldset class="borders">
+        <legend>Borders (extra regions added around the route)</legend>
+        <label
+          >All sides (uniform)
+          <input type="number" id="border_regions" min="0" max="500" />
+        </label>
+        <div class="per-side">
+          <label
+            >North (+y)
+            <input type="number" id="border_north" min="0" max="500" />
+          </label>
+          <label
+            >South (-y)
+            <input type="number" id="border_south" min="0" max="500" />
+          </label>
+          <label
+            >East (+x)
+            <input type="number" id="border_east" min="0" max="500" />
+          </label>
+          <label
+            >West (-x)
+            <input type="number" id="border_west" min="0" max="500" />
+          </label>
+        </div>
+        <p class="note">
+          Setting "All sides" overrides the per-side fields and matches the
+          CLI's <code>--border-regions</code>.
+        </p>
+      </fieldset>
+      <div class="row buttons">
+        <button type="button" id="notecard_preview">Preview</button>
+        <button type="button" id="notecard_render">Generate</button>
+      </div>
+    </section>
+
+    <section class="preview-area">
+      <h2>Preview</h2>
+      <p class="note">
+        Tiles are aligned to the SL map CDN's tile grid, so the preview can
+        include regions outside the requested rectangle — those extra regions
+        will not appear in the final render.
+      </p>
+      <p id="preview-status" class="status"></p>
+      <div
+        id="preview-container"
+        class="map-container"
+        aria-hidden="true"
+      ></div>
+    </section>
+
+    <section class="render-area">
+      <h2>Render</h2>
+      <div id="render-progress" class="hidden">
+        <p id="render-status" class="status"></p>
+        <div id="tile-grid" class="tile-grid"></div>
+      </div>
+      <div id="render-result" class="hidden">
+        <h3>Result</h3>
+        <p id="render-metadata"></p>
+        <div class="row">
+          <a id="download-image" class="button">Download image</a>
+          <a id="download-without-route" class="button hidden"
+            >Download image (no route)</a
+          >
+        </div>
+        <img id="result-image" alt="Rendered map" />
+      </div>
+    </section>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

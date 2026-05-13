@@ -1,0 +1,275 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fafafa;
+  --bg-panel: #ffffff;
+  --border: #d0d0d0;
+  --accent: #2057a0;
+  --accent-fg: #ffffff;
+  --muted: #6b7280;
+  --tile-memory: #4ade80;
+  --tile-disk: #60a5fa;
+  --tile-network: #f59e0b;
+  --tile-missing: #6b7280;
+  --tile-pending: #e5e7eb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1f24;
+    --bg-panel: #262a33;
+    --border: #3a414d;
+    --accent: #6aa6f5;
+    --accent-fg: #0b0f14;
+    --muted: #9aa3b2;
+    --tile-pending: #2f343d;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem;
+  font-family: system-ui, sans-serif;
+  background: var(--bg);
+  color: inherit;
+  line-height: 1.4;
+  max-width: 1280px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+header h1 {
+  margin: 0 0 0.25rem;
+}
+
+header p {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+}
+
+section {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+section h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: end;
+  margin-bottom: 0.75rem;
+}
+
+.row:last-child {
+  margin-bottom: 0;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+label.checkbox,
+label.color-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+label.grow {
+  flex: 1 1 auto;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+textarea {
+  font-family: ui-monospace, monospace;
+  resize: vertical;
+  min-height: 4rem;
+}
+
+input[type="color"] {
+  padding: 0;
+  height: 2rem;
+  width: 3rem;
+}
+
+button,
+.button {
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: inherit;
+  text-decoration: none;
+  display: inline-block;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.tab {
+  background: var(--bg-panel);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+}
+
+.tab.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+
+.tab-panel {
+  display: none;
+  border-top-left-radius: 0;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+.borders {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 0.75rem 0;
+}
+
+.borders legend {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.borders .per-side {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.note {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.status {
+  font-family: ui-monospace, monospace;
+  font-size: 0.9rem;
+  color: var(--muted);
+  min-height: 1.25rem;
+  margin: 0 0 0.5rem;
+}
+
+.map-container {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #000;
+  min-height: 4rem;
+}
+
+.map-container .viewport {
+  position: relative;
+  /* the JS sets explicit width/height/transform; this only ensures
+     children stack with absolute positioning */
+}
+
+.map-container .tiles {
+  position: relative;
+}
+
+.map-container img.tile {
+  position: absolute;
+  width: 256px;
+  height: 256px;
+  display: block;
+}
+
+.map-container svg.route-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 14px);
+  gap: 2px;
+  margin-top: 0.5rem;
+}
+
+.tile-cell {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--tile-pending);
+}
+
+.tile-cell.memory {
+  background: var(--tile-memory);
+}
+
+.tile-cell.disk {
+  background: var(--tile-disk);
+}
+
+.tile-cell.network {
+  background: var(--tile-network);
+}
+
+.tile-cell.missing {
+  background: var(--tile-missing);
+}
+
+.tile-cell.active {
+  outline: 1px solid var(--accent);
+}
+
+#result-image {
+  max-width: 100%;
+  display: block;
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+}
+
+.hidden {
+  display: none !important;
+}

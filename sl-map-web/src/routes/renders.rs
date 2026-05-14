@@ -465,7 +465,7 @@ async fn lookup_notecard_name(
 
 /// SQL: list a user's personal renders.
 const LIST_PERSONAL_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
-        r.created_by, u.username, u.legacy_name, r.notecard_id, n.name, r.kind, r.status, \
+        r.created_by, u.username AS creator_username, u.legacy_name AS creator_legacy_name, r.notecard_id, n.name AS notecard_name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
         r.created_at, r.finished_at, \
         r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
@@ -477,7 +477,7 @@ const LIST_PERSONAL_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_gr
 
 /// SQL: list a user's personal renders filtered by status.
 const LIST_PERSONAL_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
-        r.created_by, u.username, u.legacy_name, r.notecard_id, n.name, r.kind, r.status, \
+        r.created_by, u.username AS creator_username, u.legacy_name AS creator_legacy_name, r.notecard_id, n.name AS notecard_name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
         r.created_at, r.finished_at, \
         r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
@@ -492,7 +492,7 @@ const LIST_PERSONAL_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.o
 /// check and the member-only-finished rule into SQL so a forgotten
 /// `assert_can_view` call cannot leak rows.
 const LIST_GROUP_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
-        r.created_by, u.username, u.legacy_name, r.notecard_id, n.name, r.kind, r.status, \
+        r.created_by, u.username AS creator_username, u.legacy_name AS creator_legacy_name, r.notecard_id, n.name AS notecard_name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
         r.created_at, r.finished_at, \
         r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
@@ -508,7 +508,7 @@ const LIST_GROUP_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group
 /// SQL: list a group's renders filtered by status. Same membership and
 /// visibility folding as `LIST_GROUP_SQL`.
 const LIST_GROUP_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
-        r.created_by, u.username, u.legacy_name, r.notecard_id, n.name, r.kind, r.status, \
+        r.created_by, u.username AS creator_username, u.legacy_name AS creator_legacy_name, r.notecard_id, n.name AS notecard_name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
         r.created_at, r.finished_at, \
         r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \

@@ -158,6 +158,10 @@ pub fn build(state: AppState) -> Router {
             get(renders::image_without_route),
         )
         .route("/api/renders/{id}/download", get(renders::download))
+        .route(
+            "/api/renders/{id}/download-without-route",
+            get(renders::download_without_route),
+        )
         .route("/api/renders/{id}/metadata", get(renders::metadata))
         .route("/api/renders/{id}/settings", get(renders::settings))
         .route_layer(middleware::from_fn_with_state(

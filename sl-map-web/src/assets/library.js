@@ -128,6 +128,14 @@ function renderRow(r) {
   tr.appendChild(td(fmtDate(r.created_at)));
   const actions = document.createElement("td");
   if (r.status === "done") {
+    const view = document.createElement("button");
+    view.type = "button";
+    view.textContent = "View";
+    view.className = "row-action";
+    view.addEventListener("click", () =>
+      showImageModal(r.render_id, r.has_without_route),
+    );
+    actions.appendChild(view);
     const dl = document.createElement("a");
     dl.href = `/api/renders/${r.render_id}/download`;
     dl.textContent = "Download";
@@ -135,8 +143,8 @@ function renderRow(r) {
     actions.appendChild(dl);
     if (r.has_without_route) {
       const dl2 = document.createElement("a");
-      dl2.href = `/api/renders/${r.render_id}/image-without-route`;
-      dl2.textContent = "No-route image";
+      dl2.href = `/api/renders/${r.render_id}/download-without-route`;
+      dl2.textContent = "Download (no route)";
       dl2.className = "row-action";
       actions.appendChild(dl2);
     }
@@ -182,6 +190,76 @@ function td(text) {
   const el = document.createElement("td");
   el.textContent = text;
   return el;
+}
+
+// Open the image-viewer modal for a saved render. When `hasWithoutRoute`
+// is true, both variants are loaded and a small tab strip switches
+// between them. The two `<img>` elements are stacked in the same
+// position so the inactive one toggles `display:none` and the visible
+// one stays put — handy for eyeball comparison of with-route vs
+// without-route. The Download button in the modal footer follows the
+// active tab.
+async function showImageModal(renderId, hasWithoutRoute) {
+  const variants = [
+    {
+      key: "with",
+      label: "With route",
+      imageUrl: `/api/renders/${renderId}/image`,
+      downloadUrl: `/api/renders/${renderId}/download`,
+    },
+  ];
+  if (hasWithoutRoute) {
+    variants.push({
+      key: "without",
+      label: "Without route",
+      imageUrl: `/api/renders/${renderId}/image-without-route`,
+      downloadUrl: `/api/renders/${renderId}/download-without-route`,
+    });
+  }
+  const downloadLink = document.createElement("a");
+  downloadLink.className = "modal-btn";
+  downloadLink.textContent = "Download";
+  downloadLink.setAttribute("download", "");
+  downloadLink.href = variants[0].downloadUrl;
+  await infoModal({
+    title: "Render",
+    footerExtras: [downloadLink],
+    build: (dialog) => {
+      const imgWrap = document.createElement("div");
+      imgWrap.className = "image-modal-wrap";
+      const imgs = variants.map((v, i) => {
+        const img = document.createElement("img");
+        img.className = "image-modal-img";
+        img.src = v.imageUrl;
+        img.alt = `Render (${v.label})`;
+        if (i !== 0) img.classList.add("hidden");
+        return img;
+      });
+      for (const img of imgs) imgWrap.appendChild(img);
+
+      if (variants.length > 1) {
+        const tabs = document.createElement("nav");
+        tabs.className = "image-modal-tabs";
+        const buttons = variants.map((v, i) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = i === 0 ? "subtab active" : "subtab";
+          btn.textContent = v.label;
+          btn.addEventListener("click", () => {
+            for (let j = 0; j < variants.length; j++) {
+              imgs[j].classList.toggle("hidden", j !== i);
+              buttons[j].classList.toggle("active", j === i);
+            }
+            downloadLink.href = variants[i].downloadUrl;
+          });
+          return btn;
+        });
+        for (const btn of buttons) tabs.appendChild(btn);
+        dialog.appendChild(tabs);
+      }
+      dialog.appendChild(imgWrap);
+    },
+  });
 }
 
 async function showMetadataModal(renderId) {

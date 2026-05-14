@@ -196,6 +196,20 @@ pub async fn download(
     serve_image(user, state, render_id, false, true).await
 }
 
+/// `GET /api/renders/{id}/download-without-route` — like
+/// `/image-without-route` but with `Content-Disposition: attachment`.
+///
+/// # Errors
+///
+/// As [`image()`].
+pub async fn download_without_route(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path(render_id): Path<Uuid>,
+) -> Result<Response, Error> {
+    serve_image(user, state, render_id, true, true).await
+}
+
 /// `GET /api/renders/{id}/metadata` — serve the metadata JSON.
 ///
 /// The stored bytes are round-tripped through [`Metadata`] rather than

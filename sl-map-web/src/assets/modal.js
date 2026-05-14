@@ -193,7 +193,9 @@ function alertModal(opts) {
 // Like alertModal, but the caller fills the dialog body itself via the
 // `build(dialog)` callback (which runs after the title is set and before
 // the footer). Useful when the body is more than a single text line —
-// tables, instructions, copy-to-clipboard fields, etc.
+// tables, instructions, copy-to-clipboard fields, etc. `footerExtras`,
+// if supplied, is a list of DOM nodes prepended to the footer ahead of
+// the Close button — handy for putting a Download link alongside Close.
 function infoModal(opts) {
   return new Promise((resolve) => {
     activeOnCancel = () => resolve();
@@ -212,6 +214,11 @@ function infoModal(opts) {
           onClick: finish,
         },
       ]);
+      if (Array.isArray(opts.footerExtras)) {
+        for (const node of opts.footerExtras.slice().reverse()) {
+          footer.insertBefore(node, footer.firstChild);
+        }
+      }
       dialog.appendChild(footer);
       setTimeout(() => {
         const okBtn = footer.lastChild;

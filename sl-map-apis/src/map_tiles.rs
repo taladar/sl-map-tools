@@ -491,6 +491,10 @@ pub enum MapTileCacheError {
     /// unless the body is a stream which it is not for us)
     #[error("failed to clone request for cache policy")]
     FailedToCloneRequest,
+    /// the ratelimiter returned a non-retriable error (e.g. the requested
+    /// token count exceeds its capacity)
+    #[error("ratelimiter rejected request: {0:?}")]
+    RatelimiterError(ratelimit::TryWaitError),
     /// error guessing image format
     #[error("error guessing image format: {0}")]
     ImageFormatGuessError(std::io::Error),
@@ -878,8 +882,15 @@ impl MapTileCache {
         }
         tracing::debug!("Waiting for ratelimiter to fetch map tile from server");
         if let Some(ratelimiter) = &self.ratelimiter {
-            while let Err(duration) = ratelimiter.try_wait() {
-                tokio::time::sleep(duration).await;
+            while let Err(err) = ratelimiter.try_wait() {
+                match err {
+                    ratelimit::TryWaitError::Insufficient(duration) => {
+                        tokio::time::sleep(duration).await;
+                    }
+                    _ => {
+                        return Err(MapTileCacheError::RatelimiterError(err));
+                    }
+                }
             }
         }
         tracing::debug!("Fetching map tile from server at {}", url);

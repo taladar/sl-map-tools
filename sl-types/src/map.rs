@@ -714,7 +714,12 @@ pub struct RegionName(String);
 pub fn url_region_name_parser<'src>()
 -> impl Parser<'src, &'src str, RegionName, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     url_text_component_parser().try_map(|region_name, span| {
-        RegionName::try_new(region_name).map_err(|err| chumsky::error::Rich::custom(span, err))
+        RegionName::try_new(&region_name).map_err(|err| {
+            chumsky::error::Rich::custom(
+                span,
+                format!("failed to parse url-encoded region name ({region_name}): {err:?}"),
+            )
+        })
     })
 }
 
@@ -735,7 +740,12 @@ pub fn region_name_parser<'src>()
         .at_least(2)
         .collect::<String>()
         .try_map(|region_name, span| {
-            RegionName::try_new(region_name).map_err(|err| chumsky::error::Rich::custom(span, err))
+            RegionName::try_new(&region_name).map_err(|err| {
+                chumsky::error::Rich::custom(
+                    span,
+                    format!("failed to parse region name ({region_name}): {err:?}"),
+                )
+            })
         })
 }
 

@@ -3,6 +3,7 @@
 
 use std::time::Duration;
 
+use argon2::password_hash::{Salt, SaltString};
 use argon2::{Argon2, PasswordHash, PasswordHasher as _, PasswordVerifier as _};
 use axum::extract::{FromRequestParts, Request, State};
 use axum::http::header;
@@ -12,9 +13,7 @@ use axum::response::{IntoResponse as _, Redirect, Response};
 use axum_extra::extract::cookie::{Cookie, Key, SameSite, SignedCookieJar};
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
-use password_hash::SaltString;
-use rand::RngCore as _;
-use rand::rngs::OsRng;
+use rand::Rng as _;
 use secrecy::ExposeSecret as _;
 use sha2::{Digest as _, Sha256};
 use sqlx::SqlitePool;
@@ -254,7 +253,10 @@ impl FromRequestParts<AppState> for LslBearer {
 /// Returns [`Error::PasswordHash`] if the underlying hasher fails (which
 /// should not happen in practice — it can only fail on out-of-memory).
 pub fn hash_password(password: &str) -> Result<String, Error> {
-    let salt = SaltString::generate(&mut OsRng);
+    let mut salt_bytes = [0_u8; Salt::RECOMMENDED_LENGTH];
+    rand::rng().fill_bytes(&mut salt_bytes);
+    let salt =
+        SaltString::encode_b64(&salt_bytes).map_err(|err| Error::PasswordHash(err.to_string()))?;
     let argon = Argon2::default();
     let hash = argon
         .hash_password(password.as_bytes(), &salt)
@@ -284,7 +286,7 @@ pub fn verify_password(password: &str, stored_hash: &str) -> Result<bool, Error>
 #[must_use]
 pub fn generate_token() -> (String, Vec<u8>) {
     let mut raw = [0_u8; 32];
-    OsRng.fill_bytes(&mut raw);
+    rand::rng().fill_bytes(&mut raw);
     let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
     let hash = Sha256::digest(raw).to_vec();
     (encoded, hash)
@@ -309,7 +311,7 @@ pub fn hash_token(raw_token: &str) -> Option<Vec<u8>> {
 #[must_use]
 pub fn generate_session_id() -> ([u8; 32], String) {
     let mut raw = [0_u8; 32];
-    OsRng.fill_bytes(&mut raw);
+    rand::rng().fill_bytes(&mut raw);
     let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
     (raw, encoded)
 }

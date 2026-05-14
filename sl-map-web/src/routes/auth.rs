@@ -325,6 +325,14 @@ pub async fn login(
         return Err(Error::InvalidCredentials);
     }
     let user_id = auth::uuid_from_bytes(&user_id_bytes).ok_or(Error::InvalidCredentials)?;
+    // Retire any session row whose cookie the client brought to this
+    // request before we mint a new one. Defends against a pre-login
+    // leaked id surviving the re-login on the same browser — see L17.
+    // Only the cookie-carried session is touched; other browsers /
+    // devices keep their independent sessions.
+    if let Some(session_id) = auth::session_id_from_jar(&jar, &state.config.cookie_name) {
+        auth::delete_session(&state.db, &session_id).await?;
+    }
     let cookie = auth::create_session(
         &state.db,
         &state.config,

@@ -84,9 +84,9 @@ pub async fn create(
     let view = build_view(
         notecard_id,
         parsed.destination,
-        user.user_id,
-        &user.username,
-        &user.legacy_name,
+        Some(user.user_id),
+        Some(&user.username),
+        Some(&user.legacy_name),
         &parsed.name,
         Utc::now(),
         NotecardExtras {
@@ -116,14 +116,21 @@ pub async fn get(
     let row = library::assert_can_read_notecard(&state.db, user.user_id, notecard_id).await?;
     let destination =
         library::destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
-    let (uploader_username, uploader_legacy) = lookup_user_names(&state, row.uploaded_by).await?;
+    let names = match row.uploaded_by {
+        Some(id) => lookup_user_names(&state, id).await.ok(),
+        None => None,
+    };
+    let (uploader_username, uploader_legacy) = match names {
+        Some((u, l)) => (Some(u), Some(l)),
+        None => (None, None),
+    };
     let (start_region, end_region, waypoint_count) = notecard_summary(&row.body);
     let view = build_view(
         notecard_id,
         destination,
         row.uploaded_by,
-        &uploader_username,
-        &uploader_legacy,
+        uploader_username.as_deref(),
+        uploader_legacy.as_deref(),
         &row.name,
         row.created_at,
         NotecardExtras {
@@ -351,9 +358,9 @@ fn bound_u16(v: Option<i64>) -> Option<u16> {
 fn build_view(
     notecard_id: Uuid,
     destination: Destination,
-    uploaded_by: Uuid,
-    uploaded_by_username: &str,
-    uploaded_by_legacy_name: &str,
+    uploaded_by: Option<Uuid>,
+    uploaded_by_username: Option<&str>,
+    uploaded_by_legacy_name: Option<&str>,
     name: &str,
     created_at: DateTime<Utc>,
     extras: NotecardExtras,
@@ -362,8 +369,8 @@ fn build_view(
         notecard_id,
         destination,
         uploaded_by,
-        uploaded_by_username: uploaded_by_username.to_owned(),
-        uploaded_by_legacy_name: uploaded_by_legacy_name.to_owned(),
+        uploaded_by_username: uploaded_by_username.map(str::to_owned),
+        uploaded_by_legacy_name: uploaded_by_legacy_name.map(str::to_owned),
         name: name.to_owned(),
         created_at,
         start_region: extras.start_region,
@@ -388,12 +395,14 @@ struct NotecardListRow {
     owner_user_id: Option<Vec<u8>>,
     /// raw bytes of `saved_notecards.owner_group_id`, if set.
     owner_group_id: Option<Vec<u8>>,
-    /// raw bytes of the uploading user's id.
-    uploaded_by: Vec<u8>,
-    /// the uploading user's `username`.
-    uploader_username: String,
-    /// the uploading user's `legacy_name`.
-    uploader_legacy: String,
+    /// raw bytes of the uploading user's id. `None` when the account
+    /// has been deleted (FK is `ON DELETE SET NULL`).
+    uploaded_by: Option<Vec<u8>>,
+    /// the uploading user's `username`. `None` if the uploader's
+    /// account has been deleted.
+    uploader_username: Option<String>,
+    /// the uploading user's `legacy_name`. `None` if deleted.
+    uploader_legacy: Option<String>,
     /// notecard display name.
     name: String,
     /// the raw notecard body (used to extract the start / end region
@@ -425,7 +434,7 @@ async fn fetch_notecards_for(
                     n.name, n.body, n.created_at, \
                     n.lower_left_x, n.lower_left_y, n.upper_right_x, n.upper_right_y \
              FROM saved_notecards AS n \
-             JOIN users AS u ON u.user_id = n.uploaded_by \
+             LEFT JOIN users AS u ON u.user_id = n.uploaded_by \
              WHERE n.owner_user_id = ?1 \
              ORDER BY n.created_at DESC",
         )
@@ -445,7 +454,7 @@ async fn fetch_notecards_for(
                     n.name, n.body, n.created_at, \
                     n.lower_left_x, n.lower_left_y, n.upper_right_x, n.upper_right_y \
              FROM saved_notecards AS n \
-             JOIN users AS u ON u.user_id = n.uploaded_by \
+             LEFT JOIN users AS u ON u.user_id = n.uploaded_by \
              JOIN group_memberships AS gm \
                ON gm.group_id = n.owner_group_id AND gm.user_id = ?2 \
              WHERE n.owner_group_id = ?1 \
@@ -467,10 +476,17 @@ async fn fetch_notecards_for(
             Error::Database
         })?;
         let row_dest = library::destination_from_columns(row.owner_user_id, row.owner_group_id)?;
-        let uploaded_by = uuid_from_bytes(&row.uploaded_by).ok_or_else(|| {
-            tracing::error!("bad uploaded_by uuid");
-            Error::Database
-        })?;
+        let uploaded_by = row
+            .uploaded_by
+            .as_deref()
+            .map(uuid_from_bytes)
+            .map(|opt| {
+                opt.ok_or_else(|| {
+                    tracing::error!("bad uploaded_by uuid");
+                    Error::Database
+                })
+            })
+            .transpose()?;
         let (start_region, end_region, waypoint_count) = notecard_summary(&row.body);
         out.push(NotecardView {
             notecard_id,

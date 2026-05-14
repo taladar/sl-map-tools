@@ -17,6 +17,10 @@ const GROUPS_JS: &str = include_str!("../assets/groups.js");
 const INVITATIONS_HTML: &str = include_str!("../assets/invitations.html");
 /// JS that drives the invitations page.
 const INVITATIONS_JS: &str = include_str!("../assets/invitations.js");
+/// HTML for `/profile` and `/profile/{id}`.
+const PROFILE_HTML: &str = include_str!("../assets/profile.html");
+/// JS that drives the profile page.
+const PROFILE_JS: &str = include_str!("../assets/profile.js");
 /// JS that provides in-page replacements for `confirm`/`prompt`/`alert`,
 /// shared by the library, groups, and invitations pages.
 const MODAL_JS: &str = include_str!("../assets/modal.js");
@@ -38,6 +42,13 @@ pub async fn invitations() -> Html<&'static str> {
     Html(INVITATIONS_HTML)
 }
 
+/// `GET /profile` and `/profile/{id}` — serve the profile UI. The page
+/// reads the user id (or the current user, on the no-arg route) from
+/// the URL and fetches the JSON via `/api/users/{id}`.
+pub async fn profile() -> Html<&'static str> {
+    Html(PROFILE_HTML)
+}
+
 /// `GET /static/library.js`.
 pub async fn library_js() -> Response {
     js_response(LIBRARY_JS)
@@ -51,6 +62,11 @@ pub async fn groups_js() -> Response {
 /// `GET /static/invitations.js`.
 pub async fn invitations_js() -> Response {
     js_response(INVITATIONS_JS)
+}
+
+/// `GET /static/profile.js`.
+pub async fn profile_js() -> Response {
+    js_response(PROFILE_JS)
 }
 
 /// `GET /static/modal.js`.

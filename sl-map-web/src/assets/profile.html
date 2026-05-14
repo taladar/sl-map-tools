@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Profile — sl-map-web</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="topbar">
+        <h1>Profile</h1>
+        <div class="topbar-user">
+          <span id="logged-in-as"></span>
+          <button type="button" id="logout-button" class="topbar-logout hidden">
+            Logout
+          </button>
+        </div>
+      </div>
+      <nav class="primary-nav">
+        <a href="/">Render</a>
+        <a href="/library">Library</a>
+        <a href="/groups">Groups</a>
+        <a href="/invitations" id="invitations-link">Invitations</a>
+        <a href="/profile" class="active">Profile</a>
+      </nav>
+    </header>
+
+    <section>
+      <p id="profile-status" class="status"></p>
+      <dl id="profile-fields" class="metadata-list hidden">
+        <dt>Legacy name</dt>
+        <dd id="profile-legacy-name"></dd>
+        <dt>Username</dt>
+        <dd id="profile-username"></dd>
+        <dt>UUID</dt>
+        <dd id="profile-uuid"></dd>
+        <dt>Member since</dt>
+        <dd id="profile-created-at"></dd>
+      </dl>
+    </section>
+
+    <section id="profile-self-actions" class="hidden">
+      <h2>Danger zone</h2>
+      <p class="note">
+        Deleting your account removes your sessions, personal notecards
+        and renders, group memberships, and any pending invitations.
+        Notecards and renders you contributed to a group survive but
+        are no longer attributed to you. You cannot delete your account
+        while you are the sole owner of any group — promote another
+        member to owner or delete the group first.
+      </p>
+      <div class="row buttons">
+        <button type="button" id="delete-account" class="row-action danger">
+          Delete account
+        </button>
+      </div>
+    </section>
+
+    <script src="/static/app.js"></script>
+    <script src="/static/modal.js"></script>
+    <script src="/static/profile.js"></script>
+  </body>
+</html>

@@ -91,7 +91,14 @@ pub async fn get(
     let row = library::assert_can_read_render(&state.db, user.user_id, render_id).await?;
     let destination =
         library::destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
-    let (creator_username, creator_legacy) = lookup_user_names(&state, row.created_by).await?;
+    let creator_names = match row.created_by {
+        Some(id) => lookup_user_names(&state, id).await.ok(),
+        None => None,
+    };
+    let (creator_username, creator_legacy) = match creator_names {
+        Some((u, l)) => (Some(u), Some(l)),
+        None => (None, None),
+    };
     let notecard_name = match row.notecard_id {
         Some(id) => lookup_notecard_name(&state, id).await?,
         None => None,
@@ -388,12 +395,13 @@ struct RenderListRow {
     owner_user_id: Option<Vec<u8>>,
     /// raw bytes of `saved_renders.owner_group_id`, if set.
     owner_group_id: Option<Vec<u8>>,
-    /// raw bytes of the user that created the render.
-    created_by: Vec<u8>,
-    /// the creating user's `username`.
-    creator_username: String,
-    /// the creating user's `legacy_name`.
-    creator_legacy_name: String,
+    /// raw bytes of the user that created the render. `None` when the
+    /// account has been deleted (FK is `ON DELETE SET NULL`).
+    created_by: Option<Vec<u8>>,
+    /// the creating user's `username`, if the account still exists.
+    creator_username: Option<String>,
+    /// the creating user's `legacy_name`, if the account still exists.
+    creator_legacy_name: Option<String>,
     /// raw bytes of the linked notecard id, if any.
     notecard_id: Option<Vec<u8>>,
     /// the linked notecard's display name, if any.
@@ -442,10 +450,17 @@ impl IntoView for RenderListRow {
         })?;
         let destination =
             library::destination_from_columns(self.owner_user_id, self.owner_group_id)?;
-        let created_by = uuid_from_bytes(&self.created_by).ok_or_else(|| {
-            tracing::error!("bad created_by uuid");
-            Error::Database
-        })?;
+        let created_by = self
+            .created_by
+            .as_deref()
+            .map(uuid_from_bytes)
+            .map(|opt| {
+                opt.ok_or_else(|| {
+                    tracing::error!("bad created_by uuid");
+                    Error::Database
+                })
+            })
+            .transpose()?;
         let notecard_id = self
             .notecard_id
             .as_deref()
@@ -520,7 +535,7 @@ const LIST_PERSONAL_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_gr
         r.created_at, r.finished_at, \
         r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
      FROM saved_renders AS r \
-     JOIN users AS u ON u.user_id = r.created_by \
+     LEFT JOIN users AS u ON u.user_id = r.created_by \
      LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
      WHERE r.owner_user_id = ?1 \
      ORDER BY r.created_at DESC";
@@ -532,7 +547,7 @@ const LIST_PERSONAL_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.o
         r.created_at, r.finished_at, \
         r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
      FROM saved_renders AS r \
-     JOIN users AS u ON u.user_id = r.created_by \
+     LEFT JOIN users AS u ON u.user_id = r.created_by \
      LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
      WHERE r.owner_user_id = ?1 AND r.status = ?2 \
      ORDER BY r.created_at DESC";
@@ -547,7 +562,7 @@ const LIST_GROUP_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group
         r.created_at, r.finished_at, \
         r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
      FROM saved_renders AS r \
-     JOIN users AS u ON u.user_id = r.created_by \
+     LEFT JOIN users AS u ON u.user_id = r.created_by \
      JOIN group_memberships AS gm \
        ON gm.group_id = r.owner_group_id AND gm.user_id = ?2 \
      LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
@@ -563,7 +578,7 @@ const LIST_GROUP_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owne
         r.created_at, r.finished_at, \
         r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
      FROM saved_renders AS r \
-     JOIN users AS u ON u.user_id = r.created_by \
+     LEFT JOIN users AS u ON u.user_id = r.created_by \
      JOIN group_memberships AS gm \
        ON gm.group_id = r.owner_group_id AND gm.user_id = ?2 \
      LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \

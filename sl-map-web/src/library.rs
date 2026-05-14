@@ -149,12 +149,15 @@ pub struct NotecardView {
     pub notecard_id: Uuid,
     /// the destination the notecard belongs to.
     pub destination: Destination,
-    /// the avatar that uploaded the notecard.
-    pub uploaded_by: Uuid,
-    /// the avatar's username, for display.
-    pub uploaded_by_username: String,
-    /// the avatar's legacy name, for display.
-    pub uploaded_by_legacy_name: String,
+    /// the avatar that uploaded the notecard, or `None` if that
+    /// account has since been deleted (the FK is `ON DELETE SET NULL`,
+    /// so audit history survives the account removal but the link is
+    /// severed).
+    pub uploaded_by: Option<Uuid>,
+    /// the uploader's username, if the account still exists.
+    pub uploaded_by_username: Option<String>,
+    /// the uploader's legacy name, if the account still exists.
+    pub uploaded_by_legacy_name: Option<String>,
     /// the human-supplied display name of the notecard.
     pub name: String,
     /// when the notecard was saved.
@@ -185,12 +188,13 @@ pub struct RenderView {
     pub render_id: Uuid,
     /// the destination the render belongs to.
     pub destination: Destination,
-    /// the avatar that started the render.
-    pub created_by: Uuid,
-    /// the avatar's username, for display.
-    pub created_by_username: String,
-    /// the avatar's legacy name, for display.
-    pub created_by_legacy_name: String,
+    /// the avatar that started the render, or `None` if that account
+    /// has since been deleted (the FK is `ON DELETE SET NULL`).
+    pub created_by: Option<Uuid>,
+    /// the creator's username, if the account still exists.
+    pub created_by_username: Option<String>,
+    /// the creator's legacy name, if the account still exists.
+    pub created_by_legacy_name: Option<String>,
     /// the linked saved notecard, if any (USB-notecard renders only).
     pub notecard_id: Option<Uuid>,
     /// the display name of the linked saved notecard, if any. Mirrors
@@ -462,8 +466,9 @@ pub struct NotecardRow {
     pub owner_user_id: Option<Vec<u8>>,
     /// raw bytes of the group owner column, if any.
     pub owner_group_id: Option<Vec<u8>>,
-    /// the uploading avatar id.
-    pub uploaded_by: Uuid,
+    /// the uploading avatar id, or `None` if the uploader has since
+    /// deleted their account (FK is `ON DELETE SET NULL`).
+    pub uploaded_by: Option<Uuid>,
     /// the notecard's display name.
     pub name: String,
     /// the raw notecard body (the text the user uploaded).
@@ -490,8 +495,9 @@ pub struct RenderRow {
     pub owner_user_id: Option<Vec<u8>>,
     /// raw bytes of the group owner column, if any.
     pub owner_group_id: Option<Vec<u8>>,
-    /// the avatar that created the render.
-    pub created_by: Uuid,
+    /// the avatar that created the render, or `None` if the creator
+    /// has since deleted their account (FK is `ON DELETE SET NULL`).
+    pub created_by: Option<Uuid>,
     /// the linked notecard id, if any.
     pub notecard_id: Option<Uuid>,
     /// the render kind: `grid_rectangle` or `usb_notecard`.
@@ -528,7 +534,7 @@ pub struct RenderRow {
 type NotecardRowTuple = (
     Option<Vec<u8>>,
     Option<Vec<u8>>,
-    Vec<u8>,
+    Option<Vec<u8>>,
     String,
     String,
     DateTime<Utc>,
@@ -564,10 +570,16 @@ async fn fetch_notecard_row(db: &SqlitePool, notecard_id: Uuid) -> Result<Noteca
         upper_right_x,
         upper_right_y,
     ) = row.ok_or_else(|| Error::NotFound(format!("notecard {notecard_id}")))?;
-    let uploaded_by = uuid_from_bytes(&uploaded_by_bytes).ok_or_else(|| {
-        tracing::error!("bad uploaded_by uuid in saved_notecards");
-        Error::Database
-    })?;
+    let uploaded_by = uploaded_by_bytes
+        .as_deref()
+        .map(uuid_from_bytes)
+        .map(|opt| {
+            opt.ok_or_else(|| {
+                tracing::error!("bad uploaded_by uuid in saved_notecards");
+                Error::Database
+            })
+        })
+        .transpose()?;
     Ok(NotecardRow {
         notecard_id,
         owner_user_id,
@@ -592,8 +604,9 @@ struct RenderRowDb {
     owner_user_id: Option<Vec<u8>>,
     /// raw bytes of the group owner column, if any.
     owner_group_id: Option<Vec<u8>>,
-    /// raw bytes of the user that created the render.
-    created_by: Vec<u8>,
+    /// raw bytes of the user that created the render. NULL when the
+    /// account has been deleted.
+    created_by: Option<Vec<u8>>,
     /// raw bytes of the linked notecard id, if any.
     notecard_id: Option<Vec<u8>>,
     /// render kind (`grid_rectangle` or `usb_notecard`).
@@ -662,10 +675,16 @@ async fn fetch_render_row(db: &SqlitePool, render_id: Uuid) -> Result<RenderRow,
         upper_right_x,
         upper_right_y,
     } = row.ok_or_else(|| Error::NotFound(format!("render {render_id}")))?;
-    let created_by = uuid_from_bytes(&created_by_bytes).ok_or_else(|| {
-        tracing::error!("bad created_by uuid in saved_renders");
-        Error::Database
-    })?;
+    let created_by = created_by_bytes
+        .as_deref()
+        .map(uuid_from_bytes)
+        .map(|opt| {
+            opt.ok_or_else(|| {
+                tracing::error!("bad created_by uuid in saved_renders");
+                Error::Database
+            })
+        })
+        .transpose()?;
     let notecard_id = notecard_bytes
         .as_deref()
         .map(uuid_from_bytes)

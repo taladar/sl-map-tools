@@ -597,3 +597,8 @@ body.auth-page {
 .image-modal-img.hidden {
   display: none;
 }
+
+.muted {
+  color: var(--muted, #888);
+  font-style: italic;
+}

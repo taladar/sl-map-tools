@@ -12,6 +12,7 @@ pub mod pages;
 pub mod render;
 pub mod renders;
 pub mod result;
+pub mod users;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -91,6 +92,7 @@ pub fn build(state: AppState) -> Router {
         .route("/static/library.js", get(library_pages::library_js))
         .route("/static/groups.js", get(library_pages::groups_js))
         .route("/static/invitations.js", get(library_pages::invitations_js))
+        .route("/static/profile.js", get(library_pages::profile_js))
         .route("/static/modal.js", get(library_pages::modal_js))
         .route("/static/login.js", get(pages::login_js))
         .route("/static/set_password.js", get(pages::set_password_js));
@@ -164,6 +166,11 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/api/renders/{id}/metadata", get(renders::metadata))
         .route("/api/renders/{id}/settings", get(renders::settings))
+        // profile + account
+        .route("/profile", get(library_pages::profile))
+        .route("/profile/{id}", get(library_pages::profile))
+        .route("/api/users/me", axum::routing::delete(users::delete_me))
+        .route("/api/users/{id}", get(users::get))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_session,

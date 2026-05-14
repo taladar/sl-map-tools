@@ -79,8 +79,10 @@ pub struct GroupView {
     pub group_id: Uuid,
     /// the group's display name.
     pub name: String,
-    /// the avatar that created the group (immutable).
-    pub created_by: Uuid,
+    /// the avatar that created the group, or `None` if that account
+    /// has been deleted. The column is `ON DELETE SET NULL` so the
+    /// group survives the creator's account being removed.
+    pub created_by: Option<Uuid>,
     /// when the group was created.
     pub created_at: DateTime<Utc>,
     /// when the group's metadata was last updated (e.g. renamed).
@@ -352,11 +354,13 @@ pub async fn list_members(db: &SqlitePool, group_id: Uuid) -> Result<Vec<GroupMe
 }
 
 /// Row shape for `list_for_user`: `(group_id, name, created_by, created_at,
-/// updated_at, my_role)`.
+/// updated_at, my_role)`. `created_by` is nullable because the FK is
+/// `ON DELETE SET NULL` — the group survives the creator's account
+/// being deleted.
 type GroupRow = (
     Vec<u8>,
     String,
-    Vec<u8>,
+    Option<Vec<u8>>,
     DateTime<Utc>,
     DateTime<Utc>,
     String,
@@ -387,8 +391,11 @@ pub async fn list_for_user(db: &SqlitePool, user_id: Uuid) -> Result<Vec<GroupVi
     for (gid_bytes, name, created_by_bytes, created_at, updated_at, role) in rows {
         let group_id = uuid_from_bytes(&gid_bytes)
             .ok_or_else(|| Error::BadRequest("bad group uuid".to_owned()))?;
-        let created_by = uuid_from_bytes(&created_by_bytes)
-            .ok_or_else(|| Error::BadRequest("bad creator uuid".to_owned()))?;
+        let created_by = created_by_bytes
+            .as_deref()
+            .map(uuid_from_bytes)
+            .map(|opt| opt.ok_or_else(|| Error::BadRequest("bad creator uuid".to_owned())))
+            .transpose()?;
         out.push(GroupView {
             group_id,
             name,
@@ -412,7 +419,13 @@ pub async fn get_for_user(
     group_id: Uuid,
     user_id: Uuid,
 ) -> Result<GroupView, Error> {
-    type GetGroupRow = (String, Vec<u8>, DateTime<Utc>, DateTime<Utc>, String);
+    type GetGroupRow = (
+        String,
+        Option<Vec<u8>>,
+        DateTime<Utc>,
+        DateTime<Utc>,
+        String,
+    );
     let row: Option<GetGroupRow> = sqlx::query_as(
         "SELECT groups.name, groups.created_by, groups.created_at, groups.updated_at, \
                 group_memberships.role \
@@ -430,8 +443,11 @@ pub async fn get_for_user(
     })?;
     let (name, created_by_bytes, created_at, updated_at, role) =
         row.ok_or_else(|| Error::NotFound(format!("group {group_id}")))?;
-    let created_by = uuid_from_bytes(&created_by_bytes)
-        .ok_or_else(|| Error::BadRequest("bad creator uuid".to_owned()))?;
+    let created_by = created_by_bytes
+        .as_deref()
+        .map(uuid_from_bytes)
+        .map(|opt| opt.ok_or_else(|| Error::BadRequest("bad creator uuid".to_owned())))
+        .transpose()?;
     Ok(GroupView {
         group_id,
         name,

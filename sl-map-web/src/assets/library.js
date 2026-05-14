@@ -17,6 +17,24 @@ function fmtCoord(x, y) {
   return `${x}, ${y}`;
 }
 
+// Build a `<td>` containing a link to a user's profile, or a `(deleted user)`
+// placeholder when the underlying account has been removed (uploader /
+// creator FKs are `ON DELETE SET NULL`, so both the id and the display
+// name come back as null in that case).
+function profileLinkCell(userId, legacyName) {
+  const cell = document.createElement("td");
+  if (!userId) {
+    cell.textContent = "(deleted user)";
+    cell.className = "muted";
+    return cell;
+  }
+  const a = document.createElement("a");
+  a.href = `/profile/${encodeURIComponent(userId)}`;
+  a.textContent = legacyName || "(unknown)";
+  cell.appendChild(a);
+  return cell;
+}
+
 function statusBadge(status, errorMessage) {
   const span = document.createElement("span");
   span.className = `status-pill status-${status}`;
@@ -75,7 +93,7 @@ function notecardRow(n) {
   tr.appendChild(td(n.end_region || ""));
   tr.appendChild(td(fmtCoord(n.lower_left_x, n.lower_left_y)));
   tr.appendChild(td(fmtCoord(n.upper_right_x, n.upper_right_y)));
-  tr.appendChild(td(n.uploaded_by_legacy_name));
+  tr.appendChild(profileLinkCell(n.uploaded_by, n.uploaded_by_legacy_name));
   tr.appendChild(td(fmtDate(n.created_at)));
   const actions = document.createElement("td");
   const dl = document.createElement("a");
@@ -124,7 +142,7 @@ function renderRow(r) {
   tr.appendChild(td(r.notecard_name || ""));
   tr.appendChild(td(fmtCoord(r.lower_left_x, r.lower_left_y)));
   tr.appendChild(td(fmtCoord(r.upper_right_x, r.upper_right_y)));
-  tr.appendChild(td(r.created_by_legacy_name));
+  tr.appendChild(profileLinkCell(r.created_by, r.created_by_legacy_name));
   tr.appendChild(td(fmtDate(r.created_at)));
   const actions = document.createElement("td");
   if (r.status === "done") {

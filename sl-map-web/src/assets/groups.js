@@ -16,6 +16,22 @@ function td(text) {
   return el;
 }
 
+// Build a `<td>` containing a link to a user's profile, or a fallback
+// when the underlying account has been removed.
+function profileLinkCell(userId, legacyName) {
+  const cell = document.createElement("td");
+  if (!userId) {
+    cell.textContent = "(deleted user)";
+    cell.className = "muted";
+    return cell;
+  }
+  const a = document.createElement("a");
+  a.href = `/profile/${encodeURIComponent(userId)}`;
+  a.textContent = legacyName || "(unknown)";
+  cell.appendChild(a);
+  return cell;
+}
+
 async function fetchJSON(url, init) {
   const resp = await fetch(url, init);
   if (!resp.ok) throw new Error(await resp.text());
@@ -109,7 +125,7 @@ async function showDetail(groupId) {
     for (const m of ms.members || []) {
       const tr = document.createElement("tr");
       tr.appendChild(td(m.username));
-      tr.appendChild(td(m.legacy_name));
+      tr.appendChild(profileLinkCell(m.user_id, m.legacy_name));
       tr.appendChild(td(m.role));
       const actions = document.createElement("td");
       if (isOwner) {

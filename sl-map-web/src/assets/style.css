@@ -262,6 +262,20 @@ button:disabled {
   pointer-events: none;
 }
 
+.tile-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.tile-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .tile-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, 14px);

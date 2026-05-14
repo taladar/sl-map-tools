@@ -250,6 +250,26 @@
       <h2>Render</h2>
       <div id="render-progress" class="hidden">
         <p id="render-status" class="status"></p>
+        <div class="tile-legend" aria-label="Tile status legend">
+          <span class="tile-legend-item"
+            ><span class="tile-cell"></span> pending</span
+          >
+          <span class="tile-legend-item"
+            ><span class="tile-cell active"></span> in progress</span
+          >
+          <span class="tile-legend-item"
+            ><span class="tile-cell memory"></span> in-memory cache</span
+          >
+          <span class="tile-legend-item"
+            ><span class="tile-cell disk"></span> on-disk cache</span
+          >
+          <span class="tile-legend-item"
+            ><span class="tile-cell network"></span> fetched from network</span
+          >
+          <span class="tile-legend-item"
+            ><span class="tile-cell missing"></span> missing upstream</span
+          >
+        </div>
         <div id="tile-grid" class="tile-grid"></div>
       </div>
       <div id="render-result" class="hidden">

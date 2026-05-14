@@ -3,8 +3,11 @@
 use std::path::PathBuf;
 
 use clap::Parser as _;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
-use sl_map_apis::map_tiles::{Map, MapError, MapTileCache, MapTileCacheError};
+use sl_map_apis::map_tiles::{
+    Map, MapError, MapProgressEvent, MapTileCache, MapTileCacheError, TileOutcome,
+};
 use sl_map_apis::region::{
     RegionNameToGridCoordinatesCache, USBNotecardToGridRectangleError,
     usb_notecard_to_grid_rectangle,
@@ -240,6 +243,112 @@ fn output_metadata(
     Ok(())
 }
 
+/// Drain `MapProgressEvent`s from the channel and drive `indicatif`
+/// progress bars on stderr, one per phase that the renderer reports
+/// (tile fetch, optional region existence check, optional route waypoint
+/// resolution). Returns once the sender side of the channel is dropped,
+/// so the caller can drop its `tx`, await this task, and be sure every
+/// event has been displayed before continuing.
+///
+/// `indicatif` auto-detects non-TTY stderr and silently hides the bars,
+/// so this is safe to call unconditionally.
+async fn report_progress(mut rx: tokio::sync::mpsc::Receiver<MapProgressEvent>) {
+    let multi = MultiProgress::new();
+    let bar_style = ProgressStyle::with_template(
+        "{prefix:<14} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} {msg}",
+    )
+    .unwrap_or_else(|_| ProgressStyle::default_bar())
+    .progress_chars("=>-");
+
+    let mut tiles: Option<ProgressBar> = None;
+    let mut regions: Option<ProgressBar> = None;
+    let mut waypoints: Option<ProgressBar> = None;
+    let mut memory_hits: u64 = 0;
+    let mut disk_hits: u64 = 0;
+    let mut network_fetches: u64 = 0;
+    let mut missing_tiles: u64 = 0;
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            MapProgressEvent::PlanComputed {
+                zoom_level,
+                total_tiles,
+            } => {
+                let pb = multi.add(ProgressBar::new(u64::from(total_tiles)));
+                pb.set_style(bar_style.to_owned());
+                pb.set_prefix(format!("tiles z={}", zoom_level.into_inner()));
+                tiles = Some(pb);
+            }
+            MapProgressEvent::TileStarted { .. } => {}
+            MapProgressEvent::TileFinished { outcome, .. } => {
+                match outcome {
+                    TileOutcome::LoadedFromMemoryCache => {
+                        memory_hits = memory_hits.saturating_add(1);
+                    }
+                    TileOutcome::LoadedFromDiskCache => {
+                        disk_hits = disk_hits.saturating_add(1);
+                    }
+                    TileOutcome::FetchedFromNetwork => {
+                        network_fetches = network_fetches.saturating_add(1);
+                    }
+                    TileOutcome::Missing => {
+                        missing_tiles = missing_tiles.saturating_add(1);
+                    }
+                }
+                if let Some(pb) = tiles.as_ref() {
+                    pb.inc(1);
+                    pb.set_message(format!(
+                        "mem={memory_hits} disk={disk_hits} net={network_fetches} missing={missing_tiles}"
+                    ));
+                }
+            }
+            MapProgressEvent::RegionCheckPlanned { total_regions } => {
+                let pb = multi.add(ProgressBar::new(u64::from(total_regions)));
+                pb.set_style(bar_style.to_owned());
+                pb.set_prefix("regions");
+                regions = Some(pb);
+            }
+            MapProgressEvent::RegionChecked { .. } => {
+                if let Some(pb) = regions.as_ref() {
+                    pb.inc(1);
+                }
+            }
+            MapProgressEvent::RoutePlanned { total_waypoints } => {
+                let total = u64::try_from(total_waypoints).unwrap_or(u64::MAX);
+                let pb = multi.add(ProgressBar::new(total));
+                pb.set_style(bar_style.to_owned());
+                pb.set_prefix("waypoints");
+                waypoints = Some(pb);
+            }
+            MapProgressEvent::RouteWaypointResolved { region, .. } => {
+                if let Some(pb) = waypoints.as_ref() {
+                    pb.inc(1);
+                    pb.set_message(region.into_inner());
+                }
+            }
+        }
+    }
+
+    if let Some(pb) = tiles {
+        pb.finish();
+    }
+    if let Some(pb) = regions {
+        pb.finish();
+    }
+    if let Some(pb) = waypoints {
+        pb.finish();
+    }
+}
+
+/// Await the progress task, logging a warning if it panicked. Used so the
+/// caller can drop the sender, wait for the receiver to drain, and then
+/// continue without a `must_use` lint on the join handle's result.
+async fn join_progress_task(handle: tokio::task::JoinHandle<()>) {
+    if let Err(err) = handle.await {
+        tracing::warn!("progress task did not finish cleanly: {err}");
+    }
+}
+
 /// The main behaviour of the binary should go here
 #[instrument]
 async fn do_stuff() -> Result<(), crate::Error> {
@@ -251,15 +360,20 @@ async fn do_stuff() -> Result<(), crate::Error> {
             let ratelimiter = ratelimit::Ratelimiter::builder(10).build()?;
             let mut map_tile_cache = MapTileCache::new(options.cache_dir, Some(ratelimiter));
             let grid_rectangle: GridRectangle = (&from_grid_rectangle).into();
-            let map = Map::new(
+            let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
+            let progress_task = tokio::spawn(report_progress(rx));
+            let map = Map::new_with_progress(
                 &mut map_tile_cache,
                 from_grid_rectangle.max_width,
                 from_grid_rectangle.max_height,
                 grid_rectangle.to_owned(),
                 from_grid_rectangle.missing_map_tile_color,
                 from_grid_rectangle.missing_region_color,
+                Some(&tx),
             )
             .await?;
+            drop(tx);
+            join_progress_task(progress_task).await;
             map.save(&from_grid_rectangle.output_file)?;
             output_metadata(
                 &grid_rectangle,
@@ -292,24 +406,30 @@ async fn do_stuff() -> Result<(), crate::Error> {
             .expanded_north(border_north);
             let ratelimiter = ratelimit::Ratelimiter::builder(10).build()?;
             let mut map_tile_cache = MapTileCache::new(options.cache_dir, Some(ratelimiter));
-            let mut map = Map::new(
+            let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
+            let progress_task = tokio::spawn(report_progress(rx));
+            let mut map = Map::new_with_progress(
                 &mut map_tile_cache,
                 from_usb_notecard.max_width,
                 from_usb_notecard.max_height,
                 grid_rectangle.to_owned(),
                 from_usb_notecard.missing_map_tile_color,
                 from_usb_notecard.missing_region_color,
+                Some(&tx),
             )
             .await?;
             if let Some(output_file_without_route) = &from_usb_notecard.output_file_without_route {
                 map.save(output_file_without_route)?;
             }
-            map.draw_route(
+            map.draw_route_with_progress(
                 &mut region_name_to_grid_coordinates_cache,
                 &usb_notecard,
                 from_usb_notecard.color,
+                Some(&tx),
             )
             .await?;
+            drop(tx);
+            join_progress_task(progress_task).await;
             map.save(&from_usb_notecard.output_file)?;
             output_metadata(
                 &grid_rectangle,

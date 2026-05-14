@@ -16,7 +16,7 @@ use sl_map_web::config::{Config, ConfigError};
 use sl_map_web::db::{DbError, open_and_migrate};
 use sl_map_web::error::Error as LibError;
 use sl_map_web::jobs::JobStore;
-use sl_map_web::library::run_orphan_sweeper;
+use sl_map_web::library::{recover_orphaned_in_progress, run_orphan_sweeper};
 use sl_map_web::routes::build as build_router;
 use sl_map_web::state::AppState;
 use sl_map_web::storage;
@@ -54,6 +54,9 @@ enum Error {
     /// error setting up the on-disk storage layout.
     #[error("storage layout error: {0}")]
     Storage(#[source] LibError),
+    /// error sweeping orphaned `in_progress` renders at startup.
+    #[error("failed to recover orphaned in_progress renders: {0}")]
+    RenderRecovery(#[source] LibError),
 }
 
 #[tokio::main]
@@ -87,6 +90,10 @@ async fn run() -> Result<(), Error> {
     let job_ttl = Duration::from_secs(config.job_ttl_seconds);
 
     let db = open_and_migrate(&config.database_url).await?;
+    let recovered = recover_orphaned_in_progress(&db)
+        .await
+        .map_err(Error::RenderRecovery)?;
+    tracing::info!("recovered {recovered} orphaned in_progress render(s) at startup");
     // validated already; safe to decode again here. Wrap the decoded bytes
     // in `Zeroizing` so the `Vec<u8>` is wiped when this scope ends; the
     // only persistent copy of the entropy is the cookie crate's internal

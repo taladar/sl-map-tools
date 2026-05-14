@@ -596,6 +596,42 @@ async fn fetch_render_row(db: &SqlitePool, render_id: Uuid) -> Result<RenderRow,
     })
 }
 
+/// Mark every `saved_renders` row still in `status = 'in_progress'` as
+/// `failed`. Run once at server startup, **before** the HTTP listener
+/// accepts connections: anything found in `in_progress` at that moment
+/// is orphaned by definition — the tokio task that could have
+/// transitioned it died with the previous process. Without this sweep
+/// each abandoned row would permanently count against
+/// `MAX_CONCURRENT_RENDERS_PER_USER`.
+///
+/// Single-instance deployment is assumed; SQLite's file-locking model
+/// already precludes multi-process operation, so there is no risk of
+/// marking a peer's actively rendering rows as failed.
+///
+/// Returns the number of rows recovered (zero is a valid, common
+/// result).
+///
+/// # Errors
+///
+/// Returns [`Error::Database`] on UPDATE failure.
+pub async fn recover_orphaned_in_progress(pool: &SqlitePool) -> Result<u64, Error> {
+    let now = Utc::now();
+    let result = sqlx::query(
+        "UPDATE saved_renders \
+         SET status = 'failed', finished_at = ?1, \
+             error_message = 'server restarted before render completed' \
+         WHERE status = 'in_progress'",
+    )
+    .bind(now)
+    .execute(pool)
+    .await
+    .map_err(|err| {
+        tracing::error!("recover orphaned in_progress renders failed: {err}");
+        Error::Database
+    })?;
+    Ok(result.rows_affected())
+}
+
 /// Run the orphan-file sweeper. Wakes every `period` seconds; if the dirty
 /// flag is unset, the tick is a cheap no-op. When the flag is set the
 /// sweeper scans `<storage_dir>/renders/` and unlinks any file whose UUID is

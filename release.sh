@@ -54,7 +54,7 @@ for p in "${workspace_crates[@]}"; do
   pushd "${p}" >/dev/null
   version="$(cargo get package.version)"
   git cliff --prepend CHANGELOG.md -u -t "${p_tag_basename}_${version}"
-  rumdl fmt --fix CHANGELOG.md
+  rumdl fmt CHANGELOG.md
   popd >/dev/null
 done
 

@@ -80,6 +80,7 @@ pub async fn create(
         &parsed.text,
     )
     .await?;
+    let (start_region, end_region, waypoint_count) = notecard_summary(&parsed.text);
     let view = build_view(
         notecard_id,
         parsed.destination,
@@ -88,6 +89,12 @@ pub async fn create(
         &user.legacy_name,
         &parsed.name,
         Utc::now(),
+        NotecardExtras {
+            start_region,
+            end_region,
+            waypoint_count,
+            ..NotecardExtras::default()
+        },
     );
     Ok((
         ReqwestStatusCode::CREATED,
@@ -110,6 +117,7 @@ pub async fn get(
     let destination =
         library::destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
     let (uploader_username, uploader_legacy) = lookup_user_names(&state, row.uploaded_by).await?;
+    let (start_region, end_region, waypoint_count) = notecard_summary(&row.body);
     let view = build_view(
         notecard_id,
         destination,
@@ -118,6 +126,15 @@ pub async fn get(
         &uploader_legacy,
         &row.name,
         row.created_at,
+        NotecardExtras {
+            start_region,
+            end_region,
+            waypoint_count,
+            lower_left_x: row.lower_left_x,
+            lower_left_y: row.lower_left_y,
+            upper_right_x: row.upper_right_x,
+            upper_right_y: row.upper_right_y,
+        },
     );
     Ok(Json(NotecardResponse { notecard: view }))
 }
@@ -277,7 +294,60 @@ pub(crate) async fn insert_notecard_row(
     Ok(notecard_id)
 }
 
+/// Bundle of optional notecard-row fields that are not part of the core
+/// view but are surfaced through the API for the library UI.
+#[derive(Default)]
+struct NotecardExtras {
+    /// route start region (first waypoint's region name).
+    start_region: Option<String>,
+    /// route end region (last waypoint's region name).
+    end_region: Option<String>,
+    /// number of waypoints in the route.
+    waypoint_count: Option<u32>,
+    /// lower-left x grid coordinate of the route's bounding box.
+    lower_left_x: Option<u16>,
+    /// lower-left y grid coordinate of the route's bounding box.
+    lower_left_y: Option<u16>,
+    /// upper-right x grid coordinate of the route's bounding box.
+    upper_right_x: Option<u16>,
+    /// upper-right y grid coordinate of the route's bounding box.
+    upper_right_y: Option<u16>,
+}
+
+/// Derive the start/end region names and waypoint count from a notecard
+/// body. All three are `None` if the body fails to parse; start/end are
+/// also `None` if the parsed route has no waypoints. The body has
+/// already been validated at insert time so parse failures here would
+/// indicate corruption, but we still degrade gracefully rather than
+/// 500ing the list endpoint.
+fn notecard_summary(body: &str) -> (Option<String>, Option<String>, Option<u32>) {
+    let Ok(parsed) = body.parse::<USBNotecard>() else {
+        return (None, None, None);
+    };
+    let waypoints = parsed.waypoints();
+    let start = waypoints
+        .first()
+        .map(|w| w.location().region_name.to_string());
+    let end = waypoints
+        .last()
+        .map(|w| w.location().region_name.to_string());
+    let count = u32::try_from(waypoints.len()).ok();
+    (start, end, count)
+}
+
+/// Convert a raw SQLite `INTEGER` from the bounds columns to `u16`.
+/// Returns `None` for `NULL` or for values that fall outside the grid's
+/// `u16` range (which the schema does not constrain but the renderer
+/// would reject anyway).
+fn bound_u16(v: Option<i64>) -> Option<u16> {
+    v.and_then(|n| u16::try_from(n).ok())
+}
+
 /// Build a [`NotecardView`] from the gathered pieces.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "every argument is a distinct view field; bundling them would add indirection without removing parameters"
+)]
 fn build_view(
     notecard_id: Uuid,
     destination: Destination,
@@ -286,6 +356,7 @@ fn build_view(
     uploaded_by_legacy_name: &str,
     name: &str,
     created_at: DateTime<Utc>,
+    extras: NotecardExtras,
 ) -> NotecardView {
     NotecardView {
         notecard_id,
@@ -295,20 +366,51 @@ fn build_view(
         uploaded_by_legacy_name: uploaded_by_legacy_name.to_owned(),
         name: name.to_owned(),
         created_at,
+        start_region: extras.start_region,
+        end_region: extras.end_region,
+        waypoint_count: extras.waypoint_count,
+        lower_left_x: extras.lower_left_x,
+        lower_left_y: extras.lower_left_y,
+        upper_right_x: extras.upper_right_x,
+        upper_right_y: extras.upper_right_y,
     }
 }
 
-/// Tuple shape returned by the listing queries for `saved_notecards`.
-type NotecardListRow = (
-    Vec<u8>,
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Vec<u8>,
-    String,
-    String,
-    String,
-    DateTime<Utc>,
-);
+/// Row shape returned by the listing queries for `saved_notecards`. A
+/// `FromRow` struct is used instead of a tuple so we can grow the column
+/// list without worrying about sqlx's tuple-`FromRow` arity (16) and so
+/// the field-by-field destructuring stays readable.
+#[derive(sqlx::FromRow)]
+struct NotecardListRow {
+    /// raw bytes of `saved_notecards.notecard_id`.
+    notecard_id: Vec<u8>,
+    /// raw bytes of `saved_notecards.owner_user_id`, if set.
+    owner_user_id: Option<Vec<u8>>,
+    /// raw bytes of `saved_notecards.owner_group_id`, if set.
+    owner_group_id: Option<Vec<u8>>,
+    /// raw bytes of the uploading user's id.
+    uploaded_by: Vec<u8>,
+    /// the uploading user's `username`.
+    uploader_username: String,
+    /// the uploading user's `legacy_name`.
+    uploader_legacy: String,
+    /// notecard display name.
+    name: String,
+    /// the raw notecard body (used to extract the start / end region
+    /// names; not returned to the client through the list response).
+    body: String,
+    /// row creation timestamp.
+    created_at: DateTime<Utc>,
+    /// lower-left x grid coordinate of the route's bounding box, if a
+    /// previous render has resolved and cached it.
+    lower_left_x: Option<i64>,
+    /// lower-left y grid coordinate of the route's bounding box.
+    lower_left_y: Option<i64>,
+    /// upper-right x grid coordinate of the route's bounding box.
+    upper_right_x: Option<i64>,
+    /// upper-right y grid coordinate of the route's bounding box.
+    upper_right_y: Option<i64>,
+}
 
 /// Run the list query for the given scope.
 async fn fetch_notecards_for(
@@ -318,8 +420,10 @@ async fn fetch_notecards_for(
 ) -> Result<Vec<NotecardView>, Error> {
     let rows: Vec<NotecardListRow> = match destination {
         Destination::Personal => sqlx::query_as(
-            "SELECT n.notecard_id, n.owner_user_id, n.owner_group_id, n.uploaded_by, \
-                    u.username, u.legacy_name, n.name, n.created_at \
+            "SELECT n.notecard_id, n.owner_user_id, n.owner_group_id, n.uploaded_by AS uploaded_by, \
+                    u.username AS uploader_username, u.legacy_name AS uploader_legacy, \
+                    n.name, n.body, n.created_at, \
+                    n.lower_left_x, n.lower_left_y, n.upper_right_x, n.upper_right_y \
              FROM saved_notecards AS n \
              JOIN users AS u ON u.user_id = n.uploaded_by \
              WHERE n.owner_user_id = ?1 \
@@ -336,8 +440,10 @@ async fn fetch_notecards_for(
             // The JOIN against `group_memberships` enforces visibility at the
             // SQL layer so a forgotten `assert_can_view` call site cannot leak
             // a group's notecards to a non-member.
-            "SELECT n.notecard_id, n.owner_user_id, n.owner_group_id, n.uploaded_by, \
-                    u.username, u.legacy_name, n.name, n.created_at \
+            "SELECT n.notecard_id, n.owner_user_id, n.owner_group_id, n.uploaded_by AS uploaded_by, \
+                    u.username AS uploader_username, u.legacy_name AS uploader_legacy, \
+                    n.name, n.body, n.created_at, \
+                    n.lower_left_x, n.lower_left_y, n.upper_right_x, n.upper_right_y \
              FROM saved_notecards AS n \
              JOIN users AS u ON u.user_id = n.uploaded_by \
              JOIN group_memberships AS gm \
@@ -355,34 +461,32 @@ async fn fetch_notecards_for(
         })?,
     };
     let mut out = Vec::with_capacity(rows.len());
-    for (
-        nid_bytes,
-        owner_user,
-        owner_group,
-        uploaded_by_bytes,
-        uploader_username,
-        uploader_legacy,
-        name,
-        created_at,
-    ) in rows
-    {
-        let notecard_id = uuid_from_bytes(&nid_bytes).ok_or_else(|| {
+    for row in rows {
+        let notecard_id = uuid_from_bytes(&row.notecard_id).ok_or_else(|| {
             tracing::error!("bad notecard uuid");
             Error::Database
         })?;
-        let row_dest = library::destination_from_columns(owner_user, owner_group)?;
-        let uploaded_by = uuid_from_bytes(&uploaded_by_bytes).ok_or_else(|| {
+        let row_dest = library::destination_from_columns(row.owner_user_id, row.owner_group_id)?;
+        let uploaded_by = uuid_from_bytes(&row.uploaded_by).ok_or_else(|| {
             tracing::error!("bad uploaded_by uuid");
             Error::Database
         })?;
+        let (start_region, end_region, waypoint_count) = notecard_summary(&row.body);
         out.push(NotecardView {
             notecard_id,
             destination: row_dest,
             uploaded_by,
-            uploaded_by_username: uploader_username,
-            uploaded_by_legacy_name: uploader_legacy,
-            name,
-            created_at,
+            uploaded_by_username: row.uploader_username,
+            uploaded_by_legacy_name: row.uploader_legacy,
+            name: row.name,
+            created_at: row.created_at,
+            start_region,
+            end_region,
+            waypoint_count,
+            lower_left_x: bound_u16(row.lower_left_x),
+            lower_left_y: bound_u16(row.lower_left_y),
+            upper_right_x: bound_u16(row.upper_right_x),
+            upper_right_y: bound_u16(row.upper_right_y),
         });
     }
     Ok(out)

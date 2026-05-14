@@ -143,6 +143,24 @@ document.querySelectorAll(".tab").forEach((tab) => {
   });
 });
 
+function activateSubtab(name) {
+  document.querySelectorAll(".subtab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.subtab === name);
+  });
+  document.querySelectorAll(".subtab-panel").forEach((p) => {
+    p.classList.toggle("active", p.id === `subtab-${name}`);
+  });
+}
+
+document.querySelectorAll(".subtab").forEach((tab) => {
+  tab.addEventListener("click", () => activateSubtab(tab.dataset.subtab));
+});
+
+function activeSubtab() {
+  const t = document.querySelector(".subtab.active");
+  return t ? t.dataset.subtab : "file";
+}
+
 // --- shared param helpers ---
 
 $("missing_map_tile_enabled").addEventListener("change", (e) => {
@@ -172,32 +190,59 @@ async function loadGroupsAndNotecards() {
       saveTo.appendChild(o);
     }
   }
-  const ncPicker = $("notecard_id");
-  if (ncPicker) {
-    // List notecards across personal + member groups (any scope the user can
-    // view).
-    const seen = new Set();
-    const scopes = ["personal"];
-    for (const g of groups.groups || []) scopes.push(`group:${g.group_id}`);
-    for (const scope of scopes) {
-      try {
-        const r = await fetch(
-          `/api/notecards?scope=${encodeURIComponent(scope)}`,
-        );
-        if (!r.ok) continue;
-        const data = await r.json();
-        for (const n of data.notecards || []) {
-          if (seen.has(n.notecard_id)) continue;
-          seen.add(n.notecard_id);
-          const o = document.createElement("option");
-          o.value = n.notecard_id;
-          o.textContent = `${n.name} (${scope === "personal" ? "personal" : "group"})`;
-          ncPicker.appendChild(o);
-        }
-      } catch (_err) {
-        // ignore
-      }
+  const scopeSel = $("reuse_scope");
+  if (scopeSel) {
+    // Reuse-from scope: personal + every group the user can view (member
+    // or owner), since members can see saved notecards.
+    for (const g of groups.groups || []) {
+      const o = document.createElement("option");
+      o.value = `group:${g.group_id}`;
+      o.textContent = `Group: ${g.name}`;
+      scopeSel.appendChild(o);
     }
+    scopeSel.addEventListener("change", () => {
+      loadNotecardsForScope(scopeSel.value).catch(() => {});
+    });
+    await loadNotecardsForScope(scopeSel.value);
+  }
+}
+
+// Populate the `reuse_notecard_id` select with the notecards in `scope`.
+// The dropdown is replaced wholesale on every call so it stays in sync
+// with the currently chosen scope.
+async function loadNotecardsForScope(scope) {
+  const sel = $("reuse_notecard_id");
+  if (!sel) return;
+  const previous = sel.value;
+  sel.replaceChildren();
+  let notecards = [];
+  try {
+    const r = await fetch(`/api/notecards?scope=${encodeURIComponent(scope)}`);
+    if (r.ok) {
+      const data = await r.json();
+      notecards = data.notecards || [];
+    }
+  } catch (_err) {
+    // leave empty
+  }
+  if (notecards.length === 0) {
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = "(no saved notecards in this scope)";
+    sel.appendChild(o);
+    return;
+  }
+  for (const n of notecards) {
+    const o = document.createElement("option");
+    o.value = n.notecard_id;
+    o.textContent = n.name;
+    sel.appendChild(o);
+  }
+  // Best-effort restore of the previous selection (lets repeated scope
+  // switches keep the same notecard if it exists in both scopes).
+  if (previous) {
+    const match = Array.from(sel.options).find((o) => o.value === previous);
+    if (match) sel.value = previous;
   }
 }
 
@@ -374,17 +419,40 @@ $("grid_preview").addEventListener("click", () => {
   renderPreview(rect, null);
 });
 
+// Populate a FormData with the notecard source fields for whichever
+// subtab is active. Throws if the relevant fields are empty.
+function appendNotecardSourceToForm(fd) {
+  switch (activeSubtab()) {
+    case "file": {
+      const file = $("notecard_file").files[0];
+      if (!file) throw new Error("choose a notecard file");
+      fd.append("notecard", file);
+      const ncName = $("notecard_name_file").value.trim();
+      if (ncName !== "") fd.append("notecard_name", ncName);
+      break;
+    }
+    case "clipboard": {
+      const text = $("notecard_text").value;
+      if (text.trim() === "") throw new Error("paste a notecard");
+      fd.append("notecard_text", text);
+      const ncName = $("notecard_name_paste").value.trim();
+      if (ncName !== "") fd.append("notecard_name", ncName);
+      break;
+    }
+    case "reuse": {
+      const id = $("reuse_notecard_id").value.trim();
+      if (!isUuid(id)) throw new Error("choose a saved notecard");
+      fd.append("notecard_id", id);
+      break;
+    }
+    default:
+      throw new Error("unknown notecard source");
+  }
+}
+
 async function buildNotecardForm() {
   const fd = new FormData();
-  const file = $("notecard_file").files[0];
-  const text = $("notecard_text").value;
-  if (file) {
-    fd.append("notecard", file);
-  } else if (text.trim() !== "") {
-    fd.append("notecard_text", text);
-  } else {
-    throw new Error("supply either a notecard file or pasted text");
-  }
+  appendNotecardSourceToForm(fd);
   appendBordersToForm(fd);
   return fd;
 }
@@ -604,25 +672,8 @@ $("grid_render").addEventListener("click", async () => {
 $("notecard_render").addEventListener("click", async () => {
   startRenderUI();
   try {
-    const reuseId = $("notecard_id").value.trim();
     const fd = new FormData();
-    if (reuseId !== "") {
-      fd.append("notecard_id", reuseId);
-    } else {
-      const file = $("notecard_file").files[0];
-      const text = $("notecard_text").value;
-      if (file) {
-        fd.append("notecard", file);
-      } else if (text.trim() !== "") {
-        fd.append("notecard_text", text);
-      } else {
-        throw new Error(
-          "supply either a notecard file, paste text, or reuse a saved notecard",
-        );
-      }
-      const ncName = $("notecard_name").value.trim();
-      if (ncName !== "") fd.append("notecard_name", ncName);
-    }
+    appendNotecardSourceToForm(fd);
     appendBordersToForm(fd);
     const shared = readSharedParams();
     fd.append("max_width", String(shared.max_width));
@@ -651,16 +702,25 @@ $("notecard_render").addEventListener("click", async () => {
   }
 });
 
+// After the server resolves a freshly uploaded (or auto-copied) notecard,
+// surface it in the reuse-from picker so subsequent renders can pick it
+// without re-uploading. Only inserts if the active scope matches.
 function addNotecardOptionIfNew({ notecard_id, name, scope }) {
-  const ncPicker = $("notecard_id");
-  if (!ncPicker) return;
-  for (const o of ncPicker.options) {
+  const scopeSel = $("reuse_scope");
+  const ncSel = $("reuse_notecard_id");
+  if (!scopeSel || !ncSel) return;
+  if (scopeSel.value !== scope) return;
+  for (const o of ncSel.options) {
     if (o.value === notecard_id) return;
+  }
+  // Drop the "(no saved notecards...)" placeholder if it is still there.
+  if (ncSel.options.length === 1 && ncSel.options[0].value === "") {
+    ncSel.replaceChildren();
   }
   const o = document.createElement("option");
   o.value = notecard_id;
-  o.textContent = `${name} (${scope === "personal" ? "personal" : "group"})`;
-  ncPicker.appendChild(o);
+  o.textContent = name;
+  ncSel.appendChild(o);
 }
 
 // --- prefill from regenerate / reuse query params ---
@@ -674,16 +734,7 @@ async function applyPrefillFromQuery() {
   // via the user's session. The server already rejects with 404, but
   // we silently drop bad values here so the request is never sent.
   if (isUuid(reuse)) {
-    // Wait for the notecard picker to populate; then select.
-    setTimeout(() => {
-      const sel = $("notecard_id");
-      if (sel) {
-        sel.value = reuse;
-        // switch to the notecard tab
-        const tab = document.querySelector('.tab[data-tab="notecard"]');
-        if (tab) tab.click();
-      }
-    }, 300);
+    selectReuseNotecard(reuse).catch(() => {});
   }
   if (isUuid(regen)) {
     try {
@@ -738,14 +789,52 @@ function applySettings(s) {
     $("border_west").value = s.border_west || "";
     if (s.color) $("route_color").value = s.color;
     $("save_without_route").checked = !!s.save_without_route;
-    // Pre-select the source notecard once the picker has populated.
-    setTimeout(() => {
-      const sel = $("notecard_id");
-      if (sel && s.notecard_id) sel.value = s.notecard_id;
-    }, 300);
+    if (s.notecard_id) {
+      selectReuseNotecard(s.notecard_id).catch(() => {});
+    }
     const tab = document.querySelector('.tab[data-tab="notecard"]');
     if (tab) tab.click();
   }
+}
+
+// Switch to the reuse subtab and select the given notecard, looking up
+// its scope so the scope dropdown can be set first. Looked up via the
+// `/api/notecards/{id}` endpoint, which returns the destination encoded
+// as "personal" or "group:<uuid>".
+async function selectReuseNotecard(notecardId) {
+  const tab = document.querySelector('.tab[data-tab="notecard"]');
+  if (tab) tab.click();
+  activateSubtab("reuse");
+  let scopeValue = "personal";
+  try {
+    const r = await fetch(`/api/notecards/${notecardId}`);
+    if (r.ok) {
+      const data = await r.json();
+      const dest = data.notecard && data.notecard.destination;
+      if (dest && dest.kind === "group" && isUuid(dest.group_id)) {
+        scopeValue = `group:${dest.group_id}`;
+      } else {
+        scopeValue = "personal";
+      }
+    }
+  } catch (_err) {
+    // fall back to whatever the scope select already shows
+  }
+  const scopeSel = $("reuse_scope");
+  if (!scopeSel) return;
+  // Ensure the scope is present in the dropdown — the groups list may
+  // not have loaded yet on a fresh page hit. We retry a few times before
+  // giving up.
+  for (let i = 0; i < 10; i++) {
+    if (Array.from(scopeSel.options).some((o) => o.value === scopeValue)) {
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  scopeSel.value = scopeValue;
+  await loadNotecardsForScope(scopeValue);
+  const ncSel = $("reuse_notecard_id");
+  if (ncSel) ncSel.value = notecardId;
 }
 
 document.addEventListener("DOMContentLoaded", applyPrefillFromQuery);

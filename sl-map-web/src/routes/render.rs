@@ -267,6 +267,7 @@ pub async fn grid_rectangle(
         "grid_rectangle",
         None,
         &settings,
+        Some(&rect),
     )
     .await?;
     let (job_id, job) = state.jobs.create_with_id(render_id).await;
@@ -323,6 +324,7 @@ pub async fn usb_notecard(
         "usb_notecard",
         Some(notecard_summary.notecard_id),
         &settings,
+        None,
     )
     .await?;
 
@@ -331,6 +333,7 @@ pub async fn usb_notecard(
         state,
         job_id,
         job,
+        notecard_summary.notecard_id,
         notecard,
         parsed.borders,
         parsed.color,
@@ -612,7 +615,14 @@ async fn resolve_notecard(
 }
 
 /// Insert a `saved_renders` row with `status='in_progress'` and the supplied
-/// settings JSON. Returns the new render id (same as the caller supplied).
+/// settings JSON. `bounds` is `Some` for grid-rectangle renders (the corner
+/// coordinates are known at submit time) and `None` for usb-notecard
+/// renders, which compute the rectangle in the background and call
+/// [`update_render_bounds`] once it is known.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "every argument is a distinct row column; bundling them into a struct would just be noise at the single call sites"
+)]
 async fn insert_render_row(
     state: &AppState,
     render_id: Uuid,
@@ -621,6 +631,7 @@ async fn insert_render_row(
     kind: &str,
     notecard_id: Option<Uuid>,
     settings: &SavedRenderSettings,
+    bounds: Option<&GridRectangle>,
 ) -> Result<(), Error> {
     let (owner_user, owner_group) = match destination {
         Destination::Personal => (Some(created_by.as_bytes().to_vec()), None),
@@ -628,11 +639,21 @@ async fn insert_render_row(
     };
     let now = Utc::now();
     let settings_json = serde_json::to_string(settings)?;
+    let (ll_x, ll_y, ur_x, ur_y) = match bounds {
+        Some(rect) => (
+            Some(i64::from(rect.lower_left_corner().x())),
+            Some(i64::from(rect.lower_left_corner().y())),
+            Some(i64::from(rect.upper_right_corner().x())),
+            Some(i64::from(rect.upper_right_corner().y())),
+        ),
+        None => (None, None, None, None),
+    };
     sqlx::query(
         "INSERT INTO saved_renders \
             (render_id, owner_user_id, owner_group_id, created_by, notecard_id, kind, \
-             status, settings_json, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'in_progress', ?7, ?8)",
+             status, settings_json, created_at, \
+             lower_left_x, lower_left_y, upper_right_x, upper_right_y) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'in_progress', ?7, ?8, ?9, ?10, ?11, ?12)",
     )
     .bind(render_id.as_bytes().to_vec())
     .bind(owner_user)
@@ -642,10 +663,78 @@ async fn insert_render_row(
     .bind(kind)
     .bind(settings_json)
     .bind(now)
+    .bind(ll_x)
+    .bind(ll_y)
+    .bind(ur_x)
+    .bind(ur_y)
     .execute(&state.db)
     .await
     .map_err(|err| {
         tracing::error!("insert saved_renders failed: {err}");
+        Error::Database
+    })?;
+    Ok(())
+}
+
+/// Backfill the bare-route rectangle bounds on a `saved_notecards` row.
+/// The bounds are the bounding box of the notecard's waypoints, *without*
+/// the border padding a particular render may have applied — so a single
+/// notecard rendered with different borders still has stable cached
+/// bounds. The columns are overwritten on every render rather than
+/// checked-then-written: the bounding rectangle of a given notecard body
+/// is fixed, so the only way the value differs across runs is if region-
+/// name resolution returned a different answer (in which case the most
+/// recent one is the most useful).
+async fn update_notecard_bounds(
+    db: &sqlx::SqlitePool,
+    notecard_id: Uuid,
+    rect: &GridRectangle,
+) -> Result<(), Error> {
+    sqlx::query(
+        "UPDATE saved_notecards \
+         SET lower_left_x = ?1, lower_left_y = ?2, \
+             upper_right_x = ?3, upper_right_y = ?4 \
+         WHERE notecard_id = ?5",
+    )
+    .bind(i64::from(rect.lower_left_corner().x()))
+    .bind(i64::from(rect.lower_left_corner().y()))
+    .bind(i64::from(rect.upper_right_corner().x()))
+    .bind(i64::from(rect.upper_right_corner().y()))
+    .bind(notecard_id.as_bytes().to_vec())
+    .execute(db)
+    .await
+    .map_err(|err| {
+        tracing::error!("update saved_notecards bounds failed: {err}");
+        Error::Database
+    })?;
+    Ok(())
+}
+
+/// Backfill the rectangle bounds on a `saved_renders` row. Used by the
+/// usb-notecard path: the rect is computed inside the background job once
+/// the notecard has been parsed and any region names resolved, at which
+/// point we update the row so the library UI can show the bounds even
+/// while the render is still `in_progress`.
+async fn update_render_bounds(
+    db: &sqlx::SqlitePool,
+    render_id: Uuid,
+    rect: &GridRectangle,
+) -> Result<(), Error> {
+    sqlx::query(
+        "UPDATE saved_renders \
+         SET lower_left_x = ?1, lower_left_y = ?2, \
+             upper_right_x = ?3, upper_right_y = ?4 \
+         WHERE render_id = ?5",
+    )
+    .bind(i64::from(rect.lower_left_corner().x()))
+    .bind(i64::from(rect.lower_left_corner().y()))
+    .bind(i64::from(rect.upper_right_corner().x()))
+    .bind(i64::from(rect.upper_right_corner().y()))
+    .bind(render_id.as_bytes().to_vec())
+    .execute(db)
+    .await
+    .map_err(|err| {
+        tracing::error!("update saved_renders bounds failed: {err}");
         Error::Database
     })?;
     Ok(())
@@ -791,6 +880,7 @@ fn spawn_usb_notecard_job(
     state: AppState,
     job_id: JobId,
     job: Arc<JobState>,
+    notecard_id: Uuid,
     notecard: USBNotecard,
     borders: (u16, u16, u16, u16),
     route_color: Rgba<u8>,
@@ -799,9 +889,12 @@ fn spawn_usb_notecard_job(
 ) {
     drop(tokio::spawn(async move {
         let result = run_usb_notecard_job(
+            state.db.clone(),
             Arc::clone(&state.map_tile_cache),
             Arc::clone(&state.region_cache),
             Arc::clone(&job),
+            job_id,
+            notecard_id,
             notecard,
             borders,
             route_color,
@@ -857,9 +950,12 @@ async fn run_grid_rectangle_job(
     reason = "this is a one-shot helper invoked from a single spawn site"
 )]
 async fn run_usb_notecard_job(
+    db: sqlx::SqlitePool,
     map_tile_cache: Arc<Mutex<MapTileCache>>,
     region_cache: Arc<Mutex<RegionNameToGridCoordinatesCache>>,
     job: Arc<JobState>,
+    render_id: Uuid,
+    notecard_id: Uuid,
     notecard: USBNotecard,
     borders: (u16, u16, u16, u16),
     route_color: Rgba<u8>,
@@ -867,14 +963,23 @@ async fn run_usb_notecard_job(
     with_without_route: bool,
 ) -> Result<JobOutcome, Error> {
     let (border_north, border_south, border_east, border_west) = borders;
-    let rect = {
+    let bare_rect = {
         let mut region = region_cache.lock().await;
         usb_notecard_to_grid_rectangle(&mut region, &notecard).await?
-    }
-    .expanded_west(border_west)
-    .expanded_east(border_east)
-    .expanded_south(border_south)
-    .expanded_north(border_north);
+    };
+    // Cache the bare rectangle (without border padding) on the notecard
+    // row so the library UI can show its bounds without redoing region
+    // resolution. Done before render-side expansion to keep notecard
+    // bounds == route's bounding box.
+    update_notecard_bounds(&db, notecard_id, &bare_rect).await?;
+    let rect = bare_rect
+        .expanded_west(border_west)
+        .expanded_east(border_east)
+        .expanded_south(border_south)
+        .expanded_north(border_north);
+    // Backfill the bounds on the saved_renders row now that we know the
+    // rectangle; the library UI shows them even for `in_progress` rows.
+    update_render_bounds(&db, render_id, &rect).await?;
     let metadata = build_metadata(&rect);
     let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
     let forwarder = tokio::spawn(forward_events(Arc::clone(&job), rx));

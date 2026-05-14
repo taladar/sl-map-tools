@@ -12,6 +12,11 @@ function fmtDate(iso) {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
+function fmtCoord(x, y) {
+  if (x === null || x === undefined || y === null || y === undefined) return "";
+  return `${x}, ${y}`;
+}
+
 function statusBadge(status, errorMessage) {
   const span = document.createElement("span");
   span.className = `status-pill status-${status}`;
@@ -59,6 +64,17 @@ async function populateScopes() {
 function notecardRow(n) {
   const tr = document.createElement("tr");
   tr.appendChild(td(n.name));
+  tr.appendChild(
+    td(
+      n.waypoint_count === null || n.waypoint_count === undefined
+        ? ""
+        : String(n.waypoint_count),
+    ),
+  );
+  tr.appendChild(td(n.start_region || ""));
+  tr.appendChild(td(n.end_region || ""));
+  tr.appendChild(td(fmtCoord(n.lower_left_x, n.lower_left_y)));
+  tr.appendChild(td(fmtCoord(n.upper_right_x, n.upper_right_y)));
   tr.appendChild(td(n.uploaded_by_legacy_name));
   tr.appendChild(td(fmtDate(n.created_at)));
   const actions = document.createElement("td");
@@ -105,6 +121,9 @@ function renderRow(r) {
   statusTd.appendChild(statusBadge(r.status, r.error_message));
   tr.appendChild(statusTd);
   tr.appendChild(td(r.kind === "usb_notecard" ? "USB notecard" : "Grid"));
+  tr.appendChild(td(r.notecard_name || ""));
+  tr.appendChild(td(fmtCoord(r.lower_left_x, r.lower_left_y)));
+  tr.appendChild(td(fmtCoord(r.upper_right_x, r.upper_right_y)));
   tr.appendChild(td(r.created_by_legacy_name));
   tr.appendChild(td(fmtDate(r.created_at)));
   const actions = document.createElement("td");
@@ -121,10 +140,11 @@ function renderRow(r) {
       dl2.className = "row-action";
       actions.appendChild(dl2);
     }
-    const meta = document.createElement("a");
-    meta.href = `/api/renders/${r.render_id}/metadata`;
+    const meta = document.createElement("button");
+    meta.type = "button";
     meta.textContent = "Metadata";
     meta.className = "row-action";
+    meta.addEventListener("click", () => showMetadataModal(r.render_id));
     actions.appendChild(meta);
     const regen = document.createElement("a");
     regen.href = `/?regenerate=${r.render_id}`;
@@ -162,6 +182,99 @@ function td(text) {
   const el = document.createElement("td");
   el.textContent = text;
   return el;
+}
+
+async function showMetadataModal(renderId) {
+  let meta;
+  try {
+    meta = await fetchJSON(`/api/renders/${renderId}/metadata`);
+  } catch (err) {
+    await alertModal({
+      title: "Metadata",
+      message: `Failed to load metadata: ${err.message}`,
+    });
+    return;
+  }
+  await infoModal({
+    title: "Render metadata",
+    build: (dialog) => {
+      const aspect = document.createElement("dl");
+      aspect.className = "metadata-list";
+      const rows = [
+        ["Width (regions)", meta.aspect_x],
+        ["Height (regions)", meta.aspect_y],
+        [
+          "Aspect ratio",
+          typeof meta.aspect_ratio === "number"
+            ? meta.aspect_ratio.toFixed(4)
+            : meta.aspect_ratio,
+        ],
+      ];
+      for (const [label, value] of rows) {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = String(value);
+        aspect.appendChild(dt);
+        aspect.appendChild(dd);
+      }
+      dialog.appendChild(aspect);
+
+      const ppsHeading = document.createElement("h3");
+      ppsHeading.className = "metadata-subheading";
+      ppsHeading.textContent = "PPS HUD config";
+      dialog.appendChild(ppsHeading);
+
+      const ppsBox = document.createElement("textarea");
+      ppsBox.className = "metadata-pps";
+      ppsBox.readOnly = true;
+      ppsBox.value = meta.pps_hud_config || "";
+      ppsBox.rows = 3;
+      dialog.appendChild(ppsBox);
+
+      const copyRow = document.createElement("div");
+      copyRow.className = "metadata-copy-row";
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "modal-btn";
+      copyBtn.textContent = "Copy config";
+      const copyStatus = document.createElement("span");
+      copyStatus.className = "metadata-copy-status";
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(ppsBox.value);
+          copyStatus.textContent = "Copied.";
+        } catch (_err) {
+          ppsBox.select();
+          copyStatus.textContent = "Copy failed — selected for manual copy.";
+        }
+      });
+      copyRow.appendChild(copyBtn);
+      copyRow.appendChild(copyStatus);
+      dialog.appendChild(copyRow);
+
+      const howHeading = document.createElement("h3");
+      howHeading.className = "metadata-subheading";
+      howHeading.textContent = "How to apply this to your PPS HUD";
+      dialog.appendChild(howHeading);
+
+      const steps = document.createElement("ol");
+      steps.className = "metadata-steps";
+      const items = [
+        "Upload the rendered map image to Second Life and apply it to the map face of the PPS.",
+        "Resize the PPS so its display matches the aspect ratio shown above.",
+        'Edit your PPS and enable "Edit Linked Parts".',
+        "Select the dot prim and paste the config above into its description.",
+        "Long-click the dot prim and choose Reset in the menu that appears.",
+      ];
+      for (const text of items) {
+        const li = document.createElement("li");
+        li.textContent = text;
+        steps.appendChild(li);
+      }
+      dialog.appendChild(steps);
+    },
+  });
 }
 
 let pollingTimer = null;

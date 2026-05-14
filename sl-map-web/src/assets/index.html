@@ -125,38 +125,66 @@
 
     <section id="tab-notecard" class="tab-panel">
       <h2>USB notecard</h2>
-      <p>
-        Supply a notecard either by uploading a file <em>or</em> by pasting its
-        text. The uploaded notecard is always saved to the library — choose
-        below where it goes.
-      </p>
-      <div class="row">
-        <label class="grow">
-          Reuse a saved notecard
-          <select id="notecard_id">
-            <option value="" selected>(upload a fresh one below)</option>
-          </select>
-        </label>
+      <nav class="subtabs" role="tablist">
+        <button
+          type="button"
+          class="subtab active"
+          data-subtab="file"
+        >
+          New notecard from file
+        </button>
+        <button type="button" class="subtab" data-subtab="clipboard">
+          New notecard from clipboard
+        </button>
+        <button type="button" class="subtab" data-subtab="reuse">
+          Reuse saved notecard
+        </button>
+      </nav>
+      <div id="subtab-file" class="subtab-panel active">
+        <div class="row">
+          <label class="grow"
+            >Notecard file
+            <input type="file" id="notecard_file" accept=".txt,text/plain" />
+          </label>
+          <label class="grow">
+            Saved notecard name
+            <input type="text" id="notecard_name_file" placeholder="(auto)" />
+          </label>
+        </div>
       </div>
-      <div class="row">
-        <label class="grow"
-          >Notecard file
-          <input type="file" id="notecard_file" accept=".txt,text/plain" />
-        </label>
-        <label class="grow">
-          Saved notecard name
-          <input type="text" id="notecard_name" placeholder="(auto)" />
-        </label>
+      <div id="subtab-clipboard" class="subtab-panel">
+        <div class="row">
+          <label class="grow"
+            >Paste contents
+            <textarea
+              id="notecard_text"
+              rows="6"
+              placeholder="Region%20Name/x/y/z one per line"
+            ></textarea>
+          </label>
+        </div>
+        <div class="row">
+          <label class="grow">
+            Saved notecard name
+            <input type="text" id="notecard_name_paste" placeholder="(auto)" />
+          </label>
+        </div>
       </div>
-      <div class="row">
-        <label class="grow"
-          >…or paste contents
-          <textarea
-            id="notecard_text"
-            rows="6"
-            placeholder="Region%20Name/x/y/z one per line"
-          ></textarea>
-        </label>
+      <div id="subtab-reuse" class="subtab-panel">
+        <div class="row">
+          <label class="grow">
+            Scope
+            <select id="reuse_scope">
+              <option value="personal" selected>Personal library</option>
+            </select>
+          </label>
+          <label class="grow">
+            Notecard
+            <select id="reuse_notecard_id">
+              <option value="" selected>(no saved notecards)</option>
+            </select>
+          </label>
+        </div>
       </div>
       <div class="row">
         <label
@@ -193,8 +221,7 @@
           </label>
         </div>
         <p class="note">
-          Setting "All sides" overrides the per-side fields and matches the
-          CLI's <code>--border-regions</code>.
+          Setting "All sides" overrides the per-side fields.
         </p>
       </fieldset>
       <div class="row buttons">

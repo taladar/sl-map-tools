@@ -92,6 +92,10 @@ pub async fn get(
     let destination =
         library::destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
     let (creator_username, creator_legacy) = lookup_user_names(&state, row.created_by).await?;
+    let notecard_name = match row.notecard_id {
+        Some(id) => lookup_notecard_name(&state, id).await?,
+        None => None,
+    };
     let view = RenderView {
         render_id,
         destination,
@@ -99,6 +103,7 @@ pub async fn get(
         created_by_username: creator_username,
         created_by_legacy_name: creator_legacy,
         notecard_id: row.notecard_id,
+        notecard_name,
         kind: row.kind,
         status: row.status,
         error_message: row.error_message,
@@ -106,6 +111,10 @@ pub async fn get(
         finished_at: row.finished_at,
         has_without_route: row.image_without_route_filename.is_some(),
         content_type: row.content_type,
+        lower_left_x: row.lower_left_x,
+        lower_left_y: row.lower_left_y,
+        upper_right_x: row.upper_right_x,
+        upper_right_y: row.upper_right_y,
     };
     Ok(Json(RenderResponse { render: view }))
 }
@@ -318,27 +327,54 @@ async fn fetch_renders_for(
     Ok(out)
 }
 
-/// Tuple alias for the row shape selected by the listing queries.
-type RenderListRow = (
-    Vec<u8>,
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Vec<u8>,
-    String,
-    String,
-    Option<Vec<u8>>,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    DateTime<Utc>,
-    Option<DateTime<Utc>>,
-);
+/// Row shape returned by the listing queries. Uses a `FromRow` struct
+/// instead of a tuple because the column list is past sqlx's tuple-
+/// `FromRow` arity (16).
+#[derive(sqlx::FromRow)]
+struct RenderListRow {
+    /// raw bytes of `saved_renders.render_id`.
+    render_id: Vec<u8>,
+    /// raw bytes of `saved_renders.owner_user_id`, if set.
+    owner_user_id: Option<Vec<u8>>,
+    /// raw bytes of `saved_renders.owner_group_id`, if set.
+    owner_group_id: Option<Vec<u8>>,
+    /// raw bytes of the user that created the render.
+    created_by: Vec<u8>,
+    /// the creating user's `username`.
+    creator_username: String,
+    /// the creating user's `legacy_name`.
+    creator_legacy_name: String,
+    /// raw bytes of the linked notecard id, if any.
+    notecard_id: Option<Vec<u8>>,
+    /// the linked notecard's display name, if any.
+    notecard_name: Option<String>,
+    /// render kind (`grid_rectangle` or `usb_notecard`).
+    kind: String,
+    /// render status (`in_progress`, `done`, `failed`).
+    status: String,
+    /// error message if `status = 'failed'`.
+    error_message: Option<String>,
+    /// filename of the without-route image, if one was saved.
+    image_without_route_filename: Option<String>,
+    /// MIME type of the stored image.
+    content_type: Option<String>,
+    /// row creation timestamp.
+    created_at: DateTime<Utc>,
+    /// terminal-state timestamp, if any.
+    finished_at: Option<DateTime<Utc>>,
+    /// lower-left x grid coordinate of the rendered rectangle, if known.
+    lower_left_x: Option<i64>,
+    /// lower-left y grid coordinate of the rendered rectangle, if known.
+    lower_left_y: Option<i64>,
+    /// upper-right x grid coordinate of the rendered rectangle, if known.
+    upper_right_x: Option<i64>,
+    /// upper-right y grid coordinate of the rendered rectangle, if known.
+    upper_right_y: Option<i64>,
+}
 
 /// Conversion helper from a raw list-query row to a `RenderView`. Defined
-/// as a trait so we can move the bulky tuple-destructuring out of the main
-/// loop without committing to a free function name in the module index.
+/// as a trait so we can move the bulky destructuring out of the main loop
+/// without committing to a free function name in the module index.
 trait IntoView {
     /// Convert a raw list-query row into a `RenderView`.
     ///
@@ -350,32 +386,18 @@ trait IntoView {
 
 impl IntoView for RenderListRow {
     fn into_view(self) -> Result<RenderView, Error> {
-        let (
-            rid_bytes,
-            owner_user,
-            owner_group,
-            created_by_bytes,
-            creator_username,
-            creator_legacy_name,
-            notecard_bytes,
-            kind,
-            status,
-            error_message,
-            image_without_route_filename,
-            content_type,
-            created_at,
-            finished_at,
-        ) = self;
-        let render_id = uuid_from_bytes(&rid_bytes).ok_or_else(|| {
+        let render_id = uuid_from_bytes(&self.render_id).ok_or_else(|| {
             tracing::error!("bad render uuid");
             Error::Database
         })?;
-        let destination = library::destination_from_columns(owner_user, owner_group)?;
-        let created_by = uuid_from_bytes(&created_by_bytes).ok_or_else(|| {
+        let destination =
+            library::destination_from_columns(self.owner_user_id, self.owner_group_id)?;
+        let created_by = uuid_from_bytes(&self.created_by).ok_or_else(|| {
             tracing::error!("bad created_by uuid");
             Error::Database
         })?;
-        let notecard_id = notecard_bytes
+        let notecard_id = self
+            .notecard_id
             .as_deref()
             .map(uuid_from_bytes)
             .map(|opt| {
@@ -389,16 +411,21 @@ impl IntoView for RenderListRow {
             render_id,
             destination,
             created_by,
-            created_by_username: creator_username,
-            created_by_legacy_name: creator_legacy_name,
+            created_by_username: self.creator_username,
+            created_by_legacy_name: self.creator_legacy_name,
             notecard_id,
-            kind,
-            status,
-            error_message,
-            created_at,
-            finished_at,
-            has_without_route: image_without_route_filename.is_some(),
-            content_type,
+            notecard_name: self.notecard_name,
+            kind: self.kind,
+            status: self.status,
+            error_message: self.error_message,
+            created_at: self.created_at,
+            finished_at: self.finished_at,
+            has_without_route: self.image_without_route_filename.is_some(),
+            content_type: self.content_type,
+            lower_left_x: self.lower_left_x.and_then(|v| u16::try_from(v).ok()),
+            lower_left_y: self.lower_left_y.and_then(|v| u16::try_from(v).ok()),
+            upper_right_x: self.upper_right_x.and_then(|v| u16::try_from(v).ok()),
+            upper_right_y: self.upper_right_y.and_then(|v| u16::try_from(v).ok()),
         })
     }
 }
@@ -417,23 +444,46 @@ async fn lookup_user_names(state: &AppState, user_id: Uuid) -> Result<(String, S
     row.ok_or_else(|| Error::NotFound(format!("user {user_id}")))
 }
 
+/// Look up a saved notecard's display name. Returns `None` if the row
+/// has been deleted out from under us (which the `ON DELETE RESTRICT` FK
+/// on `saved_renders.notecard_id` should prevent in normal operation).
+async fn lookup_notecard_name(
+    state: &AppState,
+    notecard_id: Uuid,
+) -> Result<Option<String>, Error> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT name FROM saved_notecards WHERE notecard_id = ?1")
+            .bind(notecard_id.as_bytes().to_vec())
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|err| {
+                tracing::error!("notecard name lookup failed: {err}");
+                Error::Database
+            })?;
+    Ok(row.map(|(name,)| name))
+}
+
 /// SQL: list a user's personal renders.
 const LIST_PERSONAL_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
-        r.created_by, u.username, u.legacy_name, r.notecard_id, r.kind, r.status, \
+        r.created_by, u.username, u.legacy_name, r.notecard_id, n.name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
-        r.created_at, r.finished_at \
+        r.created_at, r.finished_at, \
+        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
      FROM saved_renders AS r \
      JOIN users AS u ON u.user_id = r.created_by \
+     LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
      WHERE r.owner_user_id = ?1 \
      ORDER BY r.created_at DESC";
 
 /// SQL: list a user's personal renders filtered by status.
 const LIST_PERSONAL_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
-        r.created_by, u.username, u.legacy_name, r.notecard_id, r.kind, r.status, \
+        r.created_by, u.username, u.legacy_name, r.notecard_id, n.name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
-        r.created_at, r.finished_at \
+        r.created_at, r.finished_at, \
+        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
      FROM saved_renders AS r \
      JOIN users AS u ON u.user_id = r.created_by \
+     LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
      WHERE r.owner_user_id = ?1 AND r.status = ?2 \
      ORDER BY r.created_at DESC";
 
@@ -442,13 +492,15 @@ const LIST_PERSONAL_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.o
 /// check and the member-only-finished rule into SQL so a forgotten
 /// `assert_can_view` call cannot leak rows.
 const LIST_GROUP_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
-        r.created_by, u.username, u.legacy_name, r.notecard_id, r.kind, r.status, \
+        r.created_by, u.username, u.legacy_name, r.notecard_id, n.name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
-        r.created_at, r.finished_at \
+        r.created_at, r.finished_at, \
+        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
      FROM saved_renders AS r \
      JOIN users AS u ON u.user_id = r.created_by \
      JOIN group_memberships AS gm \
        ON gm.group_id = r.owner_group_id AND gm.user_id = ?2 \
+     LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
      WHERE r.owner_group_id = ?1 \
        AND (gm.role = 'owner' OR r.status = 'done') \
      ORDER BY r.created_at DESC";
@@ -456,13 +508,15 @@ const LIST_GROUP_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group
 /// SQL: list a group's renders filtered by status. Same membership and
 /// visibility folding as `LIST_GROUP_SQL`.
 const LIST_GROUP_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
-        r.created_by, u.username, u.legacy_name, r.notecard_id, r.kind, r.status, \
+        r.created_by, u.username, u.legacy_name, r.notecard_id, n.name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
-        r.created_at, r.finished_at \
+        r.created_at, r.finished_at, \
+        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
      FROM saved_renders AS r \
      JOIN users AS u ON u.user_id = r.created_by \
      JOIN group_memberships AS gm \
        ON gm.group_id = r.owner_group_id AND gm.user_id = ?2 \
+     LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
      WHERE r.owner_group_id = ?1 AND r.status = ?3 \
        AND (gm.role = 'owner' OR r.status = 'done') \
      ORDER BY r.created_at DESC";

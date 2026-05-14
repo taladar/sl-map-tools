@@ -159,6 +159,23 @@ pub struct NotecardView {
     pub name: String,
     /// when the notecard was saved.
     pub created_at: DateTime<Utc>,
+    /// the region name of the route's first waypoint, if the notecard
+    /// body parses and has at least one waypoint.
+    pub start_region: Option<String>,
+    /// the region name of the route's last waypoint, if the notecard
+    /// body parses and has at least one waypoint.
+    pub end_region: Option<String>,
+    /// number of waypoints in the route, if the notecard body parses.
+    pub waypoint_count: Option<u32>,
+    /// lower-left x grid coordinate of the route's bounding box, if it
+    /// has been resolved by a previous render run.
+    pub lower_left_x: Option<u16>,
+    /// lower-left y grid coordinate of the route's bounding box.
+    pub lower_left_y: Option<u16>,
+    /// upper-right x grid coordinate of the route's bounding box.
+    pub upper_right_x: Option<u16>,
+    /// upper-right y grid coordinate of the route's bounding box.
+    pub upper_right_y: Option<u16>,
 }
 
 /// Public, serializable record of a saved render.
@@ -176,6 +193,12 @@ pub struct RenderView {
     pub created_by_legacy_name: String,
     /// the linked saved notecard, if any (USB-notecard renders only).
     pub notecard_id: Option<Uuid>,
+    /// the display name of the linked saved notecard, if any. Mirrors
+    /// `notecard_id` — both are `Some` for USB-notecard renders and both
+    /// are `None` for grid renders. (The `ON DELETE RESTRICT` on the FK
+    /// means a notecard cannot be deleted while a render references it,
+    /// so the name is always resolvable when the id is set.)
+    pub notecard_name: Option<String>,
     /// what the render was launched from.
     pub kind: String,
     /// current status: `in_progress`, `done`, or `failed`.
@@ -190,6 +213,16 @@ pub struct RenderView {
     pub has_without_route: bool,
     /// the content type of the stored image.
     pub content_type: Option<String>,
+    /// lower-left x grid coordinate of the rendered rectangle, if known.
+    /// Always set for grid-rectangle renders; set for usb-notecard renders
+    /// once the background job has resolved the notecard's region names.
+    pub lower_left_x: Option<u16>,
+    /// lower-left y grid coordinate of the rendered rectangle, if known.
+    pub lower_left_y: Option<u16>,
+    /// upper-right x grid coordinate of the rendered rectangle, if known.
+    pub upper_right_x: Option<u16>,
+    /// upper-right y grid coordinate of the rendered rectangle, if known.
+    pub upper_right_y: Option<u16>,
 }
 
 /// Verify that the calling user is allowed to *write* to the given
@@ -437,6 +470,15 @@ pub struct NotecardRow {
     pub body: String,
     /// when the row was created.
     pub created_at: DateTime<Utc>,
+    /// lower-left x grid coordinate of the route's bounding box, if a
+    /// previous render has resolved and cached it.
+    pub lower_left_x: Option<u16>,
+    /// lower-left y grid coordinate of the route's bounding box.
+    pub lower_left_y: Option<u16>,
+    /// upper-right x grid coordinate of the route's bounding box.
+    pub upper_right_x: Option<u16>,
+    /// upper-right y grid coordinate of the route's bounding box.
+    pub upper_right_y: Option<u16>,
 }
 
 /// Raw row fields for a saved render as fetched from the DB.
@@ -472,6 +514,14 @@ pub struct RenderRow {
     pub created_at: DateTime<Utc>,
     /// when the row reached a terminal state.
     pub finished_at: Option<DateTime<Utc>>,
+    /// lower-left x grid coordinate of the rendered rectangle, if known.
+    pub lower_left_x: Option<u16>,
+    /// lower-left y grid coordinate of the rendered rectangle, if known.
+    pub lower_left_y: Option<u16>,
+    /// upper-right x grid coordinate of the rendered rectangle, if known.
+    pub upper_right_x: Option<u16>,
+    /// upper-right y grid coordinate of the rendered rectangle, if known.
+    pub upper_right_y: Option<u16>,
 }
 
 /// Tuple shape returned by the `saved_notecards` lookup query.
@@ -482,12 +532,17 @@ type NotecardRowTuple = (
     String,
     String,
     DateTime<Utc>,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
 );
 
 /// Fetch a notecard row by id; returns [`Error::NotFound`] if missing.
 async fn fetch_notecard_row(db: &SqlitePool, notecard_id: Uuid) -> Result<NotecardRow, Error> {
     let row: Option<NotecardRowTuple> = sqlx::query_as(
-        "SELECT owner_user_id, owner_group_id, uploaded_by, name, body, created_at \
+        "SELECT owner_user_id, owner_group_id, uploaded_by, name, body, created_at, \
+                lower_left_x, lower_left_y, upper_right_x, upper_right_y \
          FROM saved_notecards WHERE notecard_id = ?1",
     )
     .bind(notecard_id.as_bytes().to_vec())
@@ -497,8 +552,18 @@ async fn fetch_notecard_row(db: &SqlitePool, notecard_id: Uuid) -> Result<Noteca
         tracing::error!("notecard fetch failed: {err}");
         Error::Database
     })?;
-    let (owner_user_id, owner_group_id, uploaded_by_bytes, name, body, created_at) =
-        row.ok_or_else(|| Error::NotFound(format!("notecard {notecard_id}")))?;
+    let (
+        owner_user_id,
+        owner_group_id,
+        uploaded_by_bytes,
+        name,
+        body,
+        created_at,
+        lower_left_x,
+        lower_left_y,
+        upper_right_x,
+        upper_right_y,
+    ) = row.ok_or_else(|| Error::NotFound(format!("notecard {notecard_id}")))?;
     let uploaded_by = uuid_from_bytes(&uploaded_by_bytes).ok_or_else(|| {
         tracing::error!("bad uploaded_by uuid in saved_notecards");
         Error::Database
@@ -511,33 +576,63 @@ async fn fetch_notecard_row(db: &SqlitePool, notecard_id: Uuid) -> Result<Noteca
         name,
         body,
         created_at,
+        lower_left_x: lower_left_x.and_then(|v| u16::try_from(v).ok()),
+        lower_left_y: lower_left_y.and_then(|v| u16::try_from(v).ok()),
+        upper_right_x: upper_right_x.and_then(|v| u16::try_from(v).ok()),
+        upper_right_y: upper_right_y.and_then(|v| u16::try_from(v).ok()),
     })
 }
 
-/// Tuple shape returned by the `saved_renders` lookup query.
-type RenderRowTuple = (
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Vec<u8>,
-    Option<Vec<u8>>,
-    String,
-    String,
-    Option<String>,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    DateTime<Utc>,
-    Option<DateTime<Utc>>,
-);
+/// Row shape returned by the `saved_renders` lookup query. A `FromRow`
+/// struct is used instead of a tuple because the column list exceeds
+/// sqlx's tuple-`FromRow` arity (16).
+#[derive(sqlx::FromRow)]
+struct RenderRowDb {
+    /// raw bytes of the personal owner column, if any.
+    owner_user_id: Option<Vec<u8>>,
+    /// raw bytes of the group owner column, if any.
+    owner_group_id: Option<Vec<u8>>,
+    /// raw bytes of the user that created the render.
+    created_by: Vec<u8>,
+    /// raw bytes of the linked notecard id, if any.
+    notecard_id: Option<Vec<u8>>,
+    /// render kind (`grid_rectangle` or `usb_notecard`).
+    kind: String,
+    /// render status (`in_progress`, `done`, `failed`).
+    status: String,
+    /// error message if `status = 'failed'`.
+    error_message: Option<String>,
+    /// settings JSON used to launch the render.
+    settings_json: String,
+    /// metadata JSON produced by the render, if `done`.
+    metadata_json: Option<String>,
+    /// MIME type of the stored image, if any.
+    content_type: Option<String>,
+    /// filename of the primary image file, if any.
+    image_filename: Option<String>,
+    /// filename of the without-route image, if any.
+    image_without_route_filename: Option<String>,
+    /// row creation timestamp.
+    created_at: DateTime<Utc>,
+    /// terminal-state timestamp, if any.
+    finished_at: Option<DateTime<Utc>>,
+    /// lower-left x grid coordinate of the rendered rectangle, if known.
+    lower_left_x: Option<i64>,
+    /// lower-left y grid coordinate of the rendered rectangle, if known.
+    lower_left_y: Option<i64>,
+    /// upper-right x grid coordinate of the rendered rectangle, if known.
+    upper_right_x: Option<i64>,
+    /// upper-right y grid coordinate of the rendered rectangle, if known.
+    upper_right_y: Option<i64>,
+}
 
 /// Fetch a render row by id; returns [`Error::NotFound`] if missing.
 async fn fetch_render_row(db: &SqlitePool, render_id: Uuid) -> Result<RenderRow, Error> {
-    let row: Option<RenderRowTuple> = sqlx::query_as(
+    let row: Option<RenderRowDb> = sqlx::query_as(
         "SELECT owner_user_id, owner_group_id, created_by, notecard_id, kind, status, \
                 error_message, settings_json, metadata_json, content_type, \
-                image_filename, image_without_route_filename, created_at, finished_at \
+                image_filename, image_without_route_filename, created_at, finished_at, \
+                lower_left_x, lower_left_y, upper_right_x, upper_right_y \
          FROM saved_renders WHERE render_id = ?1",
     )
     .bind(render_id.as_bytes().to_vec())
@@ -547,11 +642,11 @@ async fn fetch_render_row(db: &SqlitePool, render_id: Uuid) -> Result<RenderRow,
         tracing::error!("render fetch failed: {err}");
         Error::Database
     })?;
-    let (
+    let RenderRowDb {
         owner_user_id,
         owner_group_id,
-        created_by_bytes,
-        notecard_bytes,
+        created_by: created_by_bytes,
+        notecard_id: notecard_bytes,
         kind,
         status,
         error_message,
@@ -562,7 +657,11 @@ async fn fetch_render_row(db: &SqlitePool, render_id: Uuid) -> Result<RenderRow,
         image_without_route_filename,
         created_at,
         finished_at,
-    ) = row.ok_or_else(|| Error::NotFound(format!("render {render_id}")))?;
+        lower_left_x,
+        lower_left_y,
+        upper_right_x,
+        upper_right_y,
+    } = row.ok_or_else(|| Error::NotFound(format!("render {render_id}")))?;
     let created_by = uuid_from_bytes(&created_by_bytes).ok_or_else(|| {
         tracing::error!("bad created_by uuid in saved_renders");
         Error::Database
@@ -593,6 +692,10 @@ async fn fetch_render_row(db: &SqlitePool, render_id: Uuid) -> Result<RenderRow,
         image_without_route_filename,
         created_at,
         finished_at,
+        lower_left_x: lower_left_x.and_then(|v| u16::try_from(v).ok()),
+        lower_left_y: lower_left_y.and_then(|v| u16::try_from(v).ok()),
+        upper_right_x: upper_right_x.and_then(|v| u16::try_from(v).ok()),
+        upper_right_y: upper_right_y.and_then(|v| u16::try_from(v).ok()),
     })
 }
 

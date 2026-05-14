@@ -190,6 +190,37 @@ function alertModal(opts) {
   });
 }
 
+// Like alertModal, but the caller fills the dialog body itself via the
+// `build(dialog)` callback (which runs after the title is set and before
+// the footer). Useful when the body is more than a single text line —
+// tables, instructions, copy-to-clipboard fields, etc.
+function infoModal(opts) {
+  return new Promise((resolve) => {
+    activeOnCancel = () => resolve();
+    openModal((dialog) => {
+      setHeader(dialog, { title: opts.title });
+      if (typeof opts.build === "function") opts.build(dialog);
+      const finish = () => {
+        activeOnCancel = null;
+        closeModal(false);
+        resolve();
+      };
+      const footer = makeFooter([
+        {
+          text: opts.okText || "Close",
+          className: "modal-btn primary",
+          onClick: finish,
+        },
+      ]);
+      dialog.appendChild(footer);
+      setTimeout(() => {
+        const okBtn = footer.lastChild;
+        if (okBtn && typeof okBtn.focus === "function") okBtn.focus();
+      }, 0);
+    });
+  });
+}
+
 // Helper for the common `alert(await resp.text())` pattern. The server's
 // JSON error envelope is `{"error": "..."}` (see error.rs); we surface
 // just the message field when present and fall back to the raw body so

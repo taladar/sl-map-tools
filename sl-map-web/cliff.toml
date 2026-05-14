@@ -103,4 +103,5 @@ include_paths = [
   "deny.toml",
   "sl-types/**",
   "sl-map-apis/**",
+  ".github/workflows/github-release-web.yaml",
 ]

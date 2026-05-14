@@ -94,8 +94,15 @@ fn extract_x_forwarded_for(parts: &Parts, trusted: &[ipnet::IpNet]) -> Option<Ip
                 return Some(ip);
             }
             Err(err) => {
-                tracing::warn!(
-                    "ignoring un-parseable X-Forwarded-For entry {entry:?}: {err}; remaining chain ignored"
+                // The entry comes from an attacker-controlled header.
+                // Escape control chars before logging so embedded
+                // newlines / ANSI escapes cannot inject fake log lines
+                // or hijack a tailing terminal (same family as L5).
+                // Demoted to `debug!` so a flood of malformed headers
+                // cannot amplify into a warn-log DoS.
+                let safe: String = entry.chars().flat_map(char::escape_debug).collect();
+                tracing::debug!(
+                    "ignoring un-parseable X-Forwarded-For entry {safe:?}: {err}; remaining chain ignored"
                 );
                 drop(iter);
                 return None;
@@ -130,8 +137,11 @@ fn extract_forwarded(parts: &Parts, trusted: &[ipnet::IpNet]) -> Option<IpAddr> 
                 return Some(ip);
             }
             None => {
-                tracing::warn!(
-                    "ignoring un-parseable Forwarded for= node {for_value:?}; remaining chain ignored"
+                // Attacker-controlled; same rationale as the
+                // X-Forwarded-For branch above.
+                let safe: String = for_value.chars().flat_map(char::escape_debug).collect();
+                tracing::debug!(
+                    "ignoring un-parseable Forwarded for= node {safe:?}; remaining chain ignored"
                 );
                 drop(iter);
                 return None;

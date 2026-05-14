@@ -65,14 +65,14 @@ pub struct InvitationView {
 /// Response carrying a list of invitations.
 #[derive(Debug, Serialize)]
 pub struct ListInvitationsResponse {
-    /// the invitations.
+    /// the invitations the caller can see, newest first.
     pub invitations: Vec<InvitationView>,
 }
 
 /// Response carrying a single invitation.
 #[derive(Debug, Serialize)]
 pub struct InvitationResponse {
-    /// the invitation.
+    /// the invitation, including its current status and timestamps.
     pub invitation: InvitationView,
 }
 

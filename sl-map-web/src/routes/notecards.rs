@@ -26,14 +26,16 @@ pub struct ScopeQuery {
 /// Response carrying the listing of notecards in a scope.
 #[derive(Debug, Serialize)]
 pub struct ListNotecardsResponse {
-    /// the notecards.
+    /// the saved notecards visible in the requested scope, newest first.
     pub notecards: Vec<NotecardView>,
 }
 
 /// Response carrying a single saved notecard's metadata.
 #[derive(Debug, Serialize)]
 pub struct NotecardResponse {
-    /// the notecard.
+    /// the requested saved notecard's metadata (display name, owner,
+    /// scope) — the raw body is fetched separately via the `/text`
+    /// sub-route.
     pub notecard: NotecardView,
 }
 

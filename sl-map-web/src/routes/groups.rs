@@ -33,7 +33,7 @@ pub struct RenameGroupRequest {
 /// Response carrying a single group view.
 #[derive(Debug, Serialize)]
 pub struct GroupResponse {
-    /// the group.
+    /// the requested group, including the caller's role within it.
     pub group: GroupView,
 }
 
@@ -47,7 +47,7 @@ pub struct ListGroupsResponse {
 /// Response carrying the member list of a group.
 #[derive(Debug, Serialize)]
 pub struct ListMembersResponse {
-    /// the members.
+    /// the group's members, each with their role and username.
     pub members: Vec<GroupMemberView>,
 }
 

@@ -185,23 +185,27 @@ pub struct SavedGridRectangleSettings {
 pub struct SavedUsbNotecardSettings {
     /// the saved notecard the render was launched from.
     pub notecard_id: Uuid,
-    /// per-side borders in regions: north, south, east, west.
+    /// north-side border padding in whole regions added around the
+    /// route's bounding rectangle.
     pub border_north: u16,
-    /// south border.
+    /// south-side border padding in whole regions added around the
+    /// route's bounding rectangle.
     pub border_south: u16,
-    /// east border.
+    /// east-side border padding in whole regions added around the
+    /// route's bounding rectangle.
     pub border_east: u16,
-    /// west border.
+    /// west-side border padding in whole regions added around the
+    /// route's bounding rectangle.
     pub border_west: u16,
-    /// route colour as a hex string.
+    /// canonical `#rrggbb` colour the route polyline was rendered in.
     pub color: String,
-    /// max width.
+    /// max output width in pixels.
     pub max_width: u32,
-    /// max height.
+    /// max output height in pixels.
     pub max_height: u32,
-    /// missing-tile hex colour, if enabled.
+    /// optional hex colour string for missing map tiles.
     pub missing_map_tile_color: Option<String>,
-    /// missing-region hex colour, if enabled.
+    /// optional hex colour string for missing regions.
     pub missing_region_color: Option<String>,
     /// output format (`png` / `jpeg`).
     pub format: String,

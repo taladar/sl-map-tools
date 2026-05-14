@@ -45,7 +45,9 @@ pub struct ListRendersResponse {
 /// Response carrying a single saved render's metadata.
 #[derive(Debug, Serialize)]
 pub struct RenderResponse {
-    /// the render.
+    /// the requested render's metadata (status, owner, settings,
+    /// timestamps) — the image bytes are fetched separately via the
+    /// `/image` and `/image-without-route` sub-routes.
     pub render: RenderView,
 }
 

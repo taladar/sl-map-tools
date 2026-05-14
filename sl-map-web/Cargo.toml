@@ -17,6 +17,33 @@ exclude = [
   "tarpaulin-report.json",
 ]
 
+[package.metadata.deb]
+name = "sl-map-web"
+depends = "$auto"
+extended-description = "Web UI and JSON API for the SL map renderer"
+section = "web"
+copyright = "2026, Matthias Hörmann <mhoermann@gmail.com>"
+assets = [
+  ["target/release/sl_map_web", "usr/bin/", "755"],
+  ["target/release/sl_map_web_register", "usr/bin/", "755"],
+]
+maintainer-scripts = "maintainer-scripts"
+changelog = "changelog"
+revision = "1"
+
+[package.metadata.rpm.cargo]
+buildflags = ["--release"]
+
+[package.metadata.rpm.targets]
+sl_map_web = { path = "/usr/bin/sl_map_web" }
+sl_map_web_register = { path = "/usr/bin/sl_map_web_register" }
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/sl_map_web", dest = "/usr/bin/sl_map_web", mode = "755" },
+    { source = "target/release/sl_map_web_register", dest = "/usr/bin/sl_map_web_register", mode = "755" },
+]
+
 [dependencies]
 argon2 = "0.5.3"
 axum = { version = "0.8", features = ["multipart", "macros"] }

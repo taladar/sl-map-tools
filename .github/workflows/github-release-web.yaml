@@ -65,6 +65,10 @@ jobs:
           # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
           # Note that glob pattern is not supported yet.
           bin: sl_map_web,sl_map_web_register
+          # (optional) Archive name (non-extension portion of filename) to be uploaded.
+          # Required when multiple binaries are specified, because the default
+          # archive name uses `$bin` which is ambiguous with more than one bin.
+          archive: sl-map-web-$tag-$target
           # (optional) Comma-separated list of additional files to be included to archive.
           # Note that glob pattern is not supported yet.
           include: README.md,sl-map-web/CHANGELOG.md

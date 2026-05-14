@@ -508,7 +508,7 @@ async fn lookup_user_names(state: &AppState, user_id: Uuid) -> Result<(String, S
 
 /// Reduce a free-form notecard name to something safe to embed inside a
 /// Content-Disposition filename. Returns None if nothing usable is left.
-fn sanitise_for_filename(name: &str) -> Option<String> {
+pub(crate) fn sanitise_for_filename(name: &str) -> Option<String> {
     let cleaned: String = name
         .chars()
         .map(|c| {

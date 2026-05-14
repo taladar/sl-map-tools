@@ -252,6 +252,13 @@ async fn serve_image(
             row.status
         )));
     }
+    // Compute the download stem before we move fields out of `row` for
+    // the image lookup below.
+    let download_stem = if attachment {
+        Some(render_download_stem(&state, render_id, &row).await)
+    } else {
+        None
+    };
     let filename = if want_without_route {
         row.image_without_route_filename.ok_or_else(|| {
             Error::NotFound(format!("render {render_id} has no without-route variant"))
@@ -268,14 +275,43 @@ async fn serve_image(
     if let Ok(v) = axum::http::HeaderValue::from_str(&content_type) {
         drop(headers.insert(header::CONTENT_TYPE, v));
     }
-    if attachment {
+    if let Some(stem) = download_stem {
         let ext = storage::ext_for_content_type(&content_type);
-        let disposition = format!("attachment; filename=\"render-{render_id}.{ext}\"");
+        let suffix = if want_without_route { "-no-route" } else { "" };
+        let disposition = format!("attachment; filename=\"{stem}{suffix}.{ext}\"");
         if let Ok(v) = axum::http::HeaderValue::from_str(&disposition) {
             drop(headers.insert(header::CONTENT_DISPOSITION, v));
         }
     }
     Ok((headers, bytes).into_response())
+}
+
+/// Compose a download filename stem for a saved render. Prefers, in
+/// order: the linked notecard's display name (sanitised), the grid
+/// rectangle as `grid-{ll_x}-{ll_y}-{ur_x}-{ur_y}` when the bounds are
+/// known, and `render-{render_id}` as a last-resort fallback. The stem
+/// has no extension; the caller appends the right one for the content
+/// type.
+async fn render_download_stem(
+    state: &AppState,
+    render_id: Uuid,
+    row: &library::RenderRow,
+) -> String {
+    if let Some(id) = row.notecard_id
+        && let Ok(Some(name)) = lookup_notecard_name(state, id).await
+        && let Some(stem) = crate::routes::notecards::sanitise_for_filename(&name)
+    {
+        return stem;
+    }
+    if let (Some(ll_x), Some(ll_y), Some(ur_x), Some(ur_y)) = (
+        row.lower_left_x,
+        row.lower_left_y,
+        row.upper_right_x,
+        row.upper_right_y,
+    ) {
+        return format!("grid-{ll_x}-{ll_y}-{ur_x}-{ur_y}");
+    }
+    format!("render-{render_id}")
 }
 
 /// Run the list query for the given scope. The `status` filter, if Some, is

@@ -191,6 +191,31 @@ pub fn build(state: AppState) -> Router {
             header::X_FRAME_OPTIONS,
             axum::http::HeaderValue::from_static("DENY"),
         ))
+        // Gzip every response. Safe so long as no response body contains a
+        // per-user secret — BREACH (Browser Reconnaissance and Exfiltration
+        // via Adaptive Compression of Hypertext) lets an attacker who can
+        // reflect input next to a secret extract the secret byte-by-byte by
+        // observing compressed response sizes.
+        //
+        // Today the inventory is clean:
+        //   - Session id lives only in a signed cookie, never in a body.
+        //   - There is no body-embedded CSRF token; CSRF is enforced via
+        //     `csrf::require_same_origin` on the Origin header.
+        //   - The set-password token is returned only by `/api/auth/register`,
+        //     which is bearer-authenticated and only callable from the
+        //     in-world LSL script — a browser-driven attacker cannot induce
+        //     the victim to issue that request.
+        //
+        // A future change that puts ANY of the following in a response body
+        // breaks the contract and requires either splitting the compression
+        // layer to exclude the affected endpoints, or masking the secret
+        // per-response with a random XOR-pad:
+        //   - A CSRF token (e.g. switching to double-submit-cookie or a
+        //     hidden form token rendered into HTML).
+        //   - An OAuth state value, magic-link token, integration API key,
+        //     or any other long-lived per-user secret.
+        //   - Reflecting attacker-influenced input adjacent to existing
+        //     identifiers in a way that lets size oracles narrow them down.
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

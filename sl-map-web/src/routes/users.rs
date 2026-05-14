@@ -17,12 +17,30 @@ use axum::http::StatusCode as ReqwestStatusCode;
 use axum::response::{IntoResponse as _, Response};
 use axum_extra::extract::cookie::SignedCookieJar;
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::{self, CurrentUser, removal_cookie};
 use crate::error::Error;
 use crate::state::AppState;
+
+/// True if `s` is canonical `#rrggbb` — exactly one leading `#` and six
+/// ASCII hex digits. Used to validate the route-colour preference on
+/// the way in.
+fn is_canonical_hex_color(s: &str) -> bool {
+    let mut chars = s.chars();
+    if chars.next() != Some('#') {
+        return false;
+    }
+    let mut count = 0_usize;
+    for c in chars {
+        if !c.is_ascii_hexdigit() {
+            return false;
+        }
+        count = count.saturating_add(1);
+    }
+    count == 6
+}
 
 /// Public view of a registered user, suitable for the profile page and
 /// for the creator/uploader link-throughs in the library and groups
@@ -151,4 +169,45 @@ pub async fn delete_me(
     }
     let cleared = jar.add(removal_cookie(&state.config));
     Ok((cleared, (ReqwestStatusCode::NO_CONTENT, "").into_response()))
+}
+
+/// JSON body for `PATCH /api/users/me/preferences`. A `null`
+/// `route_color` clears the preference (back to the picker default).
+#[derive(Debug, Deserialize)]
+pub struct UpdatePreferences {
+    /// new route colour as canonical `#rrggbb`, or `None` to clear.
+    pub route_color: Option<String>,
+}
+
+/// `PATCH /api/users/me/preferences` — update the calling user's
+/// preferences. Currently the only preference is `route_color`, the
+/// default for the renderer page's route-colour picker.
+///
+/// # Errors
+///
+/// Returns [`Error::BadRequest`] if `route_color` is supplied but does
+/// not match the canonical `#rrggbb` format; [`Error::Database`] on
+/// underlying query failure.
+pub async fn update_preferences(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Json(req): Json<UpdatePreferences>,
+) -> Result<Response, Error> {
+    if let Some(ref c) = req.route_color
+        && !is_canonical_hex_color(c)
+    {
+        return Err(Error::BadRequest(format!(
+            "route_color must be canonical `#rrggbb`, got {c:?}"
+        )));
+    }
+    sqlx::query("UPDATE users SET route_color = ?1 WHERE user_id = ?2")
+        .bind(&req.route_color)
+        .bind(user.user_id.as_bytes().to_vec())
+        .execute(&state.db)
+        .await
+        .map_err(|err| {
+            tracing::error!("update preferences failed: {err}");
+            Error::Database
+        })?;
+    Ok((ReqwestStatusCode::NO_CONTENT, "").into_response())
 }

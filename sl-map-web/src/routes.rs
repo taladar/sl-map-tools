@@ -170,6 +170,10 @@ pub fn build(state: AppState) -> Router {
         .route("/profile", get(library_pages::profile))
         .route("/profile/{id}", get(library_pages::profile))
         .route("/api/users/me", axum::routing::delete(users::delete_me))
+        .route(
+            "/api/users/me/preferences",
+            patch(users::update_preferences),
+        )
         .route("/api/users/{id}", get(users::get))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

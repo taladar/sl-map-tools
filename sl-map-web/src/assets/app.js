@@ -47,6 +47,21 @@ async function loadCurrentUser() {
     if (label) label.textContent = `Logged in as ${me.legacy_name}`;
     const logout = document.getElementById("logout-button");
     if (logout) logout.classList.remove("hidden");
+    // Apply the saved route-colour preference if one was set. The
+    // input only exists on the renderer page; other pages just skip.
+    // `applyPrefillFromQuery` runs after this in DOM order and will
+    // overwrite the value when a `?regenerate=<id>` link carries an
+    // explicit `s.color`, which is the right precedence: regenerate
+    // is meant to reproduce the original render, not the user's
+    // current preference.
+    const routeColor = document.getElementById("route_color");
+    if (
+      routeColor &&
+      typeof me.route_color === "string" &&
+      /^#[0-9a-fA-F]{6}$/.test(me.route_color)
+    ) {
+      routeColor.value = me.route_color;
+    }
   } catch (_err) {
     // network failures during the optional "who am I" call shouldn't block
     // the rest of the page from initialising
@@ -168,6 +183,27 @@ $("missing_map_tile_enabled").addEventListener("change", (e) => {
 });
 $("missing_region_enabled").addEventListener("change", (e) => {
   $("missing_region_color").disabled = !e.target.checked;
+});
+
+// Persist the route colour on the user's account so the preferred
+// shade follows the user across browsers and devices. The value is
+// loaded from `/api/auth/me` (see `loadCurrentUser` above, which is
+// the central place that fetches that endpoint) and saved by `PATCH
+// /api/users/me/preferences` on every picker change.
+const ROUTE_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+$("route_color").addEventListener("change", async (e) => {
+  const value = e.target.value;
+  if (!ROUTE_COLOR_RE.test(value)) return;
+  try {
+    await fetch("/api/users/me/preferences", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ route_color: value }),
+    });
+  } catch (_err) {
+    // ignore — network failures here are cosmetic; the local picker
+    // value still applies to the next render submission.
+  }
 });
 
 // --- destination + saved-notecard pickers ---

@@ -60,6 +60,10 @@ pub struct UserView {
     pub username: String,
     /// "Firstname Lastname" legacy display name.
     pub legacy_name: String,
+    /// the user's preferred route colour as `#rrggbb`, or `None` if
+    /// they have never picked one. Stored on the `users` row so the
+    /// preference follows the account across browsers/devices.
+    pub route_color: Option<String>,
 }
 
 /// `POST /api/auth/register` — LSL-facing registration / password-reset
@@ -162,6 +166,7 @@ pub async fn register(
             user_id: user_uuid,
             username: username.to_owned(),
             legacy_name: legacy_name.to_owned(),
+            route_color: None,
         },
     }))
 }
@@ -347,6 +352,7 @@ pub async fn login(
                 user_id,
                 username,
                 legacy_name,
+                route_color: None,
             },
         }),
     ))
@@ -374,10 +380,28 @@ pub async fn logout(
 
 /// `GET /api/auth/me` — return the currently authenticated user, used by
 /// the front-end to populate the header bar.
-pub async fn me(user: CurrentUser) -> Json<UserView> {
-    Json(UserView {
+///
+/// # Errors
+///
+/// Returns [`Error::Database`] if the `route_color` lookup fails.
+pub async fn me(
+    user: CurrentUser,
+    State(state): State<crate::state::AppState>,
+) -> Result<Json<UserView>, Error> {
+    let row: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT route_color FROM users WHERE user_id = ?1")
+            .bind(user.user_id.as_bytes().to_vec())
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|err| {
+                tracing::error!("route_color lookup failed: {err}");
+                Error::Database
+            })?;
+    let route_color = row.and_then(|(c,)| c);
+    Ok(Json(UserView {
         user_id: user.user_id,
         username: user.username,
         legacy_name: user.legacy_name,
-    })
+        route_color,
+    }))
 }

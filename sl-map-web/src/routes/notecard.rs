@@ -7,7 +7,9 @@ use serde::Serialize;
 use sl_map_apis::region::usb_notecard_to_grid_rectangle;
 use sl_types::map::{GridRectangleLike as _, USBNotecard};
 
+use crate::auth::CurrentUser;
 use crate::error::Error;
+use crate::library;
 use crate::state::AppState;
 use crate::usb_notecard::parse_notecard_form;
 
@@ -52,13 +54,22 @@ pub struct DeriveResponse {
 /// Returns an error if the multipart form is malformed, the notecard
 /// cannot be parsed, or a referenced region cannot be resolved.
 pub async fn derive_rectangle(
+    user: CurrentUser,
     State(state): State<AppState>,
     multipart: Multipart,
 ) -> Result<Json<DeriveResponse>, Error> {
     let form = parse_notecard_form(multipart).await?;
     let (border_north, border_south, border_east, border_west) = form.borders();
-    let Some(notecard) = form.notecard else {
-        return Err(Error::BadRequest("missing notecard".to_owned()));
+    let notecard = match (form.notecard, form.notecard_id) {
+        (Some(nc), _) => nc,
+        (None, Some(id)) => {
+            // The same auth gate the library / render endpoints use — a
+            // caller who cannot read the notecard gets the indistinguishable
+            // NotFound, never the body.
+            let row = library::assert_can_read_notecard(&state.db, user.user_id, id).await?;
+            row.body.parse()?
+        }
+        (None, None) => return Err(Error::BadRequest("missing notecard".to_owned())),
     };
     let mut region_cache = state.region_cache.lock().await;
     let rect = usb_notecard_to_grid_rectangle(&mut region_cache, &notecard)

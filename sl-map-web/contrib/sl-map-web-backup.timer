@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily SQLite backup for sl-map-web
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30m
+Persistent=true
+Unit=sl-map-web-backup.service
+
+[Install]
+WantedBy=timers.target

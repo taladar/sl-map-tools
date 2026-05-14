@@ -163,7 +163,6 @@ async function loadGroupsAndNotecards() {
     // leave empty
   }
   const saveTo = $("save_to");
-  const ncSaveTo = $("notecard_save_to");
   if (saveTo) {
     for (const g of groups.groups || []) {
       if (g.my_role !== "owner") continue;
@@ -171,19 +170,6 @@ async function loadGroupsAndNotecards() {
       o.value = `group:${g.group_id}`;
       o.textContent = `Group: ${g.name}`;
       saveTo.appendChild(o);
-    }
-  }
-  if (ncSaveTo) {
-    const personal = document.createElement("option");
-    personal.value = "personal";
-    personal.textContent = "Personal library";
-    ncSaveTo.appendChild(personal);
-    for (const g of groups.groups || []) {
-      if (g.my_role !== "owner") continue;
-      const o = document.createElement("option");
-      o.value = `group:${g.group_id}`;
-      o.textContent = `Group: ${g.name}`;
-      ncSaveTo.appendChild(o);
     }
   }
   const ncPicker = $("notecard_id");
@@ -636,8 +622,6 @@ $("notecard_render").addEventListener("click", async () => {
       }
       const ncName = $("notecard_name").value.trim();
       if (ncName !== "") fd.append("notecard_name", ncName);
-      const ncDest = $("notecard_save_to").value;
-      if (ncDest !== "") fd.append("notecard_save_to", ncDest);
     }
     appendBordersToForm(fd);
     const shared = readSharedParams();
@@ -659,12 +643,25 @@ $("notecard_render").addEventListener("click", async () => {
       body: fd,
     });
     if (!resp.ok) throw new Error(await resp.text());
-    const { job_id } = await resp.json();
+    const { job_id, notecard } = await resp.json();
+    if (notecard) addNotecardOptionIfNew(notecard);
     await followJob(job_id, withWithoutRoute);
   } catch (err) {
     renderStatusEl.textContent = `Render failed: ${err.message}`;
   }
 });
+
+function addNotecardOptionIfNew({ notecard_id, name, scope }) {
+  const ncPicker = $("notecard_id");
+  if (!ncPicker) return;
+  for (const o of ncPicker.options) {
+    if (o.value === notecard_id) return;
+  }
+  const o = document.createElement("option");
+  o.value = notecard_id;
+  o.textContent = `${name} (${scope === "personal" ? "personal" : "group"})`;
+  ncPicker.appendChild(o);
+}
 
 // --- prefill from regenerate / reuse query params ---
 

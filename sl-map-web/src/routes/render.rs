@@ -123,6 +123,27 @@ pub struct GridRectangleRequest {
 pub struct StartedResponse {
     /// the id of the newly created job (also the `saved_renders.render_id`).
     pub job_id: Uuid,
+    /// summary of the notecard the render is linked to, if any. For
+    /// `usb-notecard` renders this is always populated; the id may differ
+    /// from the one the caller submitted if the notecard had to be copied
+    /// into the render's scope to satisfy the DB scope-match invariant.
+    /// For `grid-rectangle` renders this is omitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notecard: Option<NotecardSummary>,
+}
+
+/// Minimal notecard descriptor included in [`StartedResponse`] so the UI
+/// can update its notecard dropdown in place when the backend copied the
+/// source notecard into a new scope.
+#[derive(Debug, Clone, Serialize)]
+pub struct NotecardSummary {
+    /// the id of the notecard the render is linked to. May differ from a
+    /// caller-supplied `notecard_id` when an auto-copy happened.
+    pub notecard_id: Uuid,
+    /// display name, suitable for a dropdown option label.
+    pub name: String,
+    /// owning scope, in the form `"personal"` or `"group:<uuid>"`.
+    pub scope: String,
 }
 
 /// Settings JSON stored in `saved_renders.settings_json`. Designed to be
@@ -246,7 +267,10 @@ pub async fn grid_rectangle(
     .await?;
     let (job_id, job) = state.jobs.create_with_id(render_id).await;
     spawn_grid_rectangle_job(state, job_id, job, rect, common);
-    Ok(Json(StartedResponse { job_id }))
+    Ok(Json(StartedResponse {
+        job_id,
+        notecard: None,
+    }))
 }
 
 /// `POST /api/render/usb-notecard` — start a render from a notecard.
@@ -265,12 +289,14 @@ pub async fn usb_notecard(
     library::assert_can_write(&state.db, user.user_id, parsed.destination).await?;
     assert_under_concurrent_limit(&state.db, user.user_id).await?;
 
-    // Resolve the notecard: either reuse an existing saved one or upload
-    // (and always save) a fresh one to the chosen notecard destination.
-    let (notecard, notecard_id) = resolve_notecard(&state, &user, &parsed).await?;
+    // Resolve the notecard: reuse an existing one (auto-copied into the
+    // render's scope if needed) or persist a freshly uploaded one. The
+    // returned summary is what the response surfaces back to the UI so it
+    // can update its dropdown if the effective id is new.
+    let (notecard, notecard_summary) = resolve_notecard(&state, &user, &parsed).await?;
 
     let settings = SavedRenderSettings::UsbNotecard(SavedUsbNotecardSettings {
-        notecard_id,
+        notecard_id: notecard_summary.notecard_id,
         border_north: parsed.borders.0,
         border_south: parsed.borders.1,
         border_east: parsed.borders.2,
@@ -291,7 +317,7 @@ pub async fn usb_notecard(
         parsed.destination,
         user.user_id,
         "usb_notecard",
-        Some(notecard_id),
+        Some(notecard_summary.notecard_id),
         &settings,
     )
     .await?;
@@ -307,7 +333,10 @@ pub async fn usb_notecard(
         parsed.common,
         parsed.with_without_route,
     );
-    Ok(Json(StartedResponse { job_id }))
+    Ok(Json(StartedResponse {
+        job_id,
+        notecard: Some(notecard_summary),
+    }))
 }
 
 /// Map a [`OutputFormat`] to its lowercase name used in the persisted
@@ -360,14 +389,14 @@ enum NotecardSource {
         /// the saved notecard's id.
         notecard_id: Uuid,
     },
-    /// Use a freshly uploaded notecard; save it to the destination first.
+    /// Use a freshly uploaded notecard; the resolver saves it to the
+    /// render's destination before linking, so the
+    /// "render and notecard share the same scope" invariant always holds.
     Fresh {
         /// the raw notecard text.
         text: String,
         /// the display name for the saved-notecards row.
         name: String,
-        /// destination for the *notecard* (may differ from the render's).
-        destination: Destination,
     },
 }
 
@@ -385,7 +414,6 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
     let mut notecard_file: Option<String> = None;
     let mut notecard_id: Option<Uuid> = None;
     let mut destination_raw: Option<String> = None;
-    let mut notecard_destination_raw: Option<String> = None;
     let mut notecard_name: Option<String> = None;
     let mut multipart = multipart;
     while let Some(field) = multipart.next_field().await? {
@@ -460,7 +488,6 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
                 );
             }
             "save_to" => destination_raw = Some(field.text().await?),
-            "notecard_save_to" => notecard_destination_raw = Some(field.text().await?),
             "notecard_name" => {
                 let t = field.text().await?;
                 if !t.trim().is_empty() {
@@ -497,15 +524,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
             )
         })?;
         let name = notecard_name.map_or_else(default_notecard_name, |n| n.trim().to_owned());
-        let notecard_dest = match notecard_destination_raw {
-            Some(s) => Destination::parse(&s)?,
-            None => destination,
-        };
-        NotecardSource::Fresh {
-            text: raw,
-            name,
-            destination: notecard_dest,
-        }
+        NotecardSource::Fresh { text: raw, name }
     };
     Ok(ParsedRenderForm {
         notecard_source,
@@ -524,31 +543,66 @@ fn default_notecard_name() -> String {
 }
 
 /// Resolve the notecard source for a USB-notecard render. Returns the parsed
-/// `USBNotecard` (for the renderer) and the `saved_notecards.notecard_id`
-/// the render will link to.
+/// `USBNotecard` (for the renderer) and a [`NotecardSummary`] describing
+/// the saved row the render will link to. The render's destination is
+/// canonical: a reused notecard in a different scope is copied into the
+/// render's scope, and a freshly uploaded notecard is always saved into
+/// the render's scope. Both behaviours keep the DB-level "render and
+/// notecard share the same scope" trigger satisfied without ever
+/// surfacing a constraint error to the caller.
 async fn resolve_notecard(
     state: &AppState,
     user: &CurrentUser,
     parsed: &ParsedRenderForm,
-) -> Result<(USBNotecard, Uuid), Error> {
+) -> Result<(USBNotecard, NotecardSummary), Error> {
     match &parsed.notecard_source {
         NotecardSource::Existing { notecard_id } => {
             let row =
                 library::assert_can_read_notecard(&state.db, user.user_id, *notecard_id).await?;
             let parsed_notecard: USBNotecard = row.body.parse()?;
-            Ok((parsed_notecard, *notecard_id))
+            let notecard_scope = library::destination_from_columns(
+                row.owner_user_id.clone(),
+                row.owner_group_id.clone(),
+            )?;
+            let effective_id = if notecard_scope == parsed.destination {
+                *notecard_id
+            } else {
+                notecard_routes::insert_notecard_row(
+                    state,
+                    parsed.destination,
+                    user.user_id,
+                    &row.name,
+                    &row.body,
+                )
+                .await?
+            };
+            Ok((
+                parsed_notecard,
+                NotecardSummary {
+                    notecard_id: effective_id,
+                    name: row.name,
+                    scope: parsed.destination.render_string(),
+                },
+            ))
         }
-        NotecardSource::Fresh {
-            text,
-            name,
-            destination,
-        } => {
-            library::assert_can_write(&state.db, user.user_id, *destination).await?;
+        NotecardSource::Fresh { text, name, .. } => {
             let parsed_notecard: USBNotecard = text.parse()?;
-            let notecard_id =
-                notecard_routes::insert_notecard_row(state, *destination, user.user_id, name, text)
-                    .await?;
-            Ok((parsed_notecard, notecard_id))
+            let notecard_id = notecard_routes::insert_notecard_row(
+                state,
+                parsed.destination,
+                user.user_id,
+                name,
+                text,
+            )
+            .await?;
+            Ok((
+                parsed_notecard,
+                NotecardSummary {
+                    notecard_id,
+                    name: name.clone(),
+                    scope: parsed.destination.render_string(),
+                },
+            ))
         }
     }
 }

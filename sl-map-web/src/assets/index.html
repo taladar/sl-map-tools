@@ -190,8 +190,17 @@
       <div class="row">
         <label
           >Route colour
-          <input type="color" id="route_color" value="#ff0000" />
+          <input
+            type="color"
+            id="route_color"
+            value="#ff0000"
+            list="route_color_presets"
+          />
         </label>
+        <datalist id="route_color_presets">
+          <option value="#ff0000"></option>
+          <option value="#00ff00"></option>
+        </datalist>
         <label class="checkbox">
           <input type="checkbox" id="save_without_route" />
           Also save a copy without the route

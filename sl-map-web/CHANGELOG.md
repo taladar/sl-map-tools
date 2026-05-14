@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 - 2026-05-14 18:31:23Z
+
+### 🐛 Bug Fixes
+
+- *(release)* Set explicit archive name for multi-binary web release
+- *(sl_map_web)* Fix cliff.toml to include the github action path
+
 ## 0.2.0 - 2026-05-14 18:07:07Z
 
 ### 🚀 Features

@@ -1,3 +1,9 @@
+sl-map-web (0.2.1-1) unstable; urgency=medium
+
+  * Bug fixes - sl_map_web - Fix cliff.toml to include the github action path
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Thu, 14 May 2026 20:31:23 +0200
+
 sl-map-web (0.2.0-1) unstable; urgency=medium
 
   * Features - cli - Add --metadata-output-file option that allows optionally writing the PPS and aspect ratio metadata to a file

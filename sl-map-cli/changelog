@@ -1,3 +1,13 @@
+sl-map-cli (0.4.0-1) unstable; urgency=medium
+
+  * Features - cli - Add border options to from-usb-notecard for expanding the auto-derived rectangle
+  * Features - cli - Render indicatif progress bars from MapProgressEvent
+  * Bug fixes - clippy - Correct unreachable std::assert_matches path
+  * Styling Apply pre-commit hook auto-formatting fixups
+  * Miscellaneous tasks - dependencies - Update dependencies
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Thu, 14 May 2026 20:07:07 +0200
+
 sl-map-cli (0.3.3-1) unstable; urgency=medium
 
   * Miscellaneous tasks - dependencies - Update dependencies

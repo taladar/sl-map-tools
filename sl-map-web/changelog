@@ -1,3 +1,74 @@
+sl-map-web (0.2.0-1) unstable; urgency=medium
+
+  * Features - cli - Add --metadata-output-file option that allows optionally writing the PPS and aspect ratio metadata to a file
+  * Features - cli - Add border options to from-usb-notecard for expanding the auto-derived rectangle
+  * Features - apis - Add progress event API for renders
+  * Features - web - Add sl-map-web crate with axum-based UI and JSON API
+  * Features - web - Add password authentication with LSL-driven registration
+  * Features - web - Add groups and shared notecard/render library
+  * Features - cli - Render indicatif progress bars from MapProgressEvent
+  * Features - web - Library detail columns, metadata modal, notecard source subtabs
+  * Features - web - Name saved-render downloads after notecard or grid corners
+  * Features - web - Image-viewer modal with with-route / without-route comparison
+  * Features - web - User profile pages, account self-deletion, deleted-user fallbacks
+  * Features - web - Add a legend for the tile-status colors on the render progress grid
+  * Features - web - Add map.sh's green to the route colour presets
+  * Features - web - Persist the user's route colour on their account row
+  * Bug fixes - area - Fix region parsing
+  * Bug fixes - cliff - Fix include_path -> include_paths
+  * Bug fixes - web - Harden auth, CSRF, body limits, render caps, and CSP
+  * Bug fixes - web - Close TOCTOU races in group role/membership and invitation flips
+  * Bug fixes - web - Store SHA-256 of session id at rest
+  * Bug fixes - web - Gate live render artifacts and collapse existence leaks to 404
+  * Bug fixes - web - Gate SSE render-events stream behind the read-render check
+  * Bug fixes - web - Fold group-membership check into library listing SQL
+  * Bug fixes - web - Return generic body for 500-class errors
+  * Bug fixes - web - Round-trip render metadata and settings JSON through typed structs
+  * Bug fixes - web - Validate group and notecard display names
+  * Bug fixes - web - Reject unicode Cf format characters in display names
+  * Bug fixes - web - Replace native dialogs with in-page modals
+  * Bug fixes - web - Add per-user token-bucket rate limit on creates
+  * Bug fixes - web - Validate UUID query params before using them in fetch / form
+  * Bug fixes - web - Equalise LslBearer compare timing across length mismatch
+  * Bug fixes - web - Throttle sessions.last_seen_at bump to once per 60 s
+  * Bug fixes - web - Reject cookie_secure / public_base_url scheme mismatch at startup
+  * Bug fixes - web - Wrap config secrets in SecretString and zeroize signing key after use
+  * Bug fixes - web - Sanitise error display before logging and demote 4xx to debug
+  * Bug fixes - web - Raise password minimum to 12 and add 128-byte maximum
+  * Bug fixes - web - Prune outstanding set-password tokens on re-register
+  * Bug fixes - web - Canonicalise persisted render colours to #rrggbb
+  * Bug fixes - web - Accept "jpg" as an alias for "jpeg" on the render JSON API
+  * Bug fixes - web - Enforce notecard / render scope match at the DB and copy on reuse
+  * Bug fixes - web - Recover orphaned in_progress renders at startup
+  * Bug fixes - web - Rotate the cookie-carried session on login
+  * Bug fixes - web - Escape and demote forwarded-header parse-warn logs
+  * Bug fixes - web - Alias renamed columns in the saved-renders list queries
+  * Bug fixes - web - Accept notecard_id in the derive-rectangle preview endpoint
+  * Bug fixes - web - Run migrations with PRAGMA foreign_keys=OFF on a dedicated pool
+  * Other - release - Add release.sh and cliff config
+  * Documentation - web - Document trusted_proxies security contract and analysis scope
+  * Documentation - web - Document file log sink as debug-only, not for production
+  * Documentation - web - Codify the BREACH contract at the compression layer
+  * Documentation - web - Expand stubby response-wrapper field docs
+  * Documentation - web - Add deployment runbook and sample systemd units
+  * Styling Apply pre-commit hook auto-formatting fixups
+  * Miscellaneous tasks - dependencies - Update dependencies and fix lints
+  * Miscellaneous tasks - dependencies - Update dependencies
+  * Miscellaneous tasks - dependencies - Upgrade dependencies
+  * Miscellaneous tasks - chumsky - Update chumsky dependency from 0.9.3 to 0.12.0
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - dependencies - Update dependencies
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - dependencies - Upgrade dependencies
+  * Miscellaneous tasks - deny - Remove unused OpenSSL license from deny.toml
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - dependencies - Update dependencies
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - dependencies - Update dependencies
+  * Miscellaneous tasks - web - Add packaging files for binary-crate release flow
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Thu, 14 May 2026 20:07:08 +0200
+
 sl-map-web (0.1.0-1) unstable; urgency=medium
 
   * initial release

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 - 2026-05-14 18:07:06Z
+
+### 🚀 Features
+
+- *(cli)* Add border options to from-usb-notecard for expanding the auto-derived
+  rectangle
+- *(apis)* Add progress event API for renders
+- *(web)* Add sl-map-web crate with axum-based UI and JSON API
+- *(web)* Add password authentication with LSL-driven registration
+- *(cli)* Render indicatif progress bars from MapProgressEvent
+
+### 🐛 Bug Fixes
+
+- *(web)* Harden auth, CSRF, body limits, render caps, and CSP
+- *(web)* Wrap config secrets in SecretString and zeroize signing key after use
+
+### 🎨 Styling
+
+- Apply pre-commit hook auto-formatting fixups
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update dependencies
+
 ## 0.3.3 - 2026-04-08 11:33:57Z
 
 ### ⚙️ Miscellaneous Tasks

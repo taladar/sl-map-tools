@@ -3,7 +3,7 @@ name = "sl-map-web"
 description = "Web UI and JSON API for the SL map renderer"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2024"
 repository = "https://github.com/taladar/sl-map-tools"
@@ -69,8 +69,8 @@ secrecy = "0.10"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.11.0"
-sl-map-apis = { path = "../sl-map-apis", version = "0.3.3" }
-sl-types = { path = "../sl-types", version = "0.2.3" }
+sl-map-apis = { path = "../sl-map-apis", version = "0.4.0" }
+sl-types = { path = "../sl-types", version = "0.3.0" }
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 subtle = "2.6.1"
 thiserror = "2.0.18"

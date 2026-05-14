@@ -3753,7 +3753,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "sl-chat-log-parser"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ariadne",
  "bytesize",
@@ -3774,7 +3774,7 @@ dependencies = [
 
 [[package]]
 name = "sl-map-apis"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "derive_more",
  "http",
@@ -3798,7 +3798,7 @@ dependencies = [
 
 [[package]]
 name = "sl-map-cli"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "clap",
  "fs-err",
@@ -3818,7 +3818,7 @@ dependencies = [
 
 [[package]]
 name = "sl-map-web"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "argon2",
  "axum",
@@ -3860,7 +3860,7 @@ dependencies = [
 
 [[package]]
 name = "sl-types"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "chumsky",
  "nutype",

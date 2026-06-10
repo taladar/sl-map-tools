@@ -57,6 +57,29 @@ pub enum Error {
     /// error writing metadata output file
     #[error("error writing metadata output file: {0}")]
     MetadataOutputFileError(#[source] std::io::Error),
+    /// the GLW overlay was requested but no --font flag was given
+    #[error(
+        "GLW overlay requested but no font supplied; pass --font <path-to-ttf> \
+         (DejaVuSans.ttf is checked in at the workspace root)"
+    )]
+    FontRequired,
+    /// error reading or writing a file (font, GLW input/output JSON);
+    /// `fs_err` includes the offending path in the wrapped message
+    #[error("file IO error: {0}")]
+    IoError(#[from] std::io::Error),
+    /// error parsing the font file as a TrueType font
+    #[error("error parsing font file: {0}")]
+    FontParseError(#[from] ab_glyph::InvalidFont),
+    /// error in the GLW event cache (HTTP fetch / disk cache / JSON)
+    #[error("error in GLW event cache: {0}")]
+    GlwEventCacheError(#[from] sl_glw::GlwEventCacheError),
+    /// error rendering the GLW overlay onto the map
+    #[error("error rendering GLW overlay: {0}")]
+    GlwRenderError(#[from] sl_glw::RenderError),
+    /// error serializing or deserializing a GLW event to/from JSON
+    /// (used by --glw-input-file and --glw-output-file)
+    #[error("GLW JSON error: {0}")]
+    GlwJsonError(#[from] serde_json::Error),
 }
 
 /// Generate a map from a rectangle of grid coordinates
@@ -96,6 +119,10 @@ pub struct FromGridRectangle {
     /// optional file to write the metadata (aspect ratio, PPS HUD config) to
     #[clap(long)]
     pub metadata_output_file: Option<PathBuf>,
+    /// optional GLW overlay flags; active when --glw-event-id or
+    /// --glw-event-key is set
+    #[clap(flatten)]
+    pub glw: GlwOverlayArgs,
 }
 
 impl From<&FromGridRectangle> for GridRectangle {
@@ -123,6 +150,128 @@ impl From<&FromGridRectangle> for GridRectangle {
 pub fn parse_color(s: &str) -> Result<image::Rgba<u8>, hex_color::ParseHexColorError> {
     let hex_color = hex_color::HexColor::parse(s)?;
     Ok(image::Rgba(hex_color.to_be_bytes()))
+}
+
+/// Optional flag group adding a GLW (GlobalWind) wind/current/wave
+/// overlay to a generated map. The group is shared between every
+/// map-producing subcommand via `#[clap(flatten)]`. The overlay is
+/// active when either `--glw-event-id` or `--glw-event-key` is set; the
+/// rest of the flags tune visual style and only take effect in that
+/// case.
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct GlwOverlayArgs {
+    /// numeric GLW event id to overlay. Mutually exclusive with
+    /// --glw-event-key and --glw-input-file.
+    #[clap(long, conflicts_with_all = ["glw_event_key", "glw_input_file"])]
+    pub glw_event_id: Option<u32>,
+    /// string GLW event key to overlay. Mutually exclusive with
+    /// --glw-event-id and --glw-input-file.
+    #[clap(long, conflicts_with_all = ["glw_event_id", "glw_input_file"])]
+    pub glw_event_key: Option<String>,
+    /// path to a JSON file containing a previously-fetched GLW event
+    /// (use the file written by --glw-output-file). When set, no HTTP
+    /// fetch is performed and --glw-base-url is ignored. Mutually
+    /// exclusive with --glw-event-id and --glw-event-key.
+    #[clap(long, conflicts_with_all = ["glw_event_id", "glw_event_key"])]
+    pub glw_input_file: Option<PathBuf>,
+    /// optional path to write the fetched (or loaded) GLW event to as
+    /// pretty-printed JSON. Useful for offline reruns: fetch once with
+    /// --glw-event-id and --glw-output-file foo.json, then on later
+    /// runs pass --glw-input-file foo.json to skip the network.
+    #[clap(long)]
+    pub glw_output_file: Option<PathBuf>,
+    /// override the GLW base URL (including the `glw127`/version path
+    /// segment). Defaults to the workspace default
+    /// (http://globalwind.net/glw127/). Ignored when --glw-input-file
+    /// is set.
+    #[clap(long)]
+    pub glw_base_url: Option<url::Url>,
+    /// draw the dashed margin band marking each override's
+    /// blending-zone outer boundary. Off by default.
+    #[clap(long)]
+    pub glw_margin_band: bool,
+    /// hex colour for area rectangle outlines (e.g. `#28dc28`).
+    #[clap(long, value_parser = parse_color)]
+    pub glw_area_outline_color: Option<image::Rgba<u8>>,
+    /// hex colour for circle outlines.
+    #[clap(long, value_parser = parse_color)]
+    pub glw_circle_outline_color: Option<image::Rgba<u8>>,
+    /// hex colour for the dashed margin band.
+    #[clap(long, value_parser = parse_color)]
+    pub glw_margin_outline_color: Option<image::Rgba<u8>>,
+    /// hex colour for filled wind arrows.
+    #[clap(long, value_parser = parse_color)]
+    pub glw_wind_color: Option<image::Rgba<u8>>,
+    /// hex colour for filled current arrows.
+    #[clap(long, value_parser = parse_color)]
+    pub glw_current_color: Option<image::Rgba<u8>>,
+    /// hex colour for wave glyph strokes.
+    #[clap(long, value_parser = parse_color)]
+    pub glw_wave_color: Option<image::Rgba<u8>>,
+    /// hex colour to fill area interiors with. When unset (the
+    /// default), interiors stay transparent.
+    #[clap(long, value_parser = parse_color)]
+    pub glw_area_fill_color: Option<image::Rgba<u8>>,
+}
+
+/// Internal resolution of the three mutually-exclusive GLW
+/// event-source flags.
+enum GlwSource {
+    /// Event identified by its numeric id; fetched via the cache.
+    ById(sl_glw::EventId),
+    /// Event identified by its string key; fetched via the cache.
+    ByKey(sl_glw::GlwEventKey),
+    /// Event loaded from a JSON file on disk (no network).
+    FromFile(PathBuf),
+}
+
+impl GlwOverlayArgs {
+    /// Resolve the user-supplied source flags into a typed
+    /// [`GlwSource`], or `None` if no GLW overlay was requested.
+    fn source(&self) -> Option<GlwSource> {
+        if let Some(id) = self.glw_event_id {
+            return Some(GlwSource::ById(sl_glw::EventId::new(id)));
+        }
+        if let Some(key) = self.glw_event_key.as_deref() {
+            return Some(GlwSource::ByKey(sl_glw::GlwEventKey::new(key)));
+        }
+        if let Some(path) = self.glw_input_file.as_ref() {
+            return Some(GlwSource::FromFile(path.clone()));
+        }
+        None
+    }
+
+    /// Build a [`sl_glw::GlwStyle`] from the library default, then
+    /// apply any CLI overrides the user supplied.
+    fn build_style(&self) -> sl_glw::GlwStyle {
+        let mut style = sl_glw::GlwStyle {
+            legend_position: sl_glw::LegendPosition::TopLeft,
+            draw_margin_band: self.glw_margin_band,
+            ..sl_glw::GlwStyle::default()
+        };
+        if let Some(c) = self.glw_area_outline_color {
+            style.palette.area_outline = c;
+        }
+        if let Some(c) = self.glw_circle_outline_color {
+            style.palette.circle_outline = c;
+        }
+        if let Some(c) = self.glw_margin_outline_color {
+            style.palette.margin_outline = c;
+        }
+        if let Some(c) = self.glw_wind_color {
+            style.palette.wind_arrow = c;
+        }
+        if let Some(c) = self.glw_current_color {
+            style.palette.current_arrow = c;
+        }
+        if let Some(c) = self.glw_wave_color {
+            style.palette.wave_glyph = c;
+        }
+        if let Some(c) = self.glw_area_fill_color {
+            style.palette.area_fill = Some(c);
+        }
+        style
+    }
 }
 
 /// Generate a map from a USB notecard
@@ -184,6 +333,10 @@ pub struct FromUSBNotecard {
     /// optional file to write the metadata (aspect ratio, PPS HUD config) to
     #[clap(long)]
     pub metadata_output_file: Option<PathBuf>,
+    /// optional GLW overlay flags; active when --glw-event-id or
+    /// --glw-event-key is set
+    #[clap(flatten)]
+    pub glw: GlwOverlayArgs,
 }
 
 /// which subcommand to call
@@ -206,6 +359,15 @@ struct Options {
     /// cache dir for map tiles
     #[clap(long)]
     cache_dir: PathBuf,
+    /// path to a TrueType font used for any text rendering on the map
+    /// (currently the GLW labels and corner legend). Required only when
+    /// a feature that draws text is requested; at present that means any
+    /// GLW overlay. Plain map renders work without this flag. The
+    /// workspace does not bundle a default font; a copy of
+    /// `DejaVuSans.ttf` is checked in at the workspace root for
+    /// convenience.
+    #[clap(long)]
+    font: Option<PathBuf>,
     /// which subcommand to use
     #[clap(subcommand)]
     command: Command,
@@ -349,20 +511,87 @@ async fn join_progress_task(handle: tokio::task::JoinHandle<()>) {
     }
 }
 
+/// If `args` requests a GLW overlay, obtain the event (via the
+/// three-tier HTTP cache rooted at `cache_dir`, or by reading a JSON
+/// file on disk when `--glw-input-file` is set), load the supplied
+/// font, optionally write the event back out to `--glw-output-file`,
+/// and draw the overlay onto `map`. Returns `Ok(true)` when an overlay
+/// was actually drawn, `Ok(false)` when no GLW source was requested or
+/// the server returned no event for the requested id/key. Returns
+/// [`Error::FontRequired`] if a source was requested but `font_path`
+/// is `None`.
+async fn fetch_and_draw_glw(
+    cache_dir: &std::path::Path,
+    font_path: Option<&std::path::Path>,
+    args: &GlwOverlayArgs,
+    map: &mut Map,
+) -> Result<bool, crate::Error> {
+    use sl_glw::MapLikeGlwExt as _;
+    let Some(source) = args.source() else {
+        return Ok(false);
+    };
+    let Some(font_path) = font_path else {
+        return Err(crate::Error::FontRequired);
+    };
+    let font_bytes = fs_err::read(font_path)?;
+    let font = ab_glyph::FontVec::try_from_vec(font_bytes)?;
+
+    let event: Option<sl_glw::GlwEvent> = match source {
+        GlwSource::ById(id) => {
+            let mut cache =
+                sl_glw::GlwEventCache::new(cache_dir.to_owned(), args.glw_base_url.clone())?;
+            cache.get_event_by_id(id).await?
+        }
+        GlwSource::ByKey(key) => {
+            let mut cache =
+                sl_glw::GlwEventCache::new(cache_dir.to_owned(), args.glw_base_url.clone())?;
+            cache.get_event_by_key(&key).await?
+        }
+        GlwSource::FromFile(path) => {
+            let json = fs_err::read_to_string(&path)?;
+            Some(serde_json::from_str::<sl_glw::GlwEvent>(&json)?)
+        }
+    };
+    let Some(event) = event else {
+        tracing::warn!(
+            "GLW event not found (server returned no event); rendering map without overlay"
+        );
+        return Ok(false);
+    };
+
+    // Pretty-print the event back out before drawing, so even partial
+    // runs (drawing might fail later) leave the user with the fetched
+    // JSON for inspection or offline reruns.
+    if let Some(output_path) = args.glw_output_file.as_ref() {
+        let json = serde_json::to_string_pretty(&event)?;
+        fs_err::write(output_path, json)?;
+    }
+
+    let style = args.build_style();
+    map.draw_glw_event_with_font(&event, &style, &font)?;
+    Ok(true)
+}
+
 /// The main behaviour of the binary should go here
 #[instrument]
 async fn do_stuff() -> Result<(), crate::Error> {
     let options = Options::parse();
     tracing::debug!("{:#?}", options);
 
-    match options.command {
+    let Options {
+        cache_dir,
+        font,
+        command,
+    } = options;
+
+    match command {
         Command::FromGridRectangle(from_grid_rectangle) => {
             let ratelimiter = ratelimit::Ratelimiter::builder(10).build()?;
-            let mut map_tile_cache = MapTileCache::new(options.cache_dir, Some(ratelimiter));
+            let mut map_tile_cache = MapTileCache::new(cache_dir.clone(), Some(ratelimiter));
             let grid_rectangle: GridRectangle = (&from_grid_rectangle).into();
             let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
             let progress_task = tokio::spawn(report_progress(rx));
-            let map = Map::new_with_progress(
+            let mut map = Map::new_with_progress(
                 &mut map_tile_cache,
                 from_grid_rectangle.max_width,
                 from_grid_rectangle.max_height,
@@ -374,6 +603,15 @@ async fn do_stuff() -> Result<(), crate::Error> {
             .await?;
             drop(tx);
             join_progress_task(progress_task).await;
+            // GLW overlay (optional) is drawn after the base map and
+            // before save. No route to layer above it in this branch.
+            fetch_and_draw_glw(
+                &cache_dir,
+                font.as_deref(),
+                &from_grid_rectangle.glw,
+                &mut map,
+            )
+            .await?;
             map.save(&from_grid_rectangle.output_file)?;
             output_metadata(
                 &grid_rectangle,
@@ -383,7 +621,7 @@ async fn do_stuff() -> Result<(), crate::Error> {
         Command::FromUSBNotecard(from_usb_notecard) => {
             let usb_notecard = USBNotecard::load_from_file(&from_usb_notecard.usb_notecard)?;
             let mut region_name_to_grid_coordinates_cache =
-                RegionNameToGridCoordinatesCache::new(options.cache_dir.to_owned())?;
+                RegionNameToGridCoordinatesCache::new(cache_dir.clone())?;
             let (border_north, border_south, border_east, border_west) =
                 if let Some(b) = from_usb_notecard.border_regions {
                     (b, b, b, b)
@@ -405,7 +643,7 @@ async fn do_stuff() -> Result<(), crate::Error> {
             .expanded_south(border_south)
             .expanded_north(border_north);
             let ratelimiter = ratelimit::Ratelimiter::builder(10).build()?;
-            let mut map_tile_cache = MapTileCache::new(options.cache_dir, Some(ratelimiter));
+            let mut map_tile_cache = MapTileCache::new(cache_dir.clone(), Some(ratelimiter));
             let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
             let progress_task = tokio::spawn(report_progress(rx));
             let mut map = Map::new_with_progress(
@@ -418,9 +656,22 @@ async fn do_stuff() -> Result<(), crate::Error> {
                 Some(&tx),
             )
             .await?;
+            // Optional no-overlay-no-route diagnostic save happens
+            // BEFORE any overlays are drawn so the file reflects only
+            // the base map.
             if let Some(output_file_without_route) = &from_usb_notecard.output_file_without_route {
                 map.save(output_file_without_route)?;
             }
+            // Layering: base map → GLW overlay → route on top → save.
+            // GLW happens here so the route line stays the most-readable
+            // element of the final image.
+            fetch_and_draw_glw(
+                &cache_dir,
+                font.as_deref(),
+                &from_usb_notecard.glw,
+                &mut map,
+            )
+            .await?;
             map.draw_route_with_progress(
                 &mut region_name_to_grid_coordinates_cache,
                 &usb_notecard,

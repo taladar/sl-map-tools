@@ -14,10 +14,9 @@ use bytes::Bytes;
 use chrono::Utc;
 use image::{ImageFormat, Rgba};
 use serde::{Deserialize, Serialize};
-use sl_map_apis::map_tiles::{Map, MapProgressEvent, MapTileCache};
-use sl_map_apis::region::{RegionNameToGridCoordinatesCache, usb_notecard_to_grid_rectangle};
+use sl_map_apis::map_tiles::{Map, MapProgressEvent};
+use sl_map_apis::region::usb_notecard_to_grid_rectangle;
 use sl_types::map::{GridCoordinates, GridRectangle, GridRectangleLike as _, USBNotecard};
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::auth::CurrentUser;
@@ -88,6 +87,87 @@ struct CommonParams {
     format: OutputFormat,
 }
 
+/// Where a render's GLW overlay should come from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum GlwSource {
+    /// Reuse a previously-saved `saved_glw_data` row by id.
+    SavedId {
+        /// the saved row's id.
+        glw_data_id: Uuid,
+    },
+    /// Fetch the event from the GLW server by numeric event id (and
+    /// auto-save the resolved JSON to a fresh `saved_glw_data` row).
+    EventId {
+        /// the numeric event id.
+        event_id: u32,
+    },
+    /// Fetch the event from the GLW server by string event key (and
+    /// auto-save).
+    EventKey {
+        /// the string event key.
+        event_key: String,
+    },
+    /// Parse a JSON document the user pasted into the form (and
+    /// auto-save). Advanced / dev path.
+    PastedJson {
+        /// the raw JSON document, expected to deserialise as a
+        /// [`sl_glw::GlwEvent`].
+        payload: String,
+    },
+}
+
+/// Optional per-element style overrides for the GLW overlay. All
+/// hex-colour strings are validated server-side via [`parse_color`].
+/// Absent fields fall back to [`sl_glw::GlwStyle::default`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GlwStyleOverrides {
+    /// when `true`, draw the dashed margin band around each override.
+    #[serde(default)]
+    pub margin_band: bool,
+    /// optional hex colour for area rectangle outlines.
+    #[serde(default)]
+    pub area_outline_color: Option<String>,
+    /// optional hex colour for circle outlines.
+    #[serde(default)]
+    pub circle_outline_color: Option<String>,
+    /// optional hex colour for the dashed margin band.
+    #[serde(default)]
+    pub margin_outline_color: Option<String>,
+    /// optional hex colour for filled wind arrows.
+    #[serde(default)]
+    pub wind_color: Option<String>,
+    /// optional hex colour for filled current arrows.
+    #[serde(default)]
+    pub current_color: Option<String>,
+    /// optional hex colour for wave glyph strokes.
+    #[serde(default)]
+    pub wave_color: Option<String>,
+    /// optional hex colour to fill area interiors with; when `None`
+    /// interiors are transparent.
+    #[serde(default)]
+    pub area_fill_color: Option<String>,
+}
+
+/// Per-render GLW configuration accepted by both render endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlwRenderOptions {
+    /// where the GLW event comes from.
+    pub source: GlwSource,
+    /// id of the font to draw labels and the legend with. Must match
+    /// one returned by `GET /api/fonts`.
+    pub font_id: String,
+    /// user-supplied display name for the auto-saved row. When
+    /// `None`, the server builds a default name from the source and
+    /// fetch timestamp (e.g. `Event 6910 fetched 2026-06-10 15:30 UTC`).
+    /// Ignored for the `SavedId` source.
+    #[serde(default)]
+    pub save_as: Option<String>,
+    /// optional style overrides; absent fields use library defaults.
+    #[serde(default)]
+    pub style: GlwStyleOverrides,
+}
+
 /// Body of `POST /api/render/grid-rectangle` (JSON).
 #[derive(Debug, Clone, Deserialize)]
 pub struct GridRectangleRequest {
@@ -116,6 +196,10 @@ pub struct GridRectangleRequest {
     /// library. Format: `"personal"` or `"group:<uuid>"`.
     #[serde(default)]
     pub save_to: Option<String>,
+    /// optional GLW (GlobalWind) wind / current / wave overlay. The
+    /// auto-saved GLW row inherits this render's `save_to` destination.
+    #[serde(default)]
+    pub glw: Option<GlwRenderOptions>,
 }
 
 /// Response shape for both render endpoints.
@@ -178,6 +262,11 @@ pub struct SavedGridRectangleSettings {
     pub missing_region_color: Option<String>,
     /// output format (`png` / `jpeg`).
     pub format: String,
+    /// GLW overlay used for the render. When set, the carrier is always
+    /// `GlwSource::SavedId` so `Regenerate` reliably points at a row in
+    /// `saved_glw_data` instead of refetching from the GLW server.
+    #[serde(default)]
+    pub glw: Option<GlwRenderOptions>,
 }
 
 /// Persisted form fields for a USB-notecard render.
@@ -211,6 +300,9 @@ pub struct SavedUsbNotecardSettings {
     pub format: String,
     /// whether a without-route variant was also produced.
     pub save_without_route: bool,
+    /// GLW overlay used for the render. See [`SavedGridRectangleSettings::glw`].
+    #[serde(default)]
+    pub glw: Option<GlwRenderOptions>,
 }
 
 /// `POST /api/render/grid-rectangle` — start a render from explicit corners.
@@ -257,6 +349,10 @@ pub async fn grid_rectangle(
         missing_map_tile_color: common.missing_map_tile_color.map(hex_from_rgba),
         missing_region_color: common.missing_region_color.map(hex_from_rgba),
         format: format_name(req.format).to_owned(),
+        // The worker may rewrite this in place after a successful
+        // fresh-fetch so the carrier always lands as `SavedId` at rest
+        // (stable Regenerate).
+        glw: req.glw.clone(),
     });
     let render_id = Uuid::new_v4();
     insert_render_row(
@@ -271,7 +367,12 @@ pub async fn grid_rectangle(
     )
     .await?;
     let (job_id, job) = state.jobs.create_with_id(render_id).await;
-    spawn_grid_rectangle_job(state, job_id, job, rect, common);
+    let glw_ctx = req.glw.clone().map(|opts| GlwJobCtx {
+        options: opts,
+        destination,
+        created_by: user.user_id,
+    });
+    spawn_grid_rectangle_job(state, job_id, job, rect, common, glw_ctx);
     Ok(Json(StartedResponse {
         job_id,
         notecard: None,
@@ -313,6 +414,9 @@ pub async fn usb_notecard(
         missing_region_color: parsed.common.missing_region_color.map(hex_from_rgba),
         format: format_name(parsed.common.format).to_owned(),
         save_without_route: parsed.with_without_route,
+        // The worker may rewrite this in place after a successful
+        // fresh-fetch so the carrier always lands as `SavedId` at rest.
+        glw: parsed.glw.clone(),
     });
 
     let render_id = Uuid::new_v4();
@@ -329,6 +433,11 @@ pub async fn usb_notecard(
     .await?;
 
     let (job_id, job) = state.jobs.create_with_id(render_id).await;
+    let glw_ctx = parsed.glw.clone().map(|opts| GlwJobCtx {
+        options: opts,
+        destination: parsed.destination,
+        created_by: user.user_id,
+    });
     spawn_usb_notecard_job(
         state,
         job_id,
@@ -339,6 +448,7 @@ pub async fn usb_notecard(
         parsed.color,
         parsed.common,
         parsed.with_without_route,
+        glw_ctx,
     );
     Ok(Json(StartedResponse {
         job_id,
@@ -387,6 +497,11 @@ struct ParsedRenderForm {
     common: CommonParams,
     /// whether to also save the without-route variant.
     with_without_route: bool,
+    /// optional GLW overlay. Carried in the multipart form as the
+    /// `glw_json` field — a JSON-stringified [`GlwRenderOptions`] — so
+    /// the browser doesn't have to send nested objects through
+    /// `FormData`.
+    glw: Option<GlwRenderOptions>,
 }
 
 /// Where the notecard for a render comes from.
@@ -422,6 +537,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
     let mut notecard_id: Option<Uuid> = None;
     let mut destination_raw: Option<String> = None;
     let mut notecard_name: Option<String> = None;
+    let mut glw: Option<GlwRenderOptions> = None;
     let mut multipart = multipart;
     while let Some(field) = multipart.next_field().await? {
         let Some(name) = field.name().map(str::to_owned) else {
@@ -501,6 +617,15 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
                     notecard_name = Some(t);
                 }
             }
+            "glw_json" => {
+                let raw = field.text().await?;
+                if !raw.trim().is_empty() {
+                    glw = Some(
+                        serde_json::from_str::<GlwRenderOptions>(&raw)
+                            .map_err(|e| Error::BadRequest(format!("invalid glw_json: {e}")))?,
+                    );
+                }
+            }
             _ => {}
         }
     }
@@ -540,6 +665,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
         color,
         common,
         with_without_route,
+        glw,
     })
 }
 
@@ -751,6 +877,7 @@ async fn finalize_render_row(state: &AppState, render_id: Uuid, outcome: &JobOut
             image_without_route,
             content_type,
             metadata,
+            glw_data_id,
         } => {
             let ext = storage::ext_for_content_type(content_type);
             let image_filename = match storage::write_render_file(
@@ -803,10 +930,28 @@ async fn finalize_render_row(state: &AppState, render_id: Uuid, outcome: &JobOut
                     return;
                 }
             };
+            // If a GLW overlay was drawn, the worker has both an id to
+            // link onto saved_renders and a freshly-stable `SavedId`
+            // settings_json to record. Compute the rewritten settings
+            // here (close to the DB write) so the worker stays focused
+            // on rendering.
+            let rewritten_settings_json = match glw_data_id {
+                Some(id) => match rewrite_settings_json_with_saved_glw(state, render_id, *id).await
+                {
+                    Ok(updated) => updated,
+                    Err(err) => {
+                        tracing::error!("could not rewrite settings_json with glw_data_id: {err}");
+                        None
+                    }
+                },
+                None => None,
+            };
             let result = sqlx::query(
                 "UPDATE saved_renders SET status = 'done', finished_at = ?1, \
                     metadata_json = ?2, content_type = ?3, \
-                    image_filename = ?4, image_without_route_filename = ?5 \
+                    image_filename = ?4, image_without_route_filename = ?5, \
+                    glw_data_id = COALESCE(?7, glw_data_id), \
+                    settings_json = COALESCE(?8, settings_json) \
                  WHERE render_id = ?6",
             )
             .bind(now)
@@ -815,6 +960,8 @@ async fn finalize_render_row(state: &AppState, render_id: Uuid, outcome: &JobOut
             .bind(image_filename)
             .bind(without_filename)
             .bind(render_id.as_bytes().to_vec())
+            .bind(glw_data_id.map(|id| id.as_bytes().to_vec()))
+            .bind(rewritten_settings_json)
             .execute(&state.db)
             .await;
             if let Err(err) = result {
@@ -856,15 +1003,11 @@ fn spawn_grid_rectangle_job(
     job: Arc<JobState>,
     rect: GridRectangle,
     common: CommonParams,
+    glw_ctx: Option<GlwJobCtx>,
 ) {
     drop(tokio::spawn(async move {
-        let result = run_grid_rectangle_job(
-            Arc::clone(&state.map_tile_cache),
-            Arc::clone(&job),
-            rect,
-            common,
-        )
-        .await;
+        let result =
+            run_grid_rectangle_job(state.clone(), Arc::clone(&job), rect, common, glw_ctx).await;
         let outcome = finish_job(&job, result).await;
         finalize_render_row(&state, job_id, &outcome).await;
         tracing::info!("render job {job_id} finished");
@@ -886,12 +1029,11 @@ fn spawn_usb_notecard_job(
     route_color: Rgba<u8>,
     common: CommonParams,
     with_without_route: bool,
+    glw_ctx: Option<GlwJobCtx>,
 ) {
     drop(tokio::spawn(async move {
         let result = run_usb_notecard_job(
-            state.db.clone(),
-            Arc::clone(&state.map_tile_cache),
-            Arc::clone(&state.region_cache),
+            state.clone(),
             Arc::clone(&job),
             job_id,
             notecard_id,
@@ -900,6 +1042,7 @@ fn spawn_usb_notecard_job(
             route_color,
             common,
             with_without_route,
+            glw_ctx,
         )
         .await;
         let outcome = finish_job(&job, result).await;
@@ -910,16 +1053,17 @@ fn spawn_usb_notecard_job(
 
 /// Run the grid-rectangle render to completion.
 async fn run_grid_rectangle_job(
-    map_tile_cache: Arc<Mutex<MapTileCache>>,
+    state: AppState,
     job: Arc<JobState>,
     rect: GridRectangle,
     common: CommonParams,
+    glw_ctx: Option<GlwJobCtx>,
 ) -> Result<JobOutcome, Error> {
     let metadata = build_metadata(&rect);
     let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
     let forwarder = tokio::spawn(forward_events(Arc::clone(&job), rx));
-    let map = {
-        let mut cache = map_tile_cache.lock().await;
+    let mut map = {
+        let mut cache = state.map_tile_cache.lock().await;
         Map::new_with_progress(
             &mut cache,
             common.max_width,
@@ -935,12 +1079,16 @@ async fn run_grid_rectangle_job(
     // wait for the forwarder so the event history is complete before we
     // signal completion to subscribers
     let _join = forwarder.await;
+    // Layering: base map below, GLW overlay on top. No route for the
+    // grid-rectangle path.
+    let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
     let image = encode_map(&map, common.format)?;
     Ok(JobOutcome::Ok {
         image,
         image_without_route: None,
         content_type: common.format.content_type(),
         metadata,
+        glw_data_id,
     })
 }
 
@@ -950,9 +1098,7 @@ async fn run_grid_rectangle_job(
     reason = "this is a one-shot helper invoked from a single spawn site"
 )]
 async fn run_usb_notecard_job(
-    db: sqlx::SqlitePool,
-    map_tile_cache: Arc<Mutex<MapTileCache>>,
-    region_cache: Arc<Mutex<RegionNameToGridCoordinatesCache>>,
+    state: AppState,
     job: Arc<JobState>,
     render_id: Uuid,
     notecard_id: Uuid,
@@ -961,17 +1107,18 @@ async fn run_usb_notecard_job(
     route_color: Rgba<u8>,
     common: CommonParams,
     with_without_route: bool,
+    glw_ctx: Option<GlwJobCtx>,
 ) -> Result<JobOutcome, Error> {
     let (border_north, border_south, border_east, border_west) = borders;
     let bare_rect = {
-        let mut region = region_cache.lock().await;
+        let mut region = state.region_cache.lock().await;
         usb_notecard_to_grid_rectangle(&mut region, &notecard).await?
     };
     // Cache the bare rectangle (without border padding) on the notecard
     // row so the library UI can show its bounds without redoing region
     // resolution. Done before render-side expansion to keep notecard
     // bounds == route's bounding box.
-    update_notecard_bounds(&db, notecard_id, &bare_rect).await?;
+    update_notecard_bounds(&state.db, notecard_id, &bare_rect).await?;
     let rect = bare_rect
         .expanded_west(border_west)
         .expanded_east(border_east)
@@ -979,34 +1126,39 @@ async fn run_usb_notecard_job(
         .expanded_north(border_north);
     // Backfill the bounds on the saved_renders row now that we know the
     // rectangle; the library UI shows them even for `in_progress` rows.
-    update_render_bounds(&db, render_id, &rect).await?;
+    update_render_bounds(&state.db, render_id, &rect).await?;
     let metadata = build_metadata(&rect);
     let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
     let forwarder = tokio::spawn(forward_events(Arc::clone(&job), rx));
-    let (image_without_route, map) = {
-        let mut cache = map_tile_cache.lock().await;
-        let mut map = Map::new_with_progress(
-            &mut cache,
-            common.max_width,
-            common.max_height,
-            rect,
-            common.missing_map_tile_color,
-            common.missing_region_color,
-            Some(&tx),
-        )
-        .await?;
+    let (image_without_route, map, glw_data_id) = {
+        let mut map = {
+            let mut cache = state.map_tile_cache.lock().await;
+            Map::new_with_progress(
+                &mut cache,
+                common.max_width,
+                common.max_height,
+                rect,
+                common.missing_map_tile_color,
+                common.missing_region_color,
+                Some(&tx),
+            )
+            .await?
+        };
+        // Layering: encode the without-route variant BEFORE any
+        // overlays so the diagnostic save shows just the bare map.
         let without_route = if with_without_route {
             Some(encode_map(&map, common.format)?)
         } else {
             None
         };
-        // release the map tile cache before we lock the region cache for
-        // the route to avoid holding both at once
-        drop(cache);
-        let mut region = region_cache.lock().await;
+        // GLW overlay sits between the base map and the route, so the
+        // route line stays the most-readable element of the final
+        // image.
+        let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
+        let mut region = state.region_cache.lock().await;
         map.draw_route_with_progress(&mut region, &notecard, route_color, Some(&tx))
             .await?;
-        (without_route, map)
+        (without_route, map, glw_data_id)
     };
     drop(tx);
     let _join = forwarder.await;
@@ -1016,6 +1168,7 @@ async fn run_usb_notecard_job(
         image_without_route,
         content_type: common.format.content_type(),
         metadata,
+        glw_data_id,
     })
 }
 
@@ -1135,4 +1288,265 @@ fn parse_u32(s: &str) -> Result<u32, Error> {
     s.trim()
         .parse::<u32>()
         .map_err(|e| Error::BadRequest(format!("invalid u32 `{s}`: {e}")))
+}
+
+// =====================================================================
+// GLW overlay plumbing — shared between the two render workers.
+// =====================================================================
+
+/// Inputs the render worker needs to resolve and apply a GLW overlay.
+struct GlwJobCtx {
+    /// the user's GLW request payload as it arrived from the form.
+    options: GlwRenderOptions,
+    /// destination the render lives in (and the auto-saved GLW row
+    /// will inherit).
+    destination: Destination,
+    /// avatar id to record as the GLW row's `created_by`.
+    created_by: Uuid,
+}
+
+/// Resolved GLW event ready to draw onto the map, paired with the
+/// `saved_glw_data` row id the render should reference.
+struct ResolvedGlwEvent {
+    /// the deserialised event.
+    event: sl_glw::GlwEvent,
+    /// the saved_glw_data row this event lives in.
+    glw_data_id: Uuid,
+}
+
+/// Resolve the GLW source to an event plus the saved_glw_data row id.
+/// For fresh-fetch sources (event id / key / pasted JSON) this inserts
+/// a new `saved_glw_data` row. For the `SavedId` source it just reads
+/// the existing row.
+async fn resolve_glw_event(
+    state: &AppState,
+    ctx: &GlwJobCtx,
+) -> Result<Option<ResolvedGlwEvent>, Error> {
+    match &ctx.options.source {
+        GlwSource::SavedId { glw_data_id } => {
+            let row =
+                crate::library::assert_can_read_glw_data(&state.db, ctx.created_by, *glw_data_id)
+                    .await?;
+            let event: sl_glw::GlwEvent = serde_json::from_str(&row.payload_json)?;
+            Ok(Some(ResolvedGlwEvent {
+                event,
+                glw_data_id: *glw_data_id,
+            }))
+        }
+        GlwSource::EventId { event_id } => {
+            let id = sl_glw::EventId::new(*event_id);
+            let event_opt = {
+                let mut cache = state.glw_event_cache.lock().await;
+                cache.get_event_by_id(id).await?
+            };
+            let Some(event) = event_opt else {
+                return Ok(None);
+            };
+            let now = Utc::now();
+            let name = default_or_user_name(
+                ctx.options.save_as.as_deref(),
+                &format!(
+                    "Event {event_id} fetched {ts}",
+                    ts = now.format("%Y-%m-%d %H:%M UTC")
+                ),
+            );
+            let payload_json = serde_json::to_string(&event)?;
+            let glw_data_id = crate::routes::glw::insert_glw_data_row(
+                state,
+                &crate::routes::glw::InsertGlwData {
+                    destination: ctx.destination,
+                    created_by: ctx.created_by,
+                    name: &name,
+                    source_kind: crate::library::GlwDataSourceKind::EventId,
+                    source_event_id: Some(*event_id),
+                    source_event_key: None,
+                    payload_json: &payload_json,
+                    event_id: Some(event.event_id.get()),
+                    event_key: Some(event.event_key.as_str()),
+                    event_name: Some(event.event_name.as_str()),
+                    fetched_at: now,
+                },
+            )
+            .await?;
+            Ok(Some(ResolvedGlwEvent { event, glw_data_id }))
+        }
+        GlwSource::EventKey { event_key } => {
+            let key = sl_glw::GlwEventKey::new(event_key);
+            let event_opt = {
+                let mut cache = state.glw_event_cache.lock().await;
+                cache.get_event_by_key(&key).await?
+            };
+            let Some(event) = event_opt else {
+                return Ok(None);
+            };
+            let now = Utc::now();
+            let name = default_or_user_name(
+                ctx.options.save_as.as_deref(),
+                &format!(
+                    "Key \"{event_key}\" fetched {ts}",
+                    ts = now.format("%Y-%m-%d %H:%M UTC")
+                ),
+            );
+            let payload_json = serde_json::to_string(&event)?;
+            let glw_data_id = crate::routes::glw::insert_glw_data_row(
+                state,
+                &crate::routes::glw::InsertGlwData {
+                    destination: ctx.destination,
+                    created_by: ctx.created_by,
+                    name: &name,
+                    source_kind: crate::library::GlwDataSourceKind::EventKey,
+                    source_event_id: None,
+                    source_event_key: Some(event_key.as_str()),
+                    payload_json: &payload_json,
+                    event_id: Some(event.event_id.get()),
+                    event_key: Some(event.event_key.as_str()),
+                    event_name: Some(event.event_name.as_str()),
+                    fetched_at: now,
+                },
+            )
+            .await?;
+            Ok(Some(ResolvedGlwEvent { event, glw_data_id }))
+        }
+        GlwSource::PastedJson { payload } => {
+            let event: sl_glw::GlwEvent = serde_json::from_str(payload)?;
+            let now = Utc::now();
+            let name = default_or_user_name(
+                ctx.options.save_as.as_deref(),
+                &format!("Pasted JSON {}", now.format("%Y-%m-%d %H:%M UTC")),
+            );
+            let payload_json = serde_json::to_string(&event)?;
+            let glw_data_id = crate::routes::glw::insert_glw_data_row(
+                state,
+                &crate::routes::glw::InsertGlwData {
+                    destination: ctx.destination,
+                    created_by: ctx.created_by,
+                    name: &name,
+                    source_kind: crate::library::GlwDataSourceKind::PastedJson,
+                    source_event_id: None,
+                    source_event_key: None,
+                    payload_json: &payload_json,
+                    event_id: Some(event.event_id.get()),
+                    event_key: Some(event.event_key.as_str()),
+                    event_name: Some(event.event_name.as_str()),
+                    fetched_at: now,
+                },
+            )
+            .await?;
+            Ok(Some(ResolvedGlwEvent { event, glw_data_id }))
+        }
+    }
+}
+
+/// If the user supplied a non-empty name, return it trimmed; otherwise
+/// return the generated default.
+fn default_or_user_name(supplied: Option<&str>, default: &str) -> String {
+    let trimmed = supplied.map(str::trim).filter(|s| !s.is_empty());
+    match trimmed {
+        Some(s) => s.to_owned(),
+        None => default.to_owned(),
+    }
+}
+
+/// Apply a GLW overlay onto `map` if `ctx` is `Some`. Returns the id
+/// of the `saved_glw_data` row the worker should reference on
+/// `saved_renders.glw_data_id`, or `None` if no overlay was drawn
+/// (no GLW requested, or the server returned no event).
+async fn apply_glw_overlay_to_map(
+    state: &AppState,
+    ctx: Option<&GlwJobCtx>,
+    map: &mut Map,
+) -> Result<Option<Uuid>, Error> {
+    use sl_glw::MapLikeGlwExt as _;
+    let Some(ctx) = ctx else {
+        return Ok(None);
+    };
+    // Resolve the font first so a missing-font request fails fast,
+    // before any HTTP fetch or DB writes.
+    let font_path = state
+        .fonts
+        .path_for(&ctx.options.font_id)
+        .ok_or_else(|| Error::BadRequest(format!("unknown font_id `{}`", ctx.options.font_id)))?;
+    let font_bytes = fs_err::read(font_path)?;
+    let font = ab_glyph::FontVec::try_from_vec(font_bytes)?;
+
+    let resolved = resolve_glw_event(state, ctx).await?;
+    let Some(resolved) = resolved else {
+        tracing::warn!("GLW event not found (server returned no event); rendering without overlay");
+        return Ok(None);
+    };
+    let style = build_glw_style(&ctx.options.style)?;
+    map.draw_glw_event_with_font(&resolved.event, &style, &font)?;
+    Ok(Some(resolved.glw_data_id))
+}
+
+/// Start from [`sl_glw::GlwStyle::default`] (with the legend pinned to
+/// `TopLeft` for the web's standard look), then layer the user's
+/// per-element colour and toggle overrides.
+fn build_glw_style(overrides: &GlwStyleOverrides) -> Result<sl_glw::GlwStyle, Error> {
+    let mut style = sl_glw::GlwStyle {
+        legend_position: sl_glw::LegendPosition::TopLeft,
+        draw_margin_band: overrides.margin_band,
+        ..sl_glw::GlwStyle::default()
+    };
+    if let Some(c) = overrides.area_outline_color.as_deref() {
+        style.palette.area_outline = parse_color(c.trim())?;
+    }
+    if let Some(c) = overrides.circle_outline_color.as_deref() {
+        style.palette.circle_outline = parse_color(c.trim())?;
+    }
+    if let Some(c) = overrides.margin_outline_color.as_deref() {
+        style.palette.margin_outline = parse_color(c.trim())?;
+    }
+    if let Some(c) = overrides.wind_color.as_deref() {
+        style.palette.wind_arrow = parse_color(c.trim())?;
+    }
+    if let Some(c) = overrides.current_color.as_deref() {
+        style.palette.current_arrow = parse_color(c.trim())?;
+    }
+    if let Some(c) = overrides.wave_color.as_deref() {
+        style.palette.wave_glyph = parse_color(c.trim())?;
+    }
+    if let Some(c) = overrides.area_fill_color.as_deref() {
+        style.palette.area_fill = Some(parse_color(c.trim())?);
+    }
+    Ok(style)
+}
+
+/// Rewrite a `saved_renders.settings_json` so the carried GLW source
+/// becomes a stable `SavedId` pointing at the resolved row. Returns
+/// `Ok(None)` if the existing settings either has no GLW field or
+/// already carries a `SavedId` (then the original JSON is left alone).
+async fn rewrite_settings_json_with_saved_glw(
+    state: &AppState,
+    render_id: Uuid,
+    glw_data_id: Uuid,
+) -> Result<Option<String>, Error> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT settings_json FROM saved_renders WHERE render_id = ?1")
+            .bind(render_id.as_bytes().to_vec())
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|err| {
+                tracing::error!("settings_json fetch failed: {err}");
+                Error::Database
+            })?;
+    let Some((settings_json,)) = row else {
+        return Ok(None);
+    };
+    let mut parsed: SavedRenderSettings = serde_json::from_str(&settings_json)?;
+    let glw_slot: &mut Option<GlwRenderOptions> = match &mut parsed {
+        SavedRenderSettings::GridRectangle(s) => &mut s.glw,
+        SavedRenderSettings::UsbNotecard(s) => &mut s.glw,
+    };
+    let Some(opts) = glw_slot.as_mut() else {
+        return Ok(None);
+    };
+    // No-op if it's already SavedId (e.g. the user submitted a SavedId
+    // and the worker simply re-read the row).
+    if matches!(opts.source, GlwSource::SavedId { .. }) {
+        return Ok(None);
+    }
+    opts.source = GlwSource::SavedId { glw_data_id };
+    let json = serde_json::to_string(&parsed)?;
+    Ok(Some(json))
 }

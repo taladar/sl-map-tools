@@ -684,6 +684,7 @@ function showResult(jobId, meta, withWithoutRoute) {
 $("grid_render").addEventListener("click", async () => {
   startRenderUI();
   try {
+    const glw = readGlwOptions();
     const body = {
       lower_left_x: parseInt($("ll_x").value, 10),
       lower_left_y: parseInt($("ll_y").value, 10),
@@ -692,6 +693,7 @@ $("grid_render").addEventListener("click", async () => {
       ...readSharedParams(),
       save_to: $("save_to").value,
     };
+    if (glw) body.glw = glw;
     const resp = await fetch("/api/render/grid-rectangle", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -725,6 +727,8 @@ $("notecard_render").addEventListener("click", async () => {
     fd.append("save_to", $("save_to").value);
     const withWithoutRoute = $("save_without_route").checked;
     if (withWithoutRoute) fd.append("save_without_route", "true");
+    const glw = readGlwOptions();
+    if (glw) fd.append("glw_json", JSON.stringify(glw));
     const resp = await fetch("/api/render/usb-notecard", {
       method: "POST",
       body: fd,
@@ -803,6 +807,7 @@ function applySettings(s) {
       $("missing_region_color").disabled = false;
       $("missing_region_color").value = s.missing_region_color;
     }
+    applyGlwSettings(s.glw);
     const tab = document.querySelector('.tab[data-tab="grid"]');
     if (tab) tab.click();
   } else if (s.kind === "usb_notecard") {
@@ -828,6 +833,7 @@ function applySettings(s) {
     if (s.notecard_id) {
       selectReuseNotecard(s.notecard_id).catch(() => {});
     }
+    applyGlwSettings(s.glw);
     const tab = document.querySelector('.tab[data-tab="notecard"]');
     if (tab) tab.click();
   }
@@ -874,3 +880,200 @@ async function selectReuseNotecard(notecardId) {
 }
 
 document.addEventListener("DOMContentLoaded", applyPrefillFromQuery);
+
+// =====================================================================
+// GLW overlay panel
+// =====================================================================
+
+// Toggle the body and the per-source row visibility based on the
+// checkbox + the source dropdown.
+function refreshGlwPanelVisibility() {
+  const enabled = $("glw_enabled").checked;
+  const body = $("glw-body");
+  if (enabled) body.removeAttribute("hidden");
+  else body.setAttribute("hidden", "");
+  const source = $("glw_source").value;
+  for (const el of document.querySelectorAll("[data-glw-source]")) {
+    el.style.display = el.dataset.glwSource === source ? "" : "none";
+  }
+  for (const el of document.querySelectorAll("[data-glw-source-not]")) {
+    el.style.display = el.dataset.glwSourceNot === source ? "none" : "";
+  }
+}
+
+// Populate /api/fonts into #glw_font_id. Pre-selects the only entry
+// when there is exactly one, leaving the dropdown unchanged otherwise.
+async function loadFonts() {
+  const sel = $("glw_font_id");
+  if (!sel) return;
+  try {
+    const resp = await fetch("/api/fonts");
+    if (!resp.ok) return;
+    const { fonts } = await resp.json();
+    sel.replaceChildren();
+    for (const f of fonts) {
+      const opt = document.createElement("option");
+      opt.value = f.id;
+      opt.textContent = f.name;
+      sel.appendChild(opt);
+    }
+    if (fonts.length === 1) sel.value = fonts[0].id;
+  } catch (err) {
+    console.error("font list failed:", err);
+  }
+}
+
+// Load saved GLW rows for the currently active save_to scope into the
+// #glw_saved_id dropdown. Called when the user opens the "saved" tab so
+// the most recent options are always reflected.
+async function loadSavedGlw() {
+  const sel = $("glw_saved_id");
+  if (!sel) return;
+  const scope = $("save_to").value || "personal";
+  try {
+    const resp = await fetch(`/api/glw?scope=${encodeURIComponent(scope)}`);
+    if (!resp.ok) {
+      sel.replaceChildren();
+      return;
+    }
+    const { glw_data } = await resp.json();
+    sel.replaceChildren();
+    for (const g of glw_data) {
+      const opt = document.createElement("option");
+      opt.value = g.glw_data_id;
+      opt.textContent = g.name;
+      sel.appendChild(opt);
+    }
+    if (glw_data.length === 0) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "(none yet — pick another source)";
+      sel.appendChild(opt);
+    }
+  } catch (err) {
+    console.error("saved glw list failed:", err);
+  }
+}
+
+// Serialise the GLW panel into the request shape the server expects.
+// Returns null when the panel is disabled (so the caller can omit the
+// whole field). Throws Error with a user-friendly message when the user
+// has selected a source but left its inputs blank.
+function readGlwOptions() {
+  if (!$("glw_enabled").checked) return null;
+  const source = readGlwSource();
+  const fontId = $("glw_font_id").value;
+  if (!fontId) {
+    throw new Error("Pick a font for the GLW labels.");
+  }
+  const style = {
+    margin_band: $("glw_margin_band").checked,
+    area_outline_color: optionalColor("glw_area_outline_color"),
+    circle_outline_color: optionalColor("glw_circle_outline_color"),
+    margin_outline_color: optionalColor("glw_margin_outline_color"),
+    wind_color: optionalColor("glw_wind_color"),
+    current_color: optionalColor("glw_current_color"),
+    wave_color: optionalColor("glw_wave_color"),
+    area_fill_color: optionalColor("glw_area_fill_color"),
+  };
+  const opts = { source, font_id: fontId, style };
+  if ($("glw_source").value !== "saved") {
+    const saveAs = $("glw_save_as").value.trim();
+    if (saveAs) opts.save_as = saveAs;
+  }
+  return opts;
+}
+
+function readGlwSource() {
+  switch ($("glw_source").value) {
+    case "event_id": {
+      const raw = $("glw_event_id").value.trim();
+      if (!raw) throw new Error("Enter the GLW event id.");
+      const event_id = parseInt(raw, 10);
+      if (!Number.isFinite(event_id) || event_id < 0) {
+        throw new Error("GLW event id must be a non-negative integer.");
+      }
+      return { type: "event_id", event_id };
+    }
+    case "event_key": {
+      const event_key = $("glw_event_key").value.trim();
+      if (!event_key) throw new Error("Enter the GLW event key.");
+      return { type: "event_key", event_key };
+    }
+    case "saved": {
+      const glw_data_id = $("glw_saved_id").value.trim();
+      if (!glw_data_id) throw new Error("Pick a saved GLW row.");
+      return { type: "saved_id", glw_data_id };
+    }
+    case "pasted": {
+      const payload = $("glw_pasted").value.trim();
+      if (!payload) throw new Error("Paste the GLW event JSON.");
+      return { type: "pasted_json", payload };
+    }
+    default:
+      return null;
+  }
+}
+
+// Read a `<input type="color">` and return its #rrggbb value unless
+// the user has not yet picked one (we use a sentinel #000000 default
+// that we filter out to mean "no override"). Browsers preset color
+// inputs to #000000 if no value attribute is set; we treat that as
+// "unset" for ergonomics. Users who want literal black can pick any
+// other dark colour.
+function optionalColor(id) {
+  const el = $(id);
+  if (!el) return null;
+  const v = el.value;
+  if (!v || v === "#000000") return null;
+  return v;
+}
+
+function applyGlwSettings(glw) {
+  if (!glw) return;
+  $("glw_enabled").checked = true;
+  refreshGlwPanelVisibility();
+  if (glw.font_id) $("glw_font_id").value = glw.font_id;
+  if (glw.save_as) $("glw_save_as").value = glw.save_as;
+  // settings_json carries the SavedId carrier exclusively (see the
+  // backend rewrite step) so we only ever have to handle this case.
+  if (glw.source && glw.source.type === "saved_id") {
+    $("glw_source").value = "saved";
+    refreshGlwPanelVisibility();
+    loadSavedGlw().then(() => {
+      const sel = $("glw_saved_id");
+      if (sel) sel.value = glw.source.glw_data_id;
+    });
+  }
+  if (glw.style) {
+    if ("margin_band" in glw.style)
+      $("glw_margin_band").checked = !!glw.style.margin_band;
+    for (const [key, id] of [
+      ["area_outline_color", "glw_area_outline_color"],
+      ["circle_outline_color", "glw_circle_outline_color"],
+      ["margin_outline_color", "glw_margin_outline_color"],
+      ["wind_color", "glw_wind_color"],
+      ["current_color", "glw_current_color"],
+      ["wave_color", "glw_wave_color"],
+      ["area_fill_color", "glw_area_fill_color"],
+    ]) {
+      if (glw.style[key]) $(id).value = glw.style[key];
+    }
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const enabled = $("glw_enabled");
+  const sourceSel = $("glw_source");
+  if (!enabled || !sourceSel) return;
+  enabled.addEventListener("change", refreshGlwPanelVisibility);
+  sourceSel.addEventListener("change", () => {
+    refreshGlwPanelVisibility();
+    if (sourceSel.value === "saved") loadSavedGlw().catch(() => {});
+  });
+  $("save_to").addEventListener("change", () => {
+    if (sourceSel.value === "saved") loadSavedGlw().catch(() => {});
+  });
+  refreshGlwPanelVisibility();
+  loadFonts().catch(() => {});
+});

@@ -57,6 +57,12 @@ enum Error {
     /// error sweeping orphaned `in_progress` renders at startup.
     #[error("failed to recover orphaned in_progress renders: {0}")]
     RenderRecovery(#[source] LibError),
+    /// error opening the GLW event cache (HTTP + on-disk redb).
+    #[error("error opening GLW event cache: {0}")]
+    GlwEventCacheError(#[from] sl_glw::GlwEventCacheError),
+    /// error scanning the configured fonts directory at startup.
+    #[error("error scanning fonts directory: {0}")]
+    FontDirectoryError(#[from] sl_map_web::fonts::FontDirectoryError),
 }
 
 #[tokio::main]
@@ -86,6 +92,20 @@ async fn run() -> Result<(), Error> {
     let ratelimiter = ratelimit::Ratelimiter::builder(config.rate_limit).build()?;
     let map_tile_cache = MapTileCache::new(config.cache_dir.clone(), Some(ratelimiter));
     let region_cache = RegionNameToGridCoordinatesCache::new(config.cache_dir.clone())?;
+    // GLW event cache shares the same cache_dir, mirroring the CLI.
+    // None for the base URL means "use the workspace default".
+    let glw_event_cache = sl_glw::GlwEventCache::new(config.cache_dir.clone(), None)
+        .map_err(Error::GlwEventCacheError)?;
+    // Scan fonts directory once at startup. Failing here is the right
+    // call — the operator wants to know the GLW labels won't have a
+    // font to use BEFORE handling a request.
+    let fonts = sl_map_web::fonts::FontDirectory::scan(config.fonts_directory.clone())
+        .map_err(Error::FontDirectoryError)?;
+    tracing::info!(
+        path = %fonts.root().display(),
+        count = fonts.list().len(),
+        "discovered GLW-overlay fonts",
+    );
     let jobs = Arc::new(JobStore::new());
     let job_ttl = Duration::from_secs(config.job_ttl_seconds);
 
@@ -122,6 +142,8 @@ async fn run() -> Result<(), Error> {
         db: db.clone(),
         cookie_key,
         library_cleanup_dirty: Arc::clone(&library_cleanup_dirty),
+        glw_event_cache: Arc::new(Mutex::new(glw_event_cache)),
+        fonts: Arc::new(fonts),
     };
     spawn_job_evictor(jobs, job_ttl);
     spawn_auth_cleanup(db.clone());

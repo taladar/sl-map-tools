@@ -6,6 +6,7 @@ pub mod config;
 pub mod csrf;
 pub mod db;
 pub mod error;
+pub mod fonts;
 pub mod groups;
 pub mod jobs;
 pub mod library;

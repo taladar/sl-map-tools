@@ -28,6 +28,16 @@ pub struct Config {
     #[clap(long, env = "SL_MAP_WEB_STORAGE_DIR")]
     pub storage_dir: PathBuf,
 
+    /// Directory containing TrueType fonts the user can pick from when
+    /// requesting a render with text overlay (currently the GLW labels
+    /// and corner legend). Every `*.ttf` file in this directory becomes
+    /// a selectable entry in the render form. Must exist and contain
+    /// at least one `.ttf` file at startup. The workspace ships a
+    /// `DejaVuSans.ttf` at its root, so the simplest deployment points
+    /// this at a directory containing that one file.
+    #[clap(long, env = "SL_MAP_WEB_FONTS_DIR")]
+    pub fonts_directory: PathBuf,
+
     /// socket address to bind the HTTP server to.
     #[clap(long, env = "SL_MAP_WEB_BIND", default_value = "127.0.0.1:3000")]
     pub bind: SocketAddr,

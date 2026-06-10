@@ -140,6 +140,7 @@ function renderRow(r) {
   tr.appendChild(statusTd);
   tr.appendChild(td(r.kind === "usb_notecard" ? "USB notecard" : "Grid"));
   tr.appendChild(td(r.notecard_name || ""));
+  tr.appendChild(td(r.glw_data_name || ""));
   tr.appendChild(td(fmtCoord(r.lower_left_x, r.lower_left_y)));
   tr.appendChild(td(fmtCoord(r.upper_right_x, r.upper_right_y)));
   tr.appendChild(profileLinkCell(r.created_by, r.created_by_legacy_name));
@@ -414,6 +415,96 @@ async function refresh() {
   } catch (err) {
     $("renders-status").textContent = `Failed to load renders: ${err.message}`;
   }
+
+  try {
+    const glws = await fetchJSON(`/api/glw?scope=${encodeURIComponent(scope)}`);
+    const glwBody = $("glw-tbody");
+    glwBody.replaceChildren();
+    if ((glws.glw_data || []).length === 0) {
+      $("glw-status").textContent = "No saved GLW data in this scope.";
+    } else {
+      $("glw-status").textContent = "";
+      for (const g of glws.glw_data) glwBody.appendChild(glwRow(g));
+    }
+  } catch (err) {
+    $("glw-status").textContent = `Failed to load GLW data: ${err.message}`;
+  }
+}
+
+function glwRow(g) {
+  const tr = document.createElement("tr");
+  tr.dataset.glwDataId = g.glw_data_id;
+  tr.appendChild(td(g.name || ""));
+  tr.appendChild(td(prettySource(g.source_kind)));
+  tr.appendChild(td(eventIdOrKey(g)));
+  tr.appendChild(td(g.event_name || ""));
+  tr.appendChild(td(fmtDate(g.fetched_at)));
+  tr.appendChild(profileLinkCell(g.created_by, g.created_by_legacy_name));
+  tr.appendChild(td(fmtDate(g.created_at)));
+  const actions = document.createElement("td");
+  const rename = document.createElement("button");
+  rename.type = "button";
+  rename.textContent = "Rename";
+  rename.className = "row-action";
+  rename.addEventListener("click", async () => {
+    const next = window.prompt("New name for this GLW data row:", g.name || "");
+    if (!next || !next.trim()) return;
+    const resp = await fetch(`/api/glw/${g.glw_data_id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: next.trim() }),
+    });
+    if (!resp.ok) {
+      await showError(resp);
+      return;
+    }
+    refresh();
+  });
+  actions.appendChild(rename);
+  const del = document.createElement("button");
+  del.type = "button";
+  del.textContent = "Delete";
+  del.className = "row-action danger";
+  del.addEventListener("click", async () => {
+    const ok = await confirmModal({
+      title: "Delete GLW data",
+      message:
+        "Delete this saved GLW data? Any render that still references it must be deleted first.",
+      danger: true,
+      okText: "Delete",
+    });
+    if (!ok) return;
+    const resp = await fetch(`/api/glw/${g.glw_data_id}`, {
+      method: "DELETE",
+    });
+    if (!resp.ok) {
+      await showError(resp);
+      return;
+    }
+    refresh();
+  });
+  actions.appendChild(del);
+  tr.appendChild(actions);
+  return tr;
+}
+
+function prettySource(kind) {
+  switch (kind) {
+    case "event_id":
+      return "By event id";
+    case "event_key":
+      return "By event key";
+    case "pasted_json":
+      return "Pasted JSON";
+    default:
+      return kind || "";
+  }
+}
+
+function eventIdOrKey(g) {
+  if (g.source_event_id != null) return String(g.source_event_id);
+  if (g.source_event_key) return `"${g.source_event_key}"`;
+  return "";
 }
 
 document.addEventListener("DOMContentLoaded", async () => {

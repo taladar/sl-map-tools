@@ -2,6 +2,8 @@
 
 pub mod auth;
 pub mod events;
+pub mod fonts;
+pub mod glw;
 pub mod groups;
 pub mod index;
 pub mod invitations;
@@ -116,6 +118,8 @@ pub fn build(state: AppState) -> Router {
             get(result::image_without_route),
         )
         .route("/api/render/{id}/metadata", get(result::metadata))
+        // available fonts (for the GLW label dropdown)
+        .route("/api/fonts", get(fonts::list))
         // groups
         .route("/api/groups", get(groups::list_mine).post(groups::create))
         .route(
@@ -166,6 +170,12 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/api/renders/{id}/metadata", get(renders::metadata))
         .route("/api/renders/{id}/settings", get(renders::settings))
+        // saved GLW data
+        .route("/api/glw", get(glw::list))
+        .route(
+            "/api/glw/{id}",
+            get(glw::get).patch(glw::rename).delete(glw::delete),
+        )
         // profile + account
         .route("/profile", get(library_pages::profile))
         .route("/profile/{id}", get(library_pages::profile))

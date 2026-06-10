@@ -45,6 +45,7 @@ assets = [
 ]
 
 [dependencies]
+ab_glyph = "0.2.29"
 argon2 = "0.5.3"
 axum = { version = "0.8", features = ["multipart", "macros"] }
 axum-extra = { version = "0.12.6", features = ["cookie", "cookie-signed", "typed-header"] }
@@ -69,6 +70,7 @@ secrecy = "0.10"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.11.0"
+sl-glw = { path = "../sl-glw", version = "0.1.0" }
 sl-map-apis = { path = "../sl-map-apis", version = "0.4.0" }
 sl-types = { path = "../sl-types", version = "0.3.0" }
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
@@ -90,6 +92,7 @@ zeroize = "1"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+tempfile = "3.27.0"
 
 [lints.clippy]
 allow_attributes = "deny"

@@ -5,11 +5,13 @@ use std::sync::atomic::AtomicBool;
 
 use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
+use sl_glw::GlwEventCache;
 use sl_map_apis::map_tiles::MapTileCache;
 use sl_map_apis::region::RegionNameToGridCoordinatesCache;
 use tokio::sync::Mutex;
 
 use crate::config::Config;
+use crate::fonts::FontDirectory;
 use crate::jobs::JobStore;
 
 /// State shared between all axum handlers.
@@ -45,6 +47,15 @@ pub struct AppState {
     /// only scans the filesystem when this flag is set so an idle server
     /// does no filesystem work.
     pub library_cleanup_dirty: Arc<AtomicBool>,
+    /// three-tier cache (memory LRU + redb + http-cache-semantics) for
+    /// GLW events. Created at startup from `config.cache_dir` like the
+    /// CLI does. Used by render workers when a render requests a GLW
+    /// overlay via event id or event key.
+    pub glw_event_cache: Arc<Mutex<GlwEventCache>>,
+    /// fonts discovered under `config.fonts_directory` at startup.
+    /// Surfaced through `GET /api/fonts` and used by render workers to
+    /// resolve a client-supplied `font_id` to the font file path.
+    pub fonts: Arc<FontDirectory>,
 }
 
 // `axum_extra::extract::cookie::SignedCookieJar` extracts itself via

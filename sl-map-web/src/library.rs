@@ -227,6 +227,15 @@ pub struct RenderView {
     pub upper_right_x: Option<u16>,
     /// upper-right y grid coordinate of the rendered rectangle, if known.
     pub upper_right_y: Option<u16>,
+    /// the linked saved GLW data row, if any. `Some` for renders
+    /// produced with a GLW overlay; `None` for plain renders. The
+    /// `ON DELETE RESTRICT` on the FK means a GLW row cannot be
+    /// deleted while a render references it, so the name is always
+    /// resolvable when the id is set.
+    pub glw_data_id: Option<Uuid>,
+    /// the display name of the linked GLW data row, mirroring
+    /// [`Self::glw_data_id`].
+    pub glw_data_name: Option<String>,
 }
 
 /// Verify that the calling user is allowed to *write* to the given
@@ -528,6 +537,8 @@ pub struct RenderRow {
     pub upper_right_x: Option<u16>,
     /// upper-right y grid coordinate of the rendered rectangle, if known.
     pub upper_right_y: Option<u16>,
+    /// the linked saved_glw_data row id, if any.
+    pub glw_data_id: Option<Uuid>,
 }
 
 /// Tuple shape returned by the `saved_notecards` lookup query.
@@ -637,6 +648,8 @@ struct RenderRowDb {
     upper_right_x: Option<i64>,
     /// upper-right y grid coordinate of the rendered rectangle, if known.
     upper_right_y: Option<i64>,
+    /// raw bytes of the linked saved_glw_data row, if any.
+    glw_data_id: Option<Vec<u8>>,
 }
 
 /// Fetch a render row by id; returns [`Error::NotFound`] if missing.
@@ -645,7 +658,7 @@ async fn fetch_render_row(db: &SqlitePool, render_id: Uuid) -> Result<RenderRow,
         "SELECT owner_user_id, owner_group_id, created_by, notecard_id, kind, status, \
                 error_message, settings_json, metadata_json, content_type, \
                 image_filename, image_without_route_filename, created_at, finished_at, \
-                lower_left_x, lower_left_y, upper_right_x, upper_right_y \
+                lower_left_x, lower_left_y, upper_right_x, upper_right_y, glw_data_id \
          FROM saved_renders WHERE render_id = ?1",
     )
     .bind(render_id.as_bytes().to_vec())
@@ -674,7 +687,18 @@ async fn fetch_render_row(db: &SqlitePool, render_id: Uuid) -> Result<RenderRow,
         lower_left_y,
         upper_right_x,
         upper_right_y,
+        glw_data_id: glw_data_id_bytes,
     } = row.ok_or_else(|| Error::NotFound(format!("render {render_id}")))?;
+    let glw_data_id = glw_data_id_bytes
+        .as_deref()
+        .map(uuid_from_bytes)
+        .map(|opt| {
+            opt.ok_or_else(|| {
+                tracing::error!("bad glw_data_id uuid in saved_renders");
+                Error::Database
+            })
+        })
+        .transpose()?;
     let created_by = created_by_bytes
         .as_deref()
         .map(uuid_from_bytes)
@@ -715,6 +739,7 @@ async fn fetch_render_row(db: &SqlitePool, render_id: Uuid) -> Result<RenderRow,
         lower_left_y: lower_left_y.and_then(|v| u16::try_from(v).ok()),
         upper_right_x: upper_right_x.and_then(|v| u16::try_from(v).ok()),
         upper_right_y: upper_right_y.and_then(|v| u16::try_from(v).ok()),
+        glw_data_id,
     })
 }
 
@@ -816,4 +841,276 @@ async fn sweep_once(db: &SqlitePool, storage_dir: &Path) -> Result<usize, Error>
         removed = removed.saturating_add(1);
     }
     Ok(removed)
+}
+
+// ---------------------------------------------------------------------
+// Saved GLW data (saved_glw_data).
+//
+// Single-tier storage: the resolved GLW JSON event lives inline in the
+// `payload_json` TEXT column. Ownership uses the same dual
+// owner_user_id/owner_group_id XOR pattern as saved_notecards and
+// saved_renders. A render that uses GLW carries a `glw_data_id` FK
+// back to its source row.
+// ---------------------------------------------------------------------
+
+/// Where a saved GLW row originally came from. Persisted as the
+/// `source_kind` text column. Surfaced in the library list so the user
+/// can tell pasted JSON from a real id/key fetch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GlwDataSourceKind {
+    /// Fetched from the GLW server by numeric event id.
+    EventId,
+    /// Fetched from the GLW server by string event key.
+    EventKey,
+    /// Pasted in by the user (advanced/dev path).
+    PastedJson,
+}
+
+impl GlwDataSourceKind {
+    /// Database column representation.
+    #[must_use]
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::EventId => "event_id",
+            Self::EventKey => "event_key",
+            Self::PastedJson => "pasted_json",
+        }
+    }
+
+    /// Parse the database column back into the enum. Returns `None`
+    /// for any value that does not match the schema's CHECK constraint.
+    #[must_use]
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "event_id" => Some(Self::EventId),
+            "event_key" => Some(Self::EventKey),
+            "pasted_json" => Some(Self::PastedJson),
+            _ => None,
+        }
+    }
+}
+
+/// Raw row fields for a saved GLW event as fetched from the DB.
+#[derive(Debug, Clone)]
+pub struct GlwDataRow {
+    /// the GLW data row id.
+    pub glw_data_id: Uuid,
+    /// raw bytes of the personal owner column, if any.
+    pub owner_user_id: Option<Vec<u8>>,
+    /// raw bytes of the group owner column, if any.
+    pub owner_group_id: Option<Vec<u8>>,
+    /// the avatar that created the row.
+    pub created_by: Option<Uuid>,
+    /// the human-supplied display name.
+    pub name: String,
+    /// where the event originally came from.
+    pub source_kind: GlwDataSourceKind,
+    /// originating numeric event id, when `source_kind = EventId`.
+    pub source_event_id: Option<u32>,
+    /// originating string event key, when `source_kind = EventKey`.
+    pub source_event_key: Option<String>,
+    /// raw JSON payload — parse back into `sl_glw::GlwEvent` at render
+    /// time.
+    pub payload_json: String,
+    /// numeric event id of the resolved event (from the JSON itself).
+    pub event_id: Option<u32>,
+    /// string event key of the resolved event (from the JSON itself).
+    pub event_key: Option<String>,
+    /// human-readable event name (from the JSON itself).
+    pub event_name: Option<String>,
+    /// when the event was fetched / pasted.
+    pub fetched_at: DateTime<Utc>,
+    /// when the row was created.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Public, serializable record of a saved GLW event. Excludes the raw
+/// `payload_json` blob (which is large and only the render worker needs
+/// it) so the library list stays small over the wire.
+#[derive(Debug, Clone, Serialize)]
+pub struct GlwDataView {
+    /// the GLW data row id.
+    pub glw_data_id: Uuid,
+    /// the destination the row belongs to.
+    pub destination: Destination,
+    /// the avatar that created the row, or `None` if the account is
+    /// since deleted.
+    pub created_by: Option<Uuid>,
+    /// the creator's username, if the account still exists.
+    pub created_by_username: Option<String>,
+    /// the creator's legacy name, if the account still exists.
+    pub created_by_legacy_name: Option<String>,
+    /// the human-supplied display name.
+    pub name: String,
+    /// where the event originally came from.
+    pub source_kind: GlwDataSourceKind,
+    /// originating numeric event id, when `source_kind = EventId`.
+    pub source_event_id: Option<u32>,
+    /// originating string event key, when `source_kind = EventKey`.
+    pub source_event_key: Option<String>,
+    /// numeric event id of the resolved event.
+    pub event_id: Option<u32>,
+    /// string event key of the resolved event.
+    pub event_key: Option<String>,
+    /// human-readable event name.
+    pub event_name: Option<String>,
+    /// when the event was fetched / pasted.
+    pub fetched_at: DateTime<Utc>,
+    /// when the row was created.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Column tuple shape returned by the GLW row SELECT. Split out so the
+/// fetch helper does not exceed sqlx's tuple-`FromRow` arity.
+type GlwDataRowTuple = (
+    Option<Vec<u8>>, // owner_user_id
+    Option<Vec<u8>>, // owner_group_id
+    Option<Vec<u8>>, // created_by
+    String,          // name
+    String,          // source_kind
+    Option<i64>,     // source_event_id
+    Option<String>,  // source_event_key
+    String,          // payload_json
+    Option<i64>,     // event_id
+    Option<String>,  // event_key
+    Option<String>,  // event_name
+    DateTime<Utc>,   // fetched_at
+    DateTime<Utc>,   // created_at
+);
+
+/// Fetch a GLW data row by id; returns [`Error::NotFound`] if missing.
+async fn fetch_glw_data_row(db: &SqlitePool, glw_data_id: Uuid) -> Result<GlwDataRow, Error> {
+    let row: Option<GlwDataRowTuple> = sqlx::query_as(
+        "SELECT owner_user_id, owner_group_id, created_by, name, source_kind, \
+                source_event_id, source_event_key, payload_json, \
+                event_id, event_key, event_name, fetched_at, created_at \
+         FROM saved_glw_data WHERE glw_data_id = ?1",
+    )
+    .bind(glw_data_id.as_bytes().to_vec())
+    .fetch_optional(db)
+    .await
+    .map_err(|err| {
+        tracing::error!("GLW data fetch failed: {err}");
+        Error::Database
+    })?;
+    let (
+        owner_user_id,
+        owner_group_id,
+        created_by_bytes,
+        name,
+        source_kind_str,
+        source_event_id,
+        source_event_key,
+        payload_json,
+        event_id,
+        event_key,
+        event_name,
+        fetched_at,
+        created_at,
+    ) = row.ok_or_else(|| Error::NotFound(format!("glw data {glw_data_id}")))?;
+    let created_by = created_by_bytes
+        .as_deref()
+        .map(uuid_from_bytes)
+        .map(|opt| {
+            opt.ok_or_else(|| {
+                tracing::error!("bad created_by uuid in saved_glw_data");
+                Error::Database
+            })
+        })
+        .transpose()?;
+    let source_kind = GlwDataSourceKind::from_db_str(&source_kind_str).ok_or_else(|| {
+        tracing::error!("unrecognised source_kind `{source_kind_str}` in saved_glw_data");
+        Error::Database
+    })?;
+    Ok(GlwDataRow {
+        glw_data_id,
+        owner_user_id,
+        owner_group_id,
+        created_by,
+        name,
+        source_kind,
+        source_event_id: source_event_id.and_then(|v| u32::try_from(v).ok()),
+        source_event_key,
+        payload_json,
+        event_id: event_id.and_then(|v| u32::try_from(v).ok()),
+        event_key,
+        event_name,
+        fetched_at,
+        created_at,
+    })
+}
+
+/// Permission gate for reading a GLW data row. Personal: must be the
+/// owner. Group: must be a member of the owning group.
+///
+/// # Errors
+///
+/// Returns [`Error::NotFound`] when the row is missing or invisible —
+/// the two cases are collapsed so an attacker cannot confirm existence
+/// by id.
+pub async fn assert_can_read_glw_data(
+    db: &SqlitePool,
+    current_user: Uuid,
+    glw_data_id: Uuid,
+) -> Result<GlwDataRow, Error> {
+    let row = fetch_glw_data_row(db, glw_data_id).await?;
+    let destination =
+        destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
+    let visible = match destination {
+        Destination::Personal => {
+            row.owner_user_id.as_deref().and_then(uuid_from_bytes) == Some(current_user)
+        }
+        Destination::Group { group_id } => groups::lookup_role(db, group_id, current_user)
+            .await?
+            .is_some(),
+    };
+    if visible {
+        Ok(row)
+    } else {
+        Err(Error::NotFound(format!("glw data {glw_data_id}")))
+    }
+}
+
+/// Permission gate for deleting a GLW data row. Personal: must be the
+/// owner. Group: must be an owner of the group.
+///
+/// The FK `saved_renders.glw_data_id` is `ON DELETE RESTRICT`, so a
+/// row with at least one referencing render will fail the DELETE with
+/// a SQLite constraint violation; the route handler maps that to a
+/// human-readable error.
+///
+/// # Errors
+///
+/// Returns [`Error::Forbidden`] if the user lacks delete permission;
+/// [`Error::NotFound`] if the row does not exist.
+pub async fn assert_can_delete_glw_data(
+    db: &SqlitePool,
+    current_user: Uuid,
+    glw_data_id: Uuid,
+) -> Result<GlwDataRow, Error> {
+    let row = fetch_glw_data_row(db, glw_data_id).await?;
+    let destination =
+        destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
+    match destination {
+        Destination::Personal => {
+            let owner = row.owner_user_id.as_deref().and_then(uuid_from_bytes);
+            if owner == Some(current_user) {
+                Ok(row)
+            } else {
+                Err(Error::Forbidden(format!(
+                    "not allowed to delete glw data {glw_data_id}"
+                )))
+            }
+        }
+        Destination::Group { group_id } => {
+            if groups::lookup_role(db, group_id, current_user).await? == Some(GroupRole::Owner) {
+                Ok(row)
+            } else {
+                Err(Error::Forbidden(
+                    "must be a group owner to delete group glw data".to_owned(),
+                ))
+            }
+        }
+    }
 }

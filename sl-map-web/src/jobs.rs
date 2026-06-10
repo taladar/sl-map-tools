@@ -179,6 +179,10 @@ pub enum JobOutcome {
         content_type: &'static str,
         /// metadata about the render (aspect ratio, PPS HUD config).
         metadata: Metadata,
+        /// id of the `saved_glw_data` row referenced by the render, if a
+        /// GLW overlay was actually drawn (None when no GLW was
+        /// requested or the server returned no event).
+        glw_data_id: Option<uuid::Uuid>,
     },
     /// the render failed.
     Err(String),

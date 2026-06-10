@@ -103,6 +103,10 @@ pub async fn get(
         Some(id) => lookup_notecard_name(&state, id).await?,
         None => None,
     };
+    let glw_data_name = match row.glw_data_id {
+        Some(id) => lookup_glw_data_name(&state, id).await?,
+        None => None,
+    };
     let view = RenderView {
         render_id,
         destination,
@@ -122,6 +126,8 @@ pub async fn get(
         lower_left_y: row.lower_left_y,
         upper_right_x: row.upper_right_x,
         upper_right_y: row.upper_right_y,
+        glw_data_id: row.glw_data_id,
+        glw_data_name,
     };
     Ok(Json(RenderResponse { render: view }))
 }
@@ -428,6 +434,10 @@ struct RenderListRow {
     upper_right_x: Option<i64>,
     /// upper-right y grid coordinate of the rendered rectangle, if known.
     upper_right_y: Option<i64>,
+    /// raw bytes of the linked saved_glw_data row, if any.
+    glw_data_id: Option<Vec<u8>>,
+    /// display name of the linked saved_glw_data row, if any.
+    glw_data_name: Option<String>,
 }
 
 /// Conversion helper from a raw list-query row to a `RenderView`. Defined
@@ -472,6 +482,17 @@ impl IntoView for RenderListRow {
                 })
             })
             .transpose()?;
+        let glw_data_id = self
+            .glw_data_id
+            .as_deref()
+            .map(uuid_from_bytes)
+            .map(|opt| {
+                opt.ok_or_else(|| {
+                    tracing::error!("bad glw_data uuid");
+                    Error::Database
+                })
+            })
+            .transpose()?;
         Ok(RenderView {
             render_id,
             destination,
@@ -491,6 +512,8 @@ impl IntoView for RenderListRow {
             lower_left_y: self.lower_left_y.and_then(|v| u16::try_from(v).ok()),
             upper_right_x: self.upper_right_x.and_then(|v| u16::try_from(v).ok()),
             upper_right_y: self.upper_right_y.and_then(|v| u16::try_from(v).ok()),
+            glw_data_id,
+            glw_data_name: self.glw_data_name,
         })
     }
 }
@@ -528,15 +551,36 @@ async fn lookup_notecard_name(
     Ok(row.map(|(name,)| name))
 }
 
+/// Look up a saved GLW data row's display name. Returns `None` if
+/// the row has been deleted out from under us (which the
+/// `ON DELETE RESTRICT` FK should prevent in normal operation).
+async fn lookup_glw_data_name(
+    state: &AppState,
+    glw_data_id: Uuid,
+) -> Result<Option<String>, Error> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT name FROM saved_glw_data WHERE glw_data_id = ?1")
+            .bind(glw_data_id.as_bytes().to_vec())
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|err| {
+                tracing::error!("glw data name lookup failed: {err}");
+                Error::Database
+            })?;
+    Ok(row.map(|(name,)| name))
+}
+
 /// SQL: list a user's personal renders.
 const LIST_PERSONAL_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group_id, \
         r.created_by, u.username AS creator_username, u.legacy_name AS creator_legacy_name, r.notecard_id, n.name AS notecard_name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
         r.created_at, r.finished_at, \
-        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
+        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y, \
+        r.glw_data_id, g.name AS glw_data_name \
      FROM saved_renders AS r \
      LEFT JOIN users AS u ON u.user_id = r.created_by \
      LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
+     LEFT JOIN saved_glw_data AS g ON g.glw_data_id = r.glw_data_id \
      WHERE r.owner_user_id = ?1 \
      ORDER BY r.created_at DESC";
 
@@ -545,10 +589,12 @@ const LIST_PERSONAL_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.o
         r.created_by, u.username AS creator_username, u.legacy_name AS creator_legacy_name, r.notecard_id, n.name AS notecard_name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
         r.created_at, r.finished_at, \
-        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
+        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y, \
+        r.glw_data_id, g.name AS glw_data_name \
      FROM saved_renders AS r \
      LEFT JOIN users AS u ON u.user_id = r.created_by \
      LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
+     LEFT JOIN saved_glw_data AS g ON g.glw_data_id = r.glw_data_id \
      WHERE r.owner_user_id = ?1 AND r.status = ?2 \
      ORDER BY r.created_at DESC";
 
@@ -560,12 +606,14 @@ const LIST_GROUP_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owner_group
         r.created_by, u.username AS creator_username, u.legacy_name AS creator_legacy_name, r.notecard_id, n.name AS notecard_name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
         r.created_at, r.finished_at, \
-        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
+        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y, \
+        r.glw_data_id, g.name AS glw_data_name \
      FROM saved_renders AS r \
      LEFT JOIN users AS u ON u.user_id = r.created_by \
      JOIN group_memberships AS gm \
        ON gm.group_id = r.owner_group_id AND gm.user_id = ?2 \
      LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
+     LEFT JOIN saved_glw_data AS g ON g.glw_data_id = r.glw_data_id \
      WHERE r.owner_group_id = ?1 \
        AND (gm.role = 'owner' OR r.status = 'done') \
      ORDER BY r.created_at DESC";
@@ -576,12 +624,14 @@ const LIST_GROUP_STATUS_SQL: &str = "SELECT r.render_id, r.owner_user_id, r.owne
         r.created_by, u.username AS creator_username, u.legacy_name AS creator_legacy_name, r.notecard_id, n.name AS notecard_name, r.kind, r.status, \
         r.error_message, r.image_without_route_filename, r.content_type, \
         r.created_at, r.finished_at, \
-        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y \
+        r.lower_left_x, r.lower_left_y, r.upper_right_x, r.upper_right_y, \
+        r.glw_data_id, g.name AS glw_data_name \
      FROM saved_renders AS r \
      LEFT JOIN users AS u ON u.user_id = r.created_by \
      JOIN group_memberships AS gm \
        ON gm.group_id = r.owner_group_id AND gm.user_id = ?2 \
      LEFT JOIN saved_notecards AS n ON n.notecard_id = r.notecard_id \
+     LEFT JOIN saved_glw_data AS g ON g.glw_data_id = r.glw_data_id \
      WHERE r.owner_group_id = ?1 AND r.status = ?3 \
        AND (gm.role = 'owner' OR r.status = 'done') \
      ORDER BY r.created_at DESC";

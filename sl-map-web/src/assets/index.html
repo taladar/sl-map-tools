@@ -89,6 +89,106 @@
       </p>
     </section>
 
+    <section id="glw-fieldset">
+      <h2>
+        <label>
+          <input type="checkbox" id="glw_enabled" />
+          Add GLW wind/current/wave overlay
+        </label>
+      </h2>
+      <div id="glw-body" hidden>
+        <div class="row">
+          <label
+            >Source
+            <select id="glw_source">
+              <option value="event_id" selected>Event id</option>
+              <option value="event_key">Event key</option>
+              <option value="saved">Saved GLW data</option>
+              <option value="pasted">Paste JSON (advanced)</option>
+            </select>
+          </label>
+          <label
+            >Font
+            <select id="glw_font_id"></select>
+          </label>
+        </div>
+        <div class="row" data-glw-source="event_id">
+          <label
+            >Event id
+            <input type="number" id="glw_event_id" min="0" />
+          </label>
+        </div>
+        <div class="row" data-glw-source="event_key">
+          <label
+            >Event key
+            <input type="text" id="glw_event_key" />
+          </label>
+        </div>
+        <div class="row" data-glw-source="saved">
+          <label
+            >Saved GLW data
+            <select id="glw_saved_id"></select>
+          </label>
+        </div>
+        <div class="row" data-glw-source="pasted">
+          <label
+            >JSON
+            <textarea id="glw_pasted" rows="6"></textarea>
+          </label>
+        </div>
+        <div class="row" data-glw-source-not="saved">
+          <label
+            >Save as
+            <input
+              type="text"
+              id="glw_save_as"
+              placeholder="optional, defaults to Event &lt;id&gt; fetched &lt;UTC&gt;"
+            />
+          </label>
+        </div>
+        <p class="note" data-glw-source-not="saved">
+          The auto-saved GLW data row inherits the destination chosen for the
+          render itself.
+        </p>
+        <details>
+          <summary>Style overrides</summary>
+          <div class="row">
+            <label>
+              <input type="checkbox" id="glw_margin_band" />
+              Draw margin band
+            </label>
+          </div>
+          <div class="row">
+            <label
+              >Wind colour <input type="color" id="glw_wind_color"
+            /></label>
+            <label
+              >Current colour <input type="color" id="glw_current_color"
+            /></label>
+            <label
+              >Wave colour <input type="color" id="glw_wave_color"
+            /></label>
+          </div>
+          <div class="row">
+            <label
+              >Area outline <input type="color" id="glw_area_outline_color"
+            /></label>
+            <label
+              >Circle outline <input type="color" id="glw_circle_outline_color"
+            /></label>
+            <label
+              >Margin outline <input type="color" id="glw_margin_outline_color"
+            /></label>
+          </div>
+          <div class="row">
+            <label
+              >Area fill <input type="color" id="glw_area_fill_color"
+            /></label>
+          </div>
+        </details>
+      </div>
+    </section>
+
     <nav class="tabs" role="tablist">
       <button type="button" class="tab active" data-tab="grid">
         From grid rectangle
@@ -127,11 +227,7 @@
     <section id="tab-notecard" class="tab-panel">
       <h2>USB notecard</h2>
       <nav class="subtabs" role="tablist">
-        <button
-          type="button"
-          class="subtab active"
-          data-subtab="file"
-        >
+        <button type="button" class="subtab active" data-subtab="file">
           New notecard from file
         </button>
         <button type="button" class="subtab" data-subtab="clipboard">
@@ -230,9 +326,7 @@
             <input type="number" id="border_west" min="0" max="500" />
           </label>
         </div>
-        <p class="note">
-          Setting "All sides" overrides the per-side fields.
-        </p>
+        <p class="note">Setting "All sides" overrides the per-side fields.</p>
       </fieldset>
       <div class="row buttons">
         <button type="button" id="notecard_preview">Preview</button>

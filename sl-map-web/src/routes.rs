@@ -176,6 +176,7 @@ pub fn build(state: AppState) -> Router {
             "/api/glw/{id}",
             get(glw::get).patch(glw::rename).delete(glw::delete),
         )
+        .route("/api/glw/{id}/payload", get(glw::payload))
         // profile + account
         .route("/profile", get(library_pages::profile))
         .route("/profile/{id}", get(library_pages::profile))

@@ -374,6 +374,68 @@ async function showMetadataModal(renderId) {
   });
 }
 
+async function showGlwPayloadModal(glwDataId, name) {
+  let raw;
+  try {
+    const resp = await fetch(`/api/glw/${glwDataId}/payload`);
+    if (!resp.ok) {
+      await showError(resp);
+      return;
+    }
+    raw = await resp.text();
+  } catch (err) {
+    await alertModal({
+      title: "GLW data",
+      message: `Failed to load GLW data: ${err.message}`,
+    });
+    return;
+  }
+  // Pretty-print when the payload parses as JSON; otherwise show it raw.
+  let pretty = raw;
+  try {
+    pretty = JSON.stringify(JSON.parse(raw), null, 2);
+  } catch (_err) {
+    // not JSON — keep the raw text
+  }
+  await infoModal({
+    title: name ? `GLW data — ${name}` : "GLW data",
+    build: (dialog) => {
+      const box = document.createElement("textarea");
+      box.className = "metadata-pps";
+      box.readOnly = true;
+      box.value = pretty;
+      box.rows = 20;
+      dialog.appendChild(box);
+
+      const copyRow = document.createElement("div");
+      copyRow.className = "metadata-copy-row";
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "modal-btn";
+      copyBtn.textContent = "Copy JSON";
+      const copyStatus = document.createElement("span");
+      copyStatus.className = "metadata-copy-status";
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(box.value);
+          copyStatus.textContent = "Copied.";
+        } catch (_err) {
+          box.select();
+          copyStatus.textContent = "Copy failed — selected for manual copy.";
+        }
+      });
+      copyRow.appendChild(copyBtn);
+      const dl = document.createElement("a");
+      dl.href = `/api/glw/${glwDataId}/payload`;
+      dl.textContent = "Download";
+      dl.className = "modal-btn";
+      copyRow.appendChild(dl);
+      copyRow.appendChild(copyStatus);
+      dialog.appendChild(copyRow);
+    },
+  });
+}
+
 let pollingTimer = null;
 
 async function refresh() {
@@ -442,6 +504,19 @@ function glwRow(g) {
   tr.appendChild(profileLinkCell(g.created_by, g.created_by_legacy_name));
   tr.appendChild(td(fmtDate(g.created_at)));
   const actions = document.createElement("td");
+  const view = document.createElement("button");
+  view.type = "button";
+  view.textContent = "View JSON";
+  view.className = "row-action";
+  view.addEventListener("click", () =>
+    showGlwPayloadModal(g.glw_data_id, g.name),
+  );
+  actions.appendChild(view);
+  const dl = document.createElement("a");
+  dl.href = `/api/glw/${g.glw_data_id}/payload`;
+  dl.textContent = "Download";
+  dl.className = "row-action";
+  actions.appendChild(dl);
   const rename = document.createElement("button");
   rename.type = "button";
   rename.textContent = "Rename";

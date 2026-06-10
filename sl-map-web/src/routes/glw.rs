@@ -10,6 +10,7 @@ use std::fmt::Write as _;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode as ReqwestStatusCode;
+use axum::http::header;
 use axum::response::{IntoResponse as _, Response};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -108,6 +109,33 @@ pub async fn get(
         created_by_legacy_name,
     );
     Ok(Json(GlwDataResponse { glw_data: view }))
+}
+
+/// `GET /api/glw/{id}/payload` — download the raw GLW event JSON
+/// payload as it was fetched / pasted. Served as an `application/json`
+/// attachment so the browser offers a "Save as" dialog, mirroring the
+/// notecard `/text` sub-route.
+///
+/// # Errors
+///
+/// Returns [`Error::NotFound`] if the row doesn't exist or is invisible.
+pub async fn payload(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path(glw_data_id): Path<Uuid>,
+) -> Result<Response, Error> {
+    let row = library::assert_can_read_glw_data(&state.db, user.user_id, glw_data_id).await?;
+    let filename = format!(
+        "{}.json",
+        crate::routes::notecards::sanitise_for_filename(&row.name)
+            .unwrap_or_else(|| glw_data_id.to_string())
+    );
+    let disposition = format!("attachment; filename=\"{filename}\"");
+    let headers = [
+        (header::CONTENT_TYPE, "application/json".to_owned()),
+        (header::CONTENT_DISPOSITION, disposition),
+    ];
+    Ok((headers, row.payload_json).into_response())
 }
 
 /// Body for `PATCH /api/glw/{id}` — currently only `name` can be

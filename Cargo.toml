@@ -1,6 +1,13 @@
 [workspace]
+members = [
+    "sl-chat-log-parser",
+    "sl-glw",
+    "sl-map-apis",
+    "sl-map-cli",
+    "sl-map-web",
+    "sl-types",
+]
 resolver = "2"
-members = ["sl-chat-log-parser", "sl-map-apis", "sl-map-cli", "sl-map-web", "sl-types"]
 
 [profile.release]
 debug = 2

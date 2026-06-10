@@ -1,0 +1,12 @@
+# Files where `typos` should not look for English typos.
+#
+# - `*.ttf` are binary TrueType font files (e.g. the workspace-root
+#   `DejaVuSans.ttf` consumed by `sl-glw`'s text rendering). Their byte
+#   content contains opcode + name-table tokens that randomly trigger
+#   spellcheck rules.
+[files]
+extend-exclude = [
+  "**/*.ttf",
+  "*.ttf",
+  "DejaVuSans.ttf",
+]

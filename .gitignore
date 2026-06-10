@@ -4,6 +4,7 @@
 tarpaulin-report.html
 tarpaulin-report.json
 /target
+/target-trixie
 bom.xml
 perf.data
 perf.data.old

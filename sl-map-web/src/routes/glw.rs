@@ -227,6 +227,64 @@ pub async fn delete(
     }
 }
 
+/// The default GLW style-override values, surfaced so the web form can
+/// pre-fill its colour swatches with the *actual* rendering defaults
+/// instead of the browser's black `#000000`. Field names mirror
+/// [`crate::routes::render::GlwStyleOverrides`] so the JS can map each
+/// entry straight onto its `<input type="color">`.
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "matches the workspace convention: <Entity>Defaults/Response in the <entity> route module"
+)]
+#[derive(Debug, Serialize)]
+pub struct GlwStyleDefaults {
+    /// default for the "draw margin band" toggle.
+    pub margin_band: bool,
+    /// default area rectangle outline colour as `#rrggbb`.
+    pub area_outline_color: String,
+    /// default circle outline colour as `#rrggbb`.
+    pub circle_outline_color: String,
+    /// default dashed margin-band colour as `#rrggbb`.
+    pub margin_outline_color: String,
+    /// default filled wind-arrow colour as `#rrggbb`.
+    pub wind_color: String,
+    /// default filled current-arrow colour as `#rrggbb`.
+    pub current_color: String,
+    /// default wave-glyph colour as `#rrggbb`.
+    pub wave_color: String,
+    /// default area-fill colour; `None` because the renderer draws no
+    /// interior fill by default (no `#rrggbb` value can express "none").
+    pub area_fill_color: Option<String>,
+}
+
+/// Format the RGB channels of an [`image::Rgba<u8>`] as a `#rrggbb`
+/// string. The alpha channel is dropped because an HTML `<input
+/// type="color">` cannot represent it; the server re-applies the
+/// default's alpha whenever the swatch is left at its default (the
+/// frontend then sends no override for that field).
+fn rgb_hex(c: image::Rgba<u8>) -> String {
+    let [r, g, b, _a] = c.0;
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
+/// `GET /api/glw/style-defaults` — the default GLW style-override
+/// values, derived from [`sl_glw::GlwStyle::default`] so the form can
+/// never drift from what the renderer actually draws.
+pub async fn style_defaults() -> Json<GlwStyleDefaults> {
+    let style = sl_glw::GlwStyle::default();
+    let p = style.palette;
+    Json(GlwStyleDefaults {
+        margin_band: style.draw_margin_band,
+        area_outline_color: rgb_hex(p.area_outline),
+        circle_outline_color: rgb_hex(p.circle_outline),
+        margin_outline_color: rgb_hex(p.margin_outline),
+        wind_color: rgb_hex(p.wind_arrow),
+        current_color: rgb_hex(p.current_arrow),
+        wave_color: rgb_hex(p.wave_glyph),
+        area_fill_color: p.area_fill.map(rgb_hex),
+    })
+}
+
 /// Fields needed to persist a fresh `saved_glw_data` row. Shared by
 /// the render worker (via `insert_glw_data_row` below) and any future
 /// stand-alone POST handler.
@@ -492,4 +550,45 @@ async fn lookup_user_names(state: &AppState, user_id: Uuid) -> Result<(String, S
                 Error::Database
             })?;
     row.ok_or_else(|| Error::NotFound(format!("user {user_id}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::{rgb_hex, style_defaults};
+
+    #[test]
+    fn rgb_hex_drops_alpha_and_zero_pads() {
+        assert_eq!(rgb_hex(image::Rgba([40, 220, 40, 96])), "#28dc28");
+        assert_eq!(rgb_hex(image::Rgba([0, 0, 0, 255])), "#000000");
+        assert_eq!(rgb_hex(image::Rgba([255, 255, 255, 240])), "#ffffff");
+    }
+
+    /// The exposed defaults must stay in lock-step with the renderer's
+    /// [`sl_glw::GlwStyle::default`] palette — this is the whole point of
+    /// the endpoint. Derive the expectations from the same source so the
+    /// test fails loudly if the palette default ever changes.
+    #[tokio::test]
+    async fn style_defaults_match_renderer_palette() {
+        let style = sl_glw::GlwStyle::default();
+        let p = style.palette;
+        let got = style_defaults().await.0;
+
+        assert_eq!(got.margin_band, style.draw_margin_band);
+        assert_eq!(got.area_outline_color, rgb_hex(p.area_outline));
+        assert_eq!(got.circle_outline_color, rgb_hex(p.circle_outline));
+        assert_eq!(got.margin_outline_color, rgb_hex(p.margin_outline));
+        assert_eq!(got.wind_color, rgb_hex(p.wind_arrow));
+        assert_eq!(got.current_color, rgb_hex(p.current_arrow));
+        assert_eq!(got.wave_color, rgb_hex(p.wave_glyph));
+        assert_eq!(got.area_fill_color, p.area_fill.map(rgb_hex));
+
+        // Guard the user-visible expectations explicitly: arrows white,
+        // outlines green, no fill, margin band off.
+        assert_eq!(got.wind_color, "#ffffff");
+        assert_eq!(got.area_outline_color, "#28dc28");
+        assert_eq!(got.area_fill_color, None);
+        assert!(!got.margin_band);
+    }
 }

@@ -172,6 +172,9 @@ pub fn build(state: AppState) -> Router {
         .route("/api/renders/{id}/settings", get(renders::settings))
         // saved GLW data
         .route("/api/glw", get(glw::list))
+        // default style-override values for the render form's GLW
+        // colour swatches (static segment, registered before `{id}`)
+        .route("/api/glw/style-defaults", get(glw::style_defaults))
         .route(
             "/api/glw/{id}",
             get(glw::get).patch(glw::rename).delete(glw::delete),

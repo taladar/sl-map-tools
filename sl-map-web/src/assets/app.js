@@ -974,6 +974,75 @@ async function loadSavedGlw() {
   }
 }
 
+// Maps each GLW style-override field to its colour-swatch input id.
+// Shared by the default pre-fill, the override read, and saved-render
+// restore so the three stay in lock-step.
+const GLW_COLOR_FIELDS = [
+  { key: "area_outline_color", id: "glw_area_outline_color" },
+  { key: "circle_outline_color", id: "glw_circle_outline_color" },
+  { key: "margin_outline_color", id: "glw_margin_outline_color" },
+  { key: "wind_color", id: "glw_wind_color" },
+  { key: "current_color", id: "glw_current_color" },
+  { key: "wave_color", id: "glw_wave_color" },
+  { key: "area_fill_color", id: "glw_area_fill_color" },
+];
+
+// The renderer's actual style defaults (#rrggbb per field, plus the
+// margin-band default), fetched from the server so the form's swatches
+// reflect what is really drawn instead of the browser's black default.
+// Null until loaded.
+let glwStyleDefaults = null;
+
+// Fetch the GLW style defaults and apply them to the form once.
+async function loadGlwStyleDefaults() {
+  try {
+    const resp = await fetch("/api/glw/style-defaults");
+    if (!resp.ok) return;
+    glwStyleDefaults = await resp.json();
+  } catch (err) {
+    console.error("glw style defaults failed:", err);
+    return;
+  }
+  applyGlwStyleDefaults();
+}
+
+// Pre-fill the colour swatches and the margin-band toggle with the
+// renderer's actual defaults. Leaving a swatch at its default makes
+// optionalColor() omit that override, so the server applies the full
+// default (alpha included).
+function applyGlwStyleDefaults() {
+  if (!glwStyleDefaults) return;
+  const mb = $("glw_margin_band");
+  if (mb) mb.checked = !!glwStyleDefaults.margin_band;
+  for (const { key, id } of GLW_COLOR_FIELDS) {
+    if (key === "area_fill_color") continue;
+    const el = $(id);
+    const def = glwStyleDefaults[key];
+    if (el && def) el.value = def;
+  }
+  // Area fill has no colour default (the renderer draws no interior
+  // fill), so the toggle starts off; seed the picker with the area
+  // outline colour for when the user enables it.
+  applyGlwAreaFill(glwStyleDefaults.area_fill_color);
+}
+
+// Set the area-fill toggle + picker. `color` is a #rrggbb string to
+// enable fill with that colour, or null/undefined for "no fill".
+function applyGlwAreaFill(color) {
+  const toggle = $("glw_area_fill_enabled");
+  const picker = $("glw_area_fill_color");
+  if (!toggle || !picker) return;
+  if (color) {
+    toggle.checked = true;
+    picker.value = color;
+  } else {
+    toggle.checked = false;
+    if (glwStyleDefaults && glwStyleDefaults.area_outline_color)
+      picker.value = glwStyleDefaults.area_outline_color;
+  }
+  picker.disabled = !toggle.checked;
+}
+
 // Serialise the GLW panel into the request shape the server expects.
 // Returns null when the panel is disabled (so the caller can omit the
 // whole field). Throws Error with a user-friendly message when the user
@@ -987,13 +1056,26 @@ function readGlwOptions() {
   }
   const style = {
     margin_band: $("glw_margin_band").checked,
-    area_outline_color: optionalColor("glw_area_outline_color"),
-    circle_outline_color: optionalColor("glw_circle_outline_color"),
-    margin_outline_color: optionalColor("glw_margin_outline_color"),
-    wind_color: optionalColor("glw_wind_color"),
-    current_color: optionalColor("glw_current_color"),
-    wave_color: optionalColor("glw_wave_color"),
-    area_fill_color: optionalColor("glw_area_fill_color"),
+    area_outline_color: optionalColor(
+      "area_outline_color",
+      "glw_area_outline_color",
+    ),
+    circle_outline_color: optionalColor(
+      "circle_outline_color",
+      "glw_circle_outline_color",
+    ),
+    margin_outline_color: optionalColor(
+      "margin_outline_color",
+      "glw_margin_outline_color",
+    ),
+    wind_color: optionalColor("wind_color", "glw_wind_color"),
+    current_color: optionalColor("current_color", "glw_current_color"),
+    wave_color: optionalColor("wave_color", "glw_wave_color"),
+    // Area fill is a distinct on/off state (no #rrggbb can mean "none"),
+    // so the explicit toggle decides whether a fill colour is sent.
+    area_fill_color: $("glw_area_fill_enabled").checked
+      ? $("glw_area_fill_color").value
+      : null,
   };
   const opts = { source, font_id: fontId, style };
   if (activeGlwSource() !== "saved") {
@@ -1034,18 +1116,20 @@ function readGlwSource() {
   }
 }
 
-// Read a `<input type="color">` and return its #rrggbb value unless
-// the user has not yet picked one (we use a sentinel #000000 default
-// that we filter out to mean "no override"). Browsers preset color
-// inputs to #000000 if no value attribute is set; we treat that as
-// "unset" for ergonomics. Users who want literal black can pick any
-// other dark colour.
-function optionalColor(id) {
+// Read a `<input type="color">` and return its #rrggbb value as an
+// override, or null when it still matches the rendering default for
+// `key` — leaving a swatch untouched then sends no override and the
+// server applies the full default (alpha included), which a flat
+// #rrggbb could not preserve. Before the defaults have loaded we fall
+// back to the historical #000000 "unset" sentinel.
+function optionalColor(key, id) {
   const el = $(id);
   if (!el) return null;
   const v = el.value;
-  if (!v || v === "#000000") return null;
-  return v;
+  if (!v) return null;
+  const def = glwStyleDefaults ? glwStyleDefaults[key] : null;
+  if (def) return v.toLowerCase() === def.toLowerCase() ? null : v;
+  return v === "#000000" ? null : v;
 }
 
 function applyGlwSettings(glw) {
@@ -1066,17 +1150,18 @@ function applyGlwSettings(glw) {
   if (glw.style) {
     if ("margin_band" in glw.style)
       $("glw_margin_band").checked = !!glw.style.margin_band;
-    for (const [key, id] of [
-      ["area_outline_color", "glw_area_outline_color"],
-      ["circle_outline_color", "glw_circle_outline_color"],
-      ["margin_outline_color", "glw_margin_outline_color"],
-      ["wind_color", "glw_wind_color"],
-      ["current_color", "glw_current_color"],
-      ["wave_color", "glw_wave_color"],
-      ["area_fill_color", "glw_area_fill_color"],
-    ]) {
-      if (glw.style[key]) $(id).value = glw.style[key];
+    for (const { key, id } of GLW_COLOR_FIELDS) {
+      if (key === "area_fill_color") continue;
+      const el = $(id);
+      if (!el) continue;
+      // Saved override wins; otherwise fall back to the rendering
+      // default so a swatch never shows a stale value from a previous
+      // load.
+      if (glw.style[key]) el.value = glw.style[key];
+      else if (glwStyleDefaults && glwStyleDefaults[key])
+        el.value = glwStyleDefaults[key];
     }
+    applyGlwAreaFill(glw.style.area_fill_color);
   }
 }
 
@@ -1090,6 +1175,13 @@ document.addEventListener("DOMContentLoaded", () => {
   $("save_to").addEventListener("change", () => {
     if (activeGlwSource() === "saved") loadSavedGlw().catch(() => {});
   });
+  const fillToggle = $("glw_area_fill_enabled");
+  if (fillToggle) {
+    fillToggle.addEventListener("change", (e) => {
+      $("glw_area_fill_color").disabled = !e.target.checked;
+    });
+  }
   refreshGlwPanelVisibility();
   loadFonts().catch(() => {});
+  loadGlwStyleDefaults().catch(() => {});
 });

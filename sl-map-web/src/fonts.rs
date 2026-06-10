@@ -19,10 +19,11 @@ pub struct FontInfo {
     /// against the filesystem directly — always resolve via
     /// [`FontDirectory::path_for`].
     pub id: String,
-    /// Display name. Currently the file stem with hyphens and
-    /// underscores replaced by spaces (`DejaVuSans` → `DejaVu Sans`,
-    /// `noto-sans-mono` → `noto sans mono`). A follow-up may extract
-    /// the embedded `name` table via `ttf-parser` for prettier output.
+    /// Display name. When the font's `name` table yields a usable name
+    /// it is the embedded name with the file id in parentheses
+    /// (`DejaVu Sans (DejaVuSans.ttf)`). Otherwise it falls back to the
+    /// file stem with hyphens and underscores replaced by spaces
+    /// (`noto-sans-mono.ttf` → `noto sans mono`).
     pub name: String,
 }
 
@@ -33,9 +34,19 @@ pub struct FontDirectory {
     /// Absolute path the directory was opened at. Kept for resolving
     /// individual font paths and for diagnostic messages.
     root: PathBuf,
-    /// `id` → on-disk path. Sorted (BTreeMap) so iteration is
+    /// `id` → discovered font. Sorted (BTreeMap) so iteration is
     /// deterministic when populating the UI.
-    by_id: BTreeMap<String, PathBuf>,
+    by_id: BTreeMap<String, FontEntry>,
+}
+
+/// One discovered font: its on-disk path plus the display label resolved
+/// once at scan time (see [`FontInfo::name`]).
+#[derive(Debug)]
+struct FontEntry {
+    /// absolute path to the `.ttf` file.
+    path: PathBuf,
+    /// pre-computed display label served by `GET /api/fonts`.
+    display_name: String,
 }
 
 /// Errors that can occur while scanning a fonts directory.
@@ -61,7 +72,7 @@ impl FontDirectory {
     /// Returns a [`FontDirectoryError`] when the directory is missing,
     /// unreadable, or has no `.ttf` entries.
     pub fn scan(root: PathBuf) -> Result<Self, FontDirectoryError> {
-        let mut by_id: BTreeMap<String, PathBuf> = BTreeMap::new();
+        let mut by_id: BTreeMap<String, FontEntry> = BTreeMap::new();
         for entry in fs_err::read_dir(&root)? {
             let entry = entry?;
             let path = entry.path();
@@ -77,7 +88,20 @@ impl FontDirectory {
             let Some(id) = path.file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
-            by_id.insert(id.to_owned(), path);
+            // Resolve the display label once, here, so `GET /api/fonts`
+            // never re-reads the file. A font that cannot be read or
+            // parsed is still listed under its filename-derived label;
+            // a truly unloadable font fails later at render via
+            // `ab_glyph`, matching the pre-existing behaviour.
+            let display_name = match fs_err::read(&path) {
+                Ok(bytes) => embedded_name(&bytes)
+                    .map_or_else(|| display_name_for(id), |name| format!("{name} ({id})")),
+                Err(err) => {
+                    tracing::warn!(font = id, %err, "could not read font for name extraction");
+                    display_name_for(id)
+                }
+            };
+            by_id.insert(id.to_owned(), FontEntry { path, display_name });
         }
         if by_id.is_empty() {
             return Err(FontDirectoryError::Empty(root));
@@ -89,10 +113,10 @@ impl FontDirectory {
     #[must_use]
     pub fn list(&self) -> Vec<FontInfo> {
         self.by_id
-            .keys()
-            .map(|id| FontInfo {
+            .iter()
+            .map(|(id, entry)| FontInfo {
                 id: id.to_owned(),
-                name: display_name_for(id),
+                name: entry.display_name.clone(),
             })
             .collect()
     }
@@ -111,7 +135,7 @@ impl FontDirectory {
         {
             return None;
         }
-        self.by_id.get(font_id).map(PathBuf::as_path)
+        self.by_id.get(font_id).map(|entry| entry.path.as_path())
     }
 
     /// Root directory the scan was performed against; surfaced in
@@ -130,16 +154,78 @@ fn display_name_for(id: &str) -> String {
     stem.replace(['-', '_'], " ")
 }
 
+/// Extract a human-readable name from a TTF `name` table. Prefers the
+/// Full font name (id 4), then the typographic family (id 16), then the
+/// legacy family (id 1). Returns `None` when the file cannot be parsed or
+/// has no decodable, non-empty record — the caller then falls back to the
+/// filename via [`display_name_for`].
+fn embedded_name(bytes: &[u8]) -> Option<String> {
+    let face = ttf_parser::Face::parse(bytes, 0).ok()?;
+    let names = face.names();
+    // Name IDs from the OpenType `name` table, in display preference.
+    for want in [4u16, 16, 1] {
+        for i in 0..names.len() {
+            let Some(name) = names.get(i) else { continue };
+            if name.name_id != want || !name.is_unicode() {
+                continue;
+            }
+            // `to_string` decodes Windows/Unicode UTF-16BE records and
+            // returns `None` for encodings it cannot handle.
+            if let Some(decoded) = name.to_string() {
+                let trimmed = decoded.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_owned());
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    /// The font checked in at the workspace root, used to exercise the
+    /// `name`-table extraction offline.
+    const DEJAVU: &[u8] = include_bytes!("../../DejaVuSans.ttf");
 
     #[test]
     fn display_name_drops_extension_and_replaces_separators() {
         assert_eq!(display_name_for("DejaVuSans.ttf"), "DejaVuSans");
         assert_eq!(display_name_for("noto-sans-mono.ttf"), "noto sans mono");
         assert_eq!(display_name_for("source_code_pro.ttf"), "source code pro");
+    }
+
+    #[test]
+    fn embedded_name_extracts_full_name() {
+        assert_eq!(embedded_name(DEJAVU).as_deref(), Some("DejaVu Sans"));
+    }
+
+    #[test]
+    fn embedded_name_rejects_garbage() {
+        assert_eq!(embedded_name(b"not a font"), None);
+    }
+
+    #[test]
+    fn list_uses_embedded_name_with_id() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        fs_err::write(tmp.path().join("DejaVuSans.ttf"), DEJAVU)?;
+        fs_err::write(tmp.path().join("bad.ttf"), b"not a font")?;
+        let fd = FontDirectory::scan(tmp.path().to_owned())?;
+        let fonts = fd.list();
+        let dejavu = fonts
+            .iter()
+            .find(|f| f.id == "DejaVuSans.ttf")
+            .ok_or("DejaVuSans.ttf missing from list")?;
+        assert_eq!(dejavu.name, "DejaVu Sans (DejaVuSans.ttf)");
+        let bad = fonts
+            .iter()
+            .find(|f| f.id == "bad.ttf")
+            .ok_or("bad.ttf missing from list")?;
+        assert_eq!(bad.name, "bad");
+        Ok(())
     }
 
     #[test]

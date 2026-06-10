@@ -166,7 +166,8 @@ button:disabled {
   display: block;
 }
 
-.subtabs {
+.subtabs,
+.glw-tabs {
   display: flex;
   gap: 0.5rem;
   margin: 0 0 0.75rem;
@@ -174,7 +175,8 @@ button:disabled {
   padding: 0;
 }
 
-.subtab {
+.subtab,
+.glw-tab {
   background: transparent;
   color: inherit;
   border: 1px solid var(--border);
@@ -184,18 +186,21 @@ button:disabled {
   cursor: pointer;
 }
 
-.subtab.active {
+.subtab.active,
+.glw-tab.active {
   background: var(--accent);
   color: var(--accent-fg);
   border-color: var(--accent);
 }
 
-.subtab-panel {
+.subtab-panel,
+.glw-tab-panel {
   display: none;
   margin-bottom: 0.5rem;
 }
 
-.subtab-panel.active {
+.subtab-panel.active,
+.glw-tab-panel.active {
   display: block;
 }
 

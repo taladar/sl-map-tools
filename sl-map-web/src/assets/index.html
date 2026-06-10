@@ -99,38 +99,59 @@
       <div id="glw-body" hidden>
         <div class="row">
           <label
-            >Source
-            <select id="glw_source">
-              <option value="event_id" selected>Event id</option>
-              <option value="event_key">Event key</option>
-              <option value="saved">Saved GLW data</option>
-              <option value="pasted">Paste JSON (advanced)</option>
-            </select>
-          </label>
-          <label
             >Font
             <select id="glw_font_id"></select>
           </label>
         </div>
-        <div class="row" data-glw-source="event_id">
+        <nav class="glw-tabs" role="tablist">
+          <button type="button" class="glw-tab active" data-glw-tab="event_id">
+            Event id
+          </button>
+          <button type="button" class="glw-tab" data-glw-tab="event_key">
+            Event key
+          </button>
+          <button type="button" class="glw-tab" data-glw-tab="saved">
+            Saved GLW data
+          </button>
+          <button type="button" class="glw-tab" data-glw-tab="pasted">
+            Paste JSON (advanced)
+          </button>
+        </nav>
+        <div
+          id="glw-source-event_id"
+          class="glw-tab-panel active"
+          data-glw-source="event_id"
+        >
           <label
             >Event id
             <input type="number" id="glw_event_id" min="0" />
           </label>
         </div>
-        <div class="row" data-glw-source="event_key">
+        <div
+          id="glw-source-event_key"
+          class="glw-tab-panel"
+          data-glw-source="event_key"
+        >
           <label
             >Event key
             <input type="text" id="glw_event_key" />
           </label>
         </div>
-        <div class="row" data-glw-source="saved">
+        <div
+          id="glw-source-saved"
+          class="glw-tab-panel"
+          data-glw-source="saved"
+        >
           <label
             >Saved GLW data
             <select id="glw_saved_id"></select>
           </label>
         </div>
-        <div class="row" data-glw-source="pasted">
+        <div
+          id="glw-source-pasted"
+          class="glw-tab-panel"
+          data-glw-source="pasted"
+        >
           <label
             >JSON
             <textarea id="glw_pasted" rows="6"></textarea>

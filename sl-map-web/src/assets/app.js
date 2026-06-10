@@ -885,20 +885,39 @@ document.addEventListener("DOMContentLoaded", applyPrefillFromQuery);
 // GLW overlay panel
 // =====================================================================
 
-// Toggle the body and the per-source row visibility based on the
-// checkbox + the source dropdown.
+// Toggle the body (via the checkbox) and the rows that depend on the
+// active source. The per-source panels themselves are shown/hidden by
+// the .glw-tab-panel.active CSS; here we only handle the rows that are
+// shown for every source except a specific one (data-glw-source-not).
 function refreshGlwPanelVisibility() {
   const enabled = $("glw_enabled").checked;
   const body = $("glw-body");
   if (enabled) body.removeAttribute("hidden");
   else body.setAttribute("hidden", "");
-  const source = $("glw_source").value;
-  for (const el of document.querySelectorAll("[data-glw-source]")) {
-    el.style.display = el.dataset.glwSource === source ? "" : "none";
-  }
+  const source = activeGlwSource();
   for (const el of document.querySelectorAll("[data-glw-source-not]")) {
     el.style.display = el.dataset.glwSourceNot === source ? "none" : "";
   }
+}
+
+// Activate a GLW source tab + its panel, mirroring activateSubtab().
+// Refreshes the dependent rows and, for the "saved" source, loads the
+// saved-GLW dropdown so its options reflect the current scope.
+function activateGlwSource(name) {
+  document.querySelectorAll(".glw-tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.glwTab === name);
+  });
+  document.querySelectorAll(".glw-tab-panel").forEach((p) => {
+    p.classList.toggle("active", p.id === `glw-source-${name}`);
+  });
+  refreshGlwPanelVisibility();
+  if (name === "saved") loadSavedGlw().catch(() => {});
+}
+
+// The currently active GLW source, defaulting to "event_id".
+function activeGlwSource() {
+  const t = document.querySelector(".glw-tab.active");
+  return t ? t.dataset.glwTab : "event_id";
 }
 
 // Populate /api/fonts into #glw_font_id. Pre-selects the only entry
@@ -977,7 +996,7 @@ function readGlwOptions() {
     area_fill_color: optionalColor("glw_area_fill_color"),
   };
   const opts = { source, font_id: fontId, style };
-  if ($("glw_source").value !== "saved") {
+  if (activeGlwSource() !== "saved") {
     const saveAs = $("glw_save_as").value.trim();
     if (saveAs) opts.save_as = saveAs;
   }
@@ -985,7 +1004,7 @@ function readGlwOptions() {
 }
 
 function readGlwSource() {
-  switch ($("glw_source").value) {
+  switch (activeGlwSource()) {
     case "event_id": {
       const raw = $("glw_event_id").value.trim();
       if (!raw) throw new Error("Enter the GLW event id.");
@@ -1038,8 +1057,7 @@ function applyGlwSettings(glw) {
   // settings_json carries the SavedId carrier exclusively (see the
   // backend rewrite step) so we only ever have to handle this case.
   if (glw.source && glw.source.type === "saved_id") {
-    $("glw_source").value = "saved";
-    refreshGlwPanelVisibility();
+    activateGlwSource("saved");
     loadSavedGlw().then(() => {
       const sel = $("glw_saved_id");
       if (sel) sel.value = glw.source.glw_data_id;
@@ -1064,15 +1082,13 @@ function applyGlwSettings(glw) {
 
 document.addEventListener("DOMContentLoaded", () => {
   const enabled = $("glw_enabled");
-  const sourceSel = $("glw_source");
-  if (!enabled || !sourceSel) return;
+  if (!enabled) return;
   enabled.addEventListener("change", refreshGlwPanelVisibility);
-  sourceSel.addEventListener("change", () => {
-    refreshGlwPanelVisibility();
-    if (sourceSel.value === "saved") loadSavedGlw().catch(() => {});
+  document.querySelectorAll(".glw-tab").forEach((tab) => {
+    tab.addEventListener("click", () => activateGlwSource(tab.dataset.glwTab));
   });
   $("save_to").addEventListener("change", () => {
-    if (sourceSel.value === "saved") loadSavedGlw().catch(() => {});
+    if (activeGlwSource() === "saved") loadSavedGlw().catch(() => {});
   });
   refreshGlwPanelVisibility();
   loadFonts().catch(() => {});

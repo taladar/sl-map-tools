@@ -182,7 +182,7 @@ pub struct GlwOverlayArgs {
     pub glw_output_file: Option<PathBuf>,
     /// override the GLW base URL (including the `glw127`/version path
     /// segment). Defaults to the workspace default
-    /// (http://globalwind.net/glw127/). Ignored when --glw-input-file
+    /// (<http://globalwind.net/glw127/>). Ignored when --glw-input-file
     /// is set.
     #[clap(long)]
     pub glw_base_url: Option<url::Url>,

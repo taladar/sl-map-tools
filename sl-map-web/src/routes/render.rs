@@ -118,7 +118,7 @@ pub enum GlwSource {
 }
 
 /// Optional per-element style overrides for the GLW overlay. All
-/// hex-colour strings are validated server-side via [`parse_color`].
+/// hex-colour strings are validated server-side via `parse_color`.
 /// Absent fields fall back to [`sl_glw::GlwStyle::default`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GlwStyleOverrides {

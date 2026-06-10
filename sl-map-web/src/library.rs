@@ -115,7 +115,7 @@ const fn is_unicode_format(c: char) -> bool {
 /// control character (`char::is_control` — NUL, TAB, LF, CR, the C1
 /// control block, DEL), or contains any unicode `Cf` Format character
 /// (bidi overrides, zero-width joiners, the BOM, language-tag block,
-/// etc. — see [`is_unicode_format`]). `field` is interpolated into the
+/// etc. — see `is_unicode_format`). `field` is interpolated into the
 /// error message so the caller does not need to repeat the label.
 ///
 /// # Errors

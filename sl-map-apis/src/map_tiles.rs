@@ -1392,10 +1392,16 @@ impl Map {
     /// without any network access (it only touches the image and the spline
     /// crate).
     ///
+    /// It is public so callers that already hold resolved grid coordinates (for
+    /// example to compute overlay occupancy via [`crate::coverage`]) can draw a
+    /// route onto a [`Self::blank`] map without any network access, by first
+    /// converting their coordinates with
+    /// [`MapLike::pixel_coordinates_for_coordinates`].
+    ///
     /// # Errors
     ///
     /// returns an error if the spline crate returns an error
-    fn draw_pixel_waypoint_route(
+    pub fn draw_pixel_waypoint_route(
         &mut self,
         pixel_waypoints: &[(f32, f32)],
         color: image::Rgba<u8>,
@@ -1548,6 +1554,60 @@ impl Map {
             last_point = Some(point);
         }
         Ok(())
+    }
+
+    /// creates a blank `Map` with a fully transparent RGBA image sized for the
+    /// given grid rectangle at the given zoom level, without any network access.
+    ///
+    /// Unlike [`Self::new`] (which builds an RGB8 base map from fetched tiles)
+    /// this uses an RGBA8 image so untouched pixels have alpha 0. That is what
+    /// the [`crate::coverage`] occupancy analysis relies on to tell pixels that
+    /// were drawn on (route, GLW shapes/labels) apart from blank ones. The pixel
+    /// geometry (dimensions and
+    /// [`MapLike::pixel_coordinates_for_coordinates`]) depends only on the zoom
+    /// level and grid rectangle, not the channel count, so drawing overlays onto
+    /// this blank map yields exactly the same pixel positions as the real render.
+    #[must_use]
+    pub fn blank(grid_rectangle: GridRectangle, zoom_level: ZoomLevel) -> Self {
+        let width = <u16 as Into<u32>>::into(zoom_level.pixels_per_region())
+            * <u16 as Into<u32>>::into(grid_rectangle.size_x());
+        let height = <u16 as Into<u32>>::into(zoom_level.pixels_per_region())
+            * <u16 as Into<u32>>::into(grid_rectangle.size_y());
+        Self {
+            zoom_level,
+            grid_rectangle,
+            image: image::DynamicImage::ImageRgba8(image::RgbaImage::new(width, height)),
+        }
+    }
+
+    /// creates a blank `Map` sized exactly as [`Self::new`] would size it for the
+    /// given maximum output dimensions, without any network access.
+    ///
+    /// This reproduces the zoom-fit logic of [`Self::new_with_progress`] so the
+    /// resulting blank map has the identical pixel dimensions the real render
+    /// would have for the same `grid_rectangle` and the same caps. See
+    /// [`Self::blank`] for why the image is RGBA8.
+    ///
+    /// # Errors
+    ///
+    /// returns an error if the zoom level that fits the rectangle into the
+    /// output image cannot be calculated
+    #[expect(
+        clippy::result_large_err,
+        reason = "returns the same large MapError as the other Map constructors for a consistent error type at call sites; the only failure here is the zoom-fit calculation"
+    )]
+    pub fn blank_fit(
+        grid_rectangle: GridRectangle,
+        max_width: u32,
+        max_height: u32,
+    ) -> Result<Self, MapError> {
+        let zoom_level = ZoomLevel::max_zoom_level_to_fit_regions_into_output_image(
+            grid_rectangle.size_x(),
+            grid_rectangle.size_y(),
+            max_width,
+            max_height,
+        )?;
+        Ok(Self::blank(grid_rectangle, zoom_level))
     }
 
     /// creates a blank `Map` with a transparent image of the given size for

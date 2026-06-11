@@ -111,6 +111,17 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/api/render/grid-rectangle", post(render::grid_rectangle))
         .route("/api/render/usb-notecard", post(render::usb_notecard))
+        // read-only: where on the map (corners / side midpoints / centre) is
+        // free of overlay content, so the UI can offer placement of a legend,
+        // logo or label before the final render
+        .route(
+            "/api/render/placement-slots/grid-rectangle",
+            post(render::free_placement_slots_grid_rectangle),
+        )
+        .route(
+            "/api/render/placement-slots/usb-notecard",
+            post(render::free_placement_slots_usb_notecard),
+        )
         .route("/api/render/{id}/events", get(events::events))
         .route("/api/render/{id}/image", get(result::image))
         .route(

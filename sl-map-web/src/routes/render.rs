@@ -12,6 +12,7 @@ use axum::Json;
 use axum::extract::{Multipart, State};
 use bytes::Bytes;
 use chrono::Utc;
+use image::GenericImageView as _;
 use image::{ImageFormat, Rgba};
 use serde::{Deserialize, Serialize};
 use sl_map_apis::map_tiles::{Map, MapProgressEvent};
@@ -454,6 +455,245 @@ pub async fn usb_notecard(
         job_id,
         notecard: Some(notecard_summary),
     }))
+}
+
+// =====================================================================
+// Free-placement-slot detection — read-only preview, no DB writes.
+//
+// Reports which of nine fixed anchor positions (the four corners, the four
+// side midpoints and the centre) are free of overlay content (route + GLW
+// shapes/labels) so the UI can offer them as placement targets for a legend,
+// logo or label *before* the final render. Computed by drawing the overlays
+// onto a blank (no base tiles) map and measuring the empty space; see
+// [`sl_map_apis::coverage`].
+// =====================================================================
+
+/// An axis-aligned rectangle in image pixel coordinates (origin top-left).
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct PixelRectDto {
+    /// x coordinate of the left edge in pixels.
+    pub x: u32,
+    /// y coordinate of the top edge in pixels.
+    pub y: u32,
+    /// width in pixels.
+    pub width: u32,
+    /// height in pixels.
+    pub height: u32,
+}
+
+/// One of the nine candidate placement anchors and how much free space it has.
+#[derive(Debug, Clone, Serialize)]
+pub struct SlotDto {
+    /// the anchor name (`top_left`, `top_center`, …, `center`, …,
+    /// `bottom_right`).
+    pub anchor: &'static str,
+    /// whether the anchor itself is free of overlay content.
+    pub available: bool,
+    /// the largest empty rectangle that can be placed anchored here, or
+    /// `null` when the anchor is covered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub free_rect: Option<PixelRectDto>,
+    /// width of [`Self::free_rect`] in pixels (`0` when covered).
+    pub free_width: u32,
+    /// height of [`Self::free_rect`] in pixels (`0` when covered).
+    pub free_height: u32,
+    /// fraction (`0.0..=1.0`) of the local third-of-the-map region around the
+    /// anchor that is covered, as a density hint.
+    pub occupied_fraction: f32,
+    /// orthogonally adjacent anchors that share one contiguous free area with
+    /// this anchor, so they can be combined for a larger element.
+    pub connected_neighbours: Vec<&'static str>,
+}
+
+/// Response shape for the `placement-slots` endpoints.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlacementSlotsResponse {
+    /// width in pixels of the image the final render will produce.
+    pub image_width: u32,
+    /// height in pixels of the image the final render will produce.
+    pub image_height: u32,
+    /// the nine candidate anchors, in reading order.
+    pub slots: Vec<SlotDto>,
+}
+
+/// Stable snake_case name for a [`sl_map_apis::coverage::SlotAnchor`].
+const fn anchor_name(anchor: sl_map_apis::coverage::SlotAnchor) -> &'static str {
+    use sl_map_apis::coverage::SlotAnchor as A;
+    match anchor {
+        A::TopLeft => "top_left",
+        A::TopCenter => "top_center",
+        A::TopRight => "top_right",
+        A::MiddleLeft => "middle_left",
+        A::Center => "center",
+        A::MiddleRight => "middle_right",
+        A::BottomLeft => "bottom_left",
+        A::BottomCenter => "bottom_center",
+        A::BottomRight => "bottom_right",
+    }
+}
+
+/// Reduce a drawn-on blank map to the nine-slot placement report.
+fn compute_placement_slots(map: &Map) -> PlacementSlotsResponse {
+    let image = sl_map_apis::map_tiles::MapLike::image(map);
+    let (image_width, image_height) = image.dimensions();
+    let slots = sl_map_apis::coverage::OccupancyGrid::from_map(
+        map,
+        sl_map_apis::coverage::DEFAULT_COVERAGE_GRID,
+    )
+    .evaluate_slots()
+    .into_iter()
+    .map(|slot| SlotDto {
+        anchor: anchor_name(slot.anchor),
+        available: slot.available,
+        free_rect: slot.free_rect.map(|r| PixelRectDto {
+            x: r.x,
+            y: r.y,
+            width: r.width,
+            height: r.height,
+        }),
+        free_width: slot.free_size.0,
+        free_height: slot.free_size.1,
+        occupied_fraction: slot.occupied_fraction,
+        connected_neighbours: slot
+            .connected_neighbours
+            .into_iter()
+            .map(anchor_name)
+            .collect(),
+    })
+    .collect();
+    PlacementSlotsResponse {
+        image_width,
+        image_height,
+        slots,
+    }
+}
+
+/// Resolve a GLW source to an event WITHOUT any persistence (unlike
+/// [`resolve_glw_event`], which inserts a `saved_glw_data` row for fresh-fetch
+/// sources). Used by the read-only placement-slots preview. `SavedId` still
+/// goes through the same read-permission gate.
+async fn resolve_glw_event_readonly(
+    state: &AppState,
+    user_id: Uuid,
+    source: &GlwSource,
+) -> Result<Option<sl_glw::GlwEvent>, Error> {
+    match source {
+        GlwSource::SavedId { glw_data_id } => {
+            let row =
+                crate::library::assert_can_read_glw_data(&state.db, user_id, *glw_data_id).await?;
+            Ok(Some(serde_json::from_str(&row.payload_json)?))
+        }
+        GlwSource::EventId { event_id } => {
+            let id = sl_glw::EventId::new(*event_id);
+            let mut cache = state.glw_event_cache.lock().await;
+            Ok(cache.get_event_by_id(id).await?)
+        }
+        GlwSource::EventKey { event_key } => {
+            let key = sl_glw::GlwEventKey::new(event_key);
+            let mut cache = state.glw_event_cache.lock().await;
+            Ok(cache.get_event_by_key(&key).await?)
+        }
+        GlwSource::PastedJson { payload } => Ok(Some(serde_json::from_str(payload)?)),
+    }
+}
+
+/// Draw the GLW overlay onto `map` for occupancy purposes only: the legend is
+/// deliberately excluded (it is a *candidate* element to be placed, not a
+/// constraint), so it does not block its own slot. Per-shape labels are kept
+/// because they mark real overlay positions.
+async fn apply_glw_overlay_readonly(
+    state: &AppState,
+    user_id: Uuid,
+    options: &GlwRenderOptions,
+    map: &mut Map,
+) -> Result<(), Error> {
+    use sl_glw::MapLikeGlwExt as _;
+    let font_path = state
+        .fonts
+        .path_for(&options.font_id)
+        .ok_or_else(|| Error::BadRequest(format!("unknown font_id `{}`", options.font_id)))?;
+    let font_bytes = fs_err::read(font_path)?;
+    let font = ab_glyph::FontVec::try_from_vec(font_bytes)?;
+    let Some(event) = resolve_glw_event_readonly(state, user_id, &options.source).await? else {
+        tracing::warn!("GLW event not found; placement slots computed without overlay");
+        return Ok(());
+    };
+    let mut style = build_glw_style(&options.style)?;
+    style.legend_position = sl_glw::LegendPosition::None;
+    map.draw_glw_event_with_font(&event, &style, &font)?;
+    Ok(())
+}
+
+/// `POST /api/render/placement-slots/grid-rectangle` — report the free
+/// placement slots for an explicit-corner render (optional GLW overlay), with
+/// no route. Read-only: nothing is persisted.
+///
+/// # Errors
+///
+/// Returns an error if the dimensions are invalid, the GLW colours fail to
+/// parse, or a referenced GLW row cannot be read.
+pub async fn free_placement_slots_grid_rectangle(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Json(req): Json<GridRectangleRequest>,
+) -> Result<Json<PlacementSlotsResponse>, Error> {
+    validate_dimensions(req.max_width, req.max_height)?;
+    let rect = GridRectangle::new(
+        GridCoordinates::new(req.lower_left_x, req.lower_left_y),
+        GridCoordinates::new(req.upper_right_x, req.upper_right_y),
+    );
+    let mut map = Map::blank_fit(rect, req.max_width, req.max_height)?;
+    if let Some(glw) = req.glw.as_ref() {
+        apply_glw_overlay_readonly(&state, user.user_id, glw, &mut map).await?;
+    }
+    Ok(Json(compute_placement_slots(&map)))
+}
+
+/// `POST /api/render/placement-slots/usb-notecard` — report the free
+/// placement slots for a notecard render (route + optional GLW overlay).
+/// Read-only: the notecard is parsed/loaded but never copied or persisted,
+/// and no GLW row is inserted.
+///
+/// # Errors
+///
+/// Returns an error if the form is malformed, the notecard cannot be parsed
+/// or read, a region cannot be resolved, or the GLW overlay fails to resolve.
+pub async fn free_placement_slots_usb_notecard(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    multipart: Multipart,
+) -> Result<Json<PlacementSlotsResponse>, Error> {
+    let parsed = parse_render_form(multipart).await?;
+    // Read-only notecard resolution (no auto-copy, no persistence).
+    let notecard: USBNotecard = match &parsed.notecard_source {
+        NotecardSource::Fresh { text, .. } => text.parse()?,
+        NotecardSource::Existing { notecard_id } => {
+            let row =
+                crate::library::assert_can_read_notecard(&state.db, user.user_id, *notecard_id)
+                    .await?;
+            row.body.parse()?
+        }
+    };
+    let (border_north, border_south, border_east, border_west) = parsed.borders;
+    let rect = {
+        let mut region = state.region_cache.lock().await;
+        usb_notecard_to_grid_rectangle(&mut region, &notecard).await?
+    }
+    .expanded_west(border_west)
+    .expanded_east(border_east)
+    .expanded_south(border_south)
+    .expanded_north(border_north);
+    let mut map = Map::blank_fit(rect, parsed.common.max_width, parsed.common.max_height)?;
+    // Same layering as the real render: GLW under the route.
+    if let Some(glw) = parsed.glw.as_ref() {
+        apply_glw_overlay_readonly(&state, user.user_id, glw, &mut map).await?;
+    }
+    {
+        let mut region = state.region_cache.lock().await;
+        map.draw_route_with_progress(&mut region, &notecard, parsed.color, None)
+            .await?;
+    }
+    Ok(Json(compute_placement_slots(&map)))
 }
 
 /// Map a [`OutputFormat`] to its lowercase name used in the persisted
@@ -1549,4 +1789,63 @@ async fn rewrite_settings_json_with_saved_glw(
     opts.source = GlwSource::SavedId { glw_data_id };
     let json = serde_json::to_string(&parsed)?;
     Ok(Some(json))
+}
+
+#[cfg(test)]
+mod placement_slots_tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use sl_types::map::ZoomLevel;
+
+    fn blank_map() -> Result<Map, Box<dyn std::error::Error>> {
+        // a 4x4 region rectangle at zoom 4 -> 128x128 pixels
+        let rect = GridRectangle::new(
+            GridCoordinates::new(1000, 1000),
+            GridCoordinates::new(1003, 1003),
+        );
+        Ok(Map::blank(rect, ZoomLevel::try_new(4)?))
+    }
+
+    #[test]
+    fn empty_map_reports_nine_free_slots() -> Result<(), Box<dyn std::error::Error>> {
+        let map = blank_map()?;
+        let resp = compute_placement_slots(&map);
+        assert_eq!(resp.slots.len(), 9);
+        assert_eq!((resp.image_width, resp.image_height), (128, 128));
+        // with no overlay drawn (and the legend excluded by design) every
+        // anchor is free, including the legend's default top-left corner
+        for s in &resp.slots {
+            assert!(s.available, "{} should be free", s.anchor);
+        }
+        let top_left = resp
+            .slots
+            .iter()
+            .find(|s| s.anchor == "top_left")
+            .ok_or("missing top_left slot")?;
+        assert!(top_left.free_rect.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn route_blocks_centre_slot() -> Result<(), Box<dyn std::error::Error>> {
+        let mut map = blank_map()?;
+        map.draw_pixel_waypoint_route(
+            &[(10f32, 10f32), (64f32, 64f32), (118f32, 118f32)],
+            Rgba([255, 0, 0, 255]),
+        )?;
+        let resp = compute_placement_slots(&map);
+        let center = resp
+            .slots
+            .iter()
+            .find(|s| s.anchor == "center")
+            .ok_or("missing center slot")?;
+        assert!(!center.available);
+        let top_right = resp
+            .slots
+            .iter()
+            .find(|s| s.anchor == "top_right")
+            .ok_or("missing top_right slot")?;
+        assert!(top_right.available);
+        Ok(())
+    }
 }

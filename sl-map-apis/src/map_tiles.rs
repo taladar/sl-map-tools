@@ -1381,6 +1381,25 @@ impl Map {
             )]
             pixel_waypoints.push((x as f32, y as f32));
         }
+        self.draw_pixel_waypoint_route(&pixel_waypoints, color)?;
+        Ok(())
+    }
+
+    /// draws a route through the given already-resolved pixel coordinates
+    ///
+    /// This is the pure geometry/rasterization half of
+    /// [`Self::draw_route_with_progress`], split out so it can be unit tested
+    /// without any network access (it only touches the image and the spline
+    /// crate).
+    ///
+    /// # Errors
+    ///
+    /// returns an error if the spline crate returns an error
+    fn draw_pixel_waypoint_route(
+        &mut self,
+        pixel_waypoints: &[(f32, f32)],
+        color: image::Rgba<u8>,
+    ) -> Result<(), uniform_cubic_splines::SplineError> {
         let waypoint_count = pixel_waypoints.len();
         let Some((first, pixel_waypoints_all_but_first)) = pixel_waypoints.split_first() else {
             // no route if there are no waypoints
@@ -1424,18 +1443,44 @@ impl Map {
                 )?;
             Ok((point_x, point_y))
         };
+        // For the common case (>= 3 waypoints) the parameter that lands on
+        // waypoint `i` keeps its historical value `i / (waypoint_count - 2)` so
+        // route rendering is unchanged. For exactly 2 waypoints the old
+        // denominator was 0 (NaN/inf), so use the mathematically correct uniform
+        // mapping `i / (waypoint_count - 1)` (= `i` for n == 2), which places
+        // waypoint 0 at x = 0 and waypoint 1 at x = 1.
         #[expect(
             clippy::cast_precision_loss,
             reason = "if our waypoint counts get anywhere near 2^23 routes probably will not be finished anyway"
         )]
-        let spline_value_for_waypoint =
-            |i: usize| -> f32 { i as f32 / (waypoint_count as f32 - 2f32) };
+        let waypoint_parameter_denominator = if waypoint_count <= 2 {
+            (waypoint_count as f32 - 1f32).max(1f32)
+        } else {
+            waypoint_count as f32 - 2f32
+        };
+        let spline_value_for_waypoint = |i: usize| -> f32 {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "if our waypoint counts get anywhere near 2^23 routes probably will not be finished anyway"
+            )]
+            let i = i as f32;
+            i / waypoint_parameter_denominator
+        };
         let spline_value_between_waypoints = spline_value_for_waypoint(1);
         let distance_between_points = |(x1, y1): (f32, f32), (x2, y2): (f32, f32)| -> f32 {
             ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt()
         };
         let mut last_point: Option<(f32, f32)> = None;
-        for (i, waypoint) in pixel_waypoints.iter().enumerate().take(waypoint_count - 1) {
+        // For >= 3 waypoints we iterate over all but the last waypoint (the
+        // historical behaviour). For exactly 2 waypoints we must also reach the
+        // second waypoint (i == 1) so that `last_point` is `Some` and the curve
+        // between the two waypoints is actually drawn (otherwise nothing renders).
+        let outer_loop_count = if waypoint_count <= 2 {
+            waypoint_count
+        } else {
+            waypoint_count - 1
+        };
+        for (i, waypoint) in pixel_waypoints.iter().enumerate().take(outer_loop_count) {
             /// size of rectangles to use to draw the spline, should be odd
             /// or it won't be centered properly
             const SPLINE_RECT_SIZE: u8 = 3;
@@ -1459,13 +1504,26 @@ impl Map {
                 )]
                 let samples_between_last_waypoint_and_this_one =
                     (0.5f32 * distance_from_last_point / f32::from(SPLINE_RECT_SIZE)) as u32;
+                // The historical step uses `samples - 2` as the denominator so
+                // that at j = samples - 1 the factor slightly exceeds 1 and the
+                // drawing "overshoots" one sample past the previous waypoint for
+                // gap-free coverage. That denominator is 0 when samples == 2
+                // (NaN parameter -> stray rects at the clamped (0,0) corner), so
+                // floor it to 1 in that single case. For samples >= 3 the value
+                // is unchanged; samples <= 1 never enters this loop.
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "if our waypoints are so far apart that we end up with 2^23 or more samples between two waypoints something is very broken anyway"
+                )]
+                let sample_step_denominator =
+                    (samples_between_last_waypoint_and_this_one as f32 - 2f32).max(1f32);
                 for j in (0..samples_between_last_waypoint_and_this_one).rev() {
                     #[expect(
                         clippy::cast_precision_loss,
                         reason = "if our waypoints are so far apart that we end up with 2^23 or more samples between two waypoints something is very broken anyway"
                     )]
-                    let v = v - spline_value_between_waypoints
-                        * (j as f32 / (samples_between_last_waypoint_and_this_one as f32 - 2f32));
+                    let v =
+                        v - spline_value_between_waypoints * (j as f32 / sample_step_denominator);
                     let sample_point = sample(v)?;
                     #[expect(
                         clippy::cast_possible_truncation,
@@ -1490,6 +1548,26 @@ impl Map {
             last_point = Some(point);
         }
         Ok(())
+    }
+
+    /// creates a blank `Map` with a transparent image of the given size for
+    /// use in tests that exercise the pure drawing geometry without any network
+    /// access
+    #[cfg(test)]
+    fn new_blank_for_test(width: u32, height: u32) -> Self {
+        #[expect(
+            clippy::expect_used,
+            reason = "zoom level 1 is a compile-time constant within the valid range"
+        )]
+        let zoom_level = ZoomLevel::try_new(1).expect("zoom level 1 is within the valid range");
+        Self {
+            zoom_level,
+            grid_rectangle: GridRectangle::new(
+                GridCoordinates::new(0, 0),
+                GridCoordinates::new(0, 0),
+            ),
+            image: image::DynamicImage::ImageRgba8(image::RgbaImage::new(width, height)),
+        }
     }
 
     /// saves the map to the specified path
@@ -1881,6 +1959,128 @@ mod test {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// background (untouched) pixel of a [`Map::new_blank_for_test`] image
+    #[cfg(test)]
+    const BLANK_PIXEL: [u8; 4] = [0, 0, 0, 0];
+
+    /// counts how many pixels of the map differ from the blank background
+    #[cfg(test)]
+    fn drawn_pixel_count(map: &Map) -> usize {
+        map.image()
+            .pixels()
+            .filter(|(_, _, pixel)| pixel.0 != BLANK_PIXEL)
+            .count()
+    }
+
+    /// Two identical consecutive notecard lines produce a zero-distance segment.
+    /// This exercises the pure drawing geometry (no network) and asserts it
+    /// neither errors/panics nor corrupts the (0,0) corner with a NaN-derived
+    /// rectangle, while still drawing the rest of the route.
+    #[test]
+    fn test_draw_route_identical_consecutive_waypoints_is_safe()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let route_color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let mut map = Map::new_blank_for_test(256, 256);
+        // the middle pair is identical -> zero-distance segment
+        let pixel_waypoints = vec![
+            (100f32, 100f32),
+            (120f32, 120f32),
+            (120f32, 120f32),
+            (140f32, 100f32),
+        ];
+        map.draw_pixel_waypoint_route(&pixel_waypoints, route_color)?;
+        assert!(
+            drawn_pixel_count(&map) > 0,
+            "the route should still draw at least one pixel"
+        );
+        assert_eq!(
+            map.image().get_pixel(0, 0).0,
+            BLANK_PIXEL,
+            "the (0,0) corner must stay background (no NaN-derived rectangle)"
+        );
+        Ok(())
+    }
+
+    /// A two-waypoint route used to draw nothing because
+    /// `spline_value_for_waypoint = i / (waypoint_count - 2)` divided by zero.
+    /// It must now render a visible curve.
+    #[test]
+    fn test_draw_route_two_waypoints_renders() -> Result<(), Box<dyn std::error::Error>> {
+        let route_color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let mut map = Map::new_blank_for_test(256, 256);
+        let pixel_waypoints = vec![(60f32, 60f32), (180f32, 180f32)];
+        map.draw_pixel_waypoint_route(&pixel_waypoints, route_color)?;
+        assert!(
+            drawn_pixel_count(&map) > 0,
+            "a two-waypoint route must draw a visible curve (regression for the waypoint_count - 2 == 0 bug)"
+        );
+        assert_eq!(
+            map.image().get_pixel(0, 0).0,
+            BLANK_PIXEL,
+            "the (0,0) corner must stay background"
+        );
+        Ok(())
+    }
+
+    /// When a segment produces exactly two sub-samples the old inner loop
+    /// divided by `(samples - 2) == 0`, yielding a NaN parameter that saturated
+    /// to coordinate 0 and drew a stray rectangle in the (0,0) corner. Two
+    /// waypoints ~14 px apart give `samples == 2`; assert no corner glitch.
+    #[test]
+    fn test_draw_route_two_sample_segment_has_no_corner_glitch()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let route_color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let mut map = Map::new_blank_for_test(256, 256);
+        let pixel_waypoints = vec![(100f32, 100f32), (110f32, 110f32)];
+        map.draw_pixel_waypoint_route(&pixel_waypoints, route_color)?;
+        assert_eq!(
+            map.image().get_pixel(0, 0).0,
+            BLANK_PIXEL,
+            "samples == 2 must not draw a NaN-derived rectangle at the (0,0) corner"
+        );
+        Ok(())
+    }
+
+    /// The bundled real route notecard contains an actual duplicate consecutive
+    /// waypoint line; confirm the parser accepts it and the duplicate survives,
+    /// since that is the real-world input that motivated the zero-distance work.
+    #[test]
+    fn test_real_notecard_with_duplicate_consecutive_lines_parses()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notecard: USBNotecard = include_str!("../../tscc-2026-03-30.txt").parse()?;
+        let has_identical_consecutive = notecard
+            .waypoints()
+            .windows(2)
+            .any(|pair| matches!(pair, [first, second] if first.location() == second.location()));
+        assert!(
+            has_identical_consecutive,
+            "tscc-2026-03-30.txt is expected to contain identical consecutive waypoints"
+        );
+        Ok(())
+    }
+
+    /// End-to-end (network) smoke test: drawing a real route notecard that
+    /// contains identical consecutive lines must complete without error.
+    #[tokio::test]
+    async fn test_draw_real_route_with_duplicate_line() -> Result<(), Box<dyn std::error::Error>> {
+        let notecard: USBNotecard = include_str!("../../tscc-2026-03-30.txt").parse()?;
+        let temp_dir = tempfile::tempdir()?;
+        let mut map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
+        let mut region_cache =
+            RegionNameToGridCoordinatesCache::new(temp_dir.path().to_path_buf())?;
+        let grid_rectangle =
+            crate::region::usb_notecard_to_grid_rectangle(&mut region_cache, &notecard).await?;
+        let mut map = Map::new(&mut map_tile_cache, 512, 512, grid_rectangle, None, None).await?;
+        map.draw_route_with_progress(
+            &mut region_cache,
+            &notecard,
+            image::Rgba([255u8, 0u8, 0u8, 255u8]),
+            None,
+        )
+        .await?;
         Ok(())
     }
 }

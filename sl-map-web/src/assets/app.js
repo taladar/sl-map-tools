@@ -694,6 +694,8 @@ $("grid_render").addEventListener("click", async () => {
       save_to: $("save_to").value,
     };
     if (glw) body.glw = glw;
+    const labels = readLabels();
+    if (labels.length) body.labels = labels;
     const resp = await fetch("/api/render/grid-rectangle", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -729,6 +731,8 @@ $("notecard_render").addEventListener("click", async () => {
     if (withWithoutRoute) fd.append("save_without_route", "true");
     const glw = readGlwOptions();
     if (glw) fd.append("glw_json", JSON.stringify(glw));
+    const labels = readLabels();
+    if (labels.length) fd.append("labels_json", JSON.stringify(labels));
     const resp = await fetch("/api/render/usb-notecard", {
       method: "POST",
       body: fd,
@@ -808,6 +812,7 @@ function applySettings(s) {
       $("missing_region_color").value = s.missing_region_color;
     }
     applyGlwSettings(s.glw);
+    applyLabels(s.labels);
     const tab = document.querySelector('.tab[data-tab="grid"]');
     if (tab) tab.click();
   } else if (s.kind === "usb_notecard") {
@@ -834,6 +839,7 @@ function applySettings(s) {
       selectReuseNotecard(s.notecard_id).catch(() => {});
     }
     applyGlwSettings(s.glw);
+    applyLabels(s.labels);
     const tab = document.querySelector('.tab[data-tab="notecard"]');
     if (tab) tab.click();
   }
@@ -929,6 +935,7 @@ async function loadFonts() {
     const resp = await fetch("/api/fonts");
     if (!resp.ok) return;
     const { fonts } = await resp.json();
+    loadedFonts = fonts;
     sel.replaceChildren();
     for (const f of fonts) {
       const opt = document.createElement("option");
@@ -937,6 +944,10 @@ async function loadFonts() {
       sel.appendChild(opt);
     }
     if (fonts.length === 1) sel.value = fonts[0].id;
+    // refill any per-label font dropdowns now that the list is known
+    document
+      .querySelectorAll(".label-font")
+      .forEach((labelSel) => populateFontSelect(labelSel));
   } catch (err) {
     console.error("font list failed:", err);
   }
@@ -1078,6 +1089,8 @@ function readGlwOptions() {
       : null,
   };
   const opts = { source, font_id: fontId, style };
+  const legendSlot = $("glw_legend_slot");
+  if (legendSlot) opts.legend_slot = legendSlot.value;
   if (activeGlwSource() !== "saved") {
     const saveAs = $("glw_save_as").value.trim();
     if (saveAs) opts.save_as = saveAs;
@@ -1137,6 +1150,8 @@ function applyGlwSettings(glw) {
   $("glw_enabled").checked = true;
   refreshGlwPanelVisibility();
   if (glw.font_id) $("glw_font_id").value = glw.font_id;
+  if (glw.legend_slot && $("glw_legend_slot"))
+    $("glw_legend_slot").value = glw.legend_slot;
   if (glw.save_as) $("glw_save_as").value = glw.save_as;
   // settings_json carries the SavedId carrier exclusively (see the
   // backend rewrite step) so we only ever have to handle this case.
@@ -1184,4 +1199,423 @@ document.addEventListener("DOMContentLoaded", () => {
   refreshGlwPanelVisibility();
   loadFonts().catch(() => {});
   loadGlwStyleDefaults().catch(() => {});
+});
+
+// =====================================================================
+// Placement slots & text labels
+// =====================================================================
+
+// The nine placement-slot anchors, in 3x3 reading order, with labels.
+const SLOT_ANCHORS = [
+  "top_left",
+  "top_center",
+  "top_right",
+  "middle_left",
+  "center",
+  "middle_right",
+  "bottom_left",
+  "bottom_center",
+  "bottom_right",
+];
+const SLOT_LABELS = {
+  top_left: "Top left",
+  top_center: "Top centre",
+  top_right: "Top right",
+  middle_left: "Middle left",
+  center: "Centre",
+  middle_right: "Middle right",
+  bottom_left: "Bottom left",
+  bottom_center: "Bottom centre",
+  bottom_right: "Bottom right",
+};
+
+// Fonts from /api/fonts, shared between the GLW dropdown and the per-label
+// dropdowns. Filled by loadFonts().
+let loadedFonts = [];
+
+// The most recent placement-slots response, keyed by anchor, or null if it
+// has not been computed (or was invalidated by a tab switch). Used to check
+// label fit before submitting a render.
+let lastPlacementSlots = null;
+
+// Fill a per-label font <select> from loadedFonts, preserving the desired
+// selection across reloads via dataset.want.
+function populateFontSelect(sel, selected) {
+  if (!sel) return;
+  if (selected) sel.dataset.want = selected;
+  sel.replaceChildren();
+  for (const f of loadedFonts) {
+    const opt = document.createElement("option");
+    opt.value = f.id;
+    opt.textContent = f.name;
+    sel.appendChild(opt);
+  }
+  if (sel.dataset.want) sel.value = sel.dataset.want;
+  else if (loadedFonts.length === 1) sel.value = loadedFonts[0].id;
+}
+
+// The outward default alignment for a slot anchor, matching the server's
+// SlotAnchor::default_alignment (top_left -> left/top, center -> centre, ...).
+function slotDefaultAlign(anchor) {
+  if (anchor === "center") return { h: "center", v: "center" };
+  const [vertical, horizontal] = anchor.split("_");
+  const v =
+    vertical === "top" ? "top" : vertical === "bottom" ? "bottom" : "center";
+  const h =
+    horizontal === "left"
+      ? "left"
+      : horizontal === "right"
+        ? "right"
+        : "center";
+  return { h, v };
+}
+
+// Whether a label row has no text (all lines blank).
+function labelRowBlank(row) {
+  return row
+    .querySelector(".label-lines")
+    .value.split("\n")
+    .every((l) => l.trim() === "");
+}
+
+// The slot the legend occupies, or null when GLW is off or the legend is
+// hidden. Labels may not share this slot.
+function legendSlotValue() {
+  if (!$("glw_enabled").checked) return null;
+  const sel = $("glw_legend_slot");
+  if (!sel) return null;
+  return sel.value === "none" ? null : sel.value;
+}
+
+// Enable/disable both Generate buttons together.
+function setGenerateEnabled(ok) {
+  for (const id of ["grid_render", "notecard_render"]) {
+    const btn = $(id);
+    if (btn) btn.disabled = !ok;
+  }
+}
+
+// Preset a row's alignment dropdowns to its slot's outward default, unless
+// the user has already changed them (dataset.touched).
+function presetAligns(row) {
+  const anchor = row.querySelector(".label-slot").value;
+  const def = slotDefaultAlign(anchor);
+  const h = row.querySelector(".label-halign");
+  const v = row.querySelector(".label-valign");
+  if (!h.dataset.touched) h.value = def.h;
+  if (!v.dataset.touched) v.value = def.v;
+}
+
+// Read the current label rows into the request shape. Blank labels are
+// dropped. h_align/v_align are always sent (preset to the slot default).
+function readLabels() {
+  const out = [];
+  for (const row of document.querySelectorAll("#labels-list .label-row")) {
+    if (labelRowBlank(row)) continue;
+    out.push({
+      slot: row.querySelector(".label-slot").value,
+      lines: row.querySelector(".label-lines").value.split("\n"),
+      font_id: row.querySelector(".label-font").value,
+      font_px: parseFloat(row.querySelector(".label-size").value),
+      color: row.querySelector(".label-color").value,
+      h_align: row.querySelector(".label-halign").value,
+      v_align: row.querySelector(".label-valign").value,
+    });
+  }
+  return out;
+}
+
+// Measure one label row's rendered text size against the server, cache it on
+// the row, then re-run validation.
+async function measureLabelRow(row) {
+  const lines = row.querySelector(".label-lines").value.split("\n");
+  const fontId = row.querySelector(".label-font").value;
+  const fontPx = parseFloat(row.querySelector(".label-size").value);
+  row.dataset.measured = "";
+  const blank = lines.every((l) => l.trim() === "");
+  if (blank || !fontId || !Number.isFinite(fontPx) || fontPx <= 0) {
+    validateLabels();
+    return;
+  }
+  try {
+    const resp = await fetch("/api/text/measure", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ font_id: fontId, font_px: fontPx, lines }),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const { width, height } = await resp.json();
+    row.dataset.mw = String(width);
+    row.dataset.mh = String(height);
+    row.dataset.measured = "1";
+  } catch (err) {
+    row.dataset.measured = "";
+    row.querySelector(".label-measure").textContent =
+      `Could not measure text: ${err.message}`;
+  }
+  validateLabels();
+}
+
+// Validate every label row, write inline errors next to the offending
+// control, and enable/disable the Generate buttons. Mirrors the server-side
+// checks in draw_labels_on_map.
+function validateLabels() {
+  const rows = [...document.querySelectorAll("#labels-list .label-row")];
+  const legendErr = $("glw_legend_slot_error");
+  if (legendErr) legendErr.textContent = "";
+  const legendSlot = legendSlotValue();
+  let ok = true;
+
+  // count slot usage among non-blank labels
+  const slotCount = {};
+  for (const row of rows) {
+    if (labelRowBlank(row)) continue;
+    const slot = row.querySelector(".label-slot").value;
+    slotCount[slot] = (slotCount[slot] || 0) + 1;
+  }
+
+  for (const row of rows) {
+    const slotErr = row.querySelector(".label-slot-error");
+    const sizeErr = row.querySelector(".label-size-error");
+    const measureEl = row.querySelector(".label-measure");
+    slotErr.textContent = "";
+    sizeErr.textContent = "";
+    measureEl.textContent = "";
+    if (labelRowBlank(row)) continue;
+
+    const slot = row.querySelector(".label-slot").value;
+    if (legendSlot && slot === legendSlot) {
+      slotErr.textContent = "This slot is used by the legend.";
+      if (legendErr)
+        legendErr.textContent = "A text label also uses this slot.";
+      ok = false;
+    }
+    if (slotCount[slot] > 1) {
+      slotErr.textContent = "Another label already uses this slot.";
+      ok = false;
+    }
+
+    if (!lastPlacementSlots) {
+      measureEl.textContent = 'Run "Find free slots" to check this label fits.';
+      ok = false;
+      continue;
+    }
+    const ps = lastPlacementSlots[slot];
+    if (!ps || !ps.available) {
+      if (!slotErr.textContent)
+        slotErr.textContent = "This slot is covered by route / GLW content.";
+      ok = false;
+      continue;
+    }
+    if (row.dataset.measured === "1") {
+      const mw = parseInt(row.dataset.mw, 10);
+      const mh = parseInt(row.dataset.mh, 10);
+      measureEl.textContent = `Text ${mw}×${mh}px — slot free ${ps.free_width}×${ps.free_height}px`;
+      if (mw > ps.free_width || mh > ps.free_height) {
+        sizeErr.textContent = `Too large for this slot (max ${ps.free_width}×${ps.free_height}px); reduce the font size or text.`;
+        ok = false;
+      }
+    }
+  }
+  setGenerateEnabled(ok);
+}
+
+// Restore a label row's controls from a saved TextLabel (regenerate).
+function applyLabelPreset(row, l) {
+  if (Array.isArray(l.lines))
+    row.querySelector(".label-lines").value = l.lines.join("\n");
+  if (l.font_id)
+    populateFontSelect(row.querySelector(".label-font"), l.font_id);
+  if (l.font_px != null) row.querySelector(".label-size").value = l.font_px;
+  if (l.color) row.querySelector(".label-color").value = l.color;
+  if (l.slot) row.querySelector(".label-slot").value = l.slot;
+  const h = row.querySelector(".label-halign");
+  const v = row.querySelector(".label-valign");
+  if (l.h_align) {
+    h.value = l.h_align;
+    h.dataset.touched = "1";
+  }
+  if (l.v_align) {
+    v.value = l.v_align;
+    v.dataset.touched = "1";
+  }
+}
+
+// Add a new label row (optionally pre-filled from a saved TextLabel) and
+// wire up its listeners.
+function addLabelRow(preset) {
+  const tpl = $("label-row-template");
+  if (!tpl) return null;
+  const row = tpl.content.firstElementChild.cloneNode(true);
+
+  const slotSel = row.querySelector(".label-slot");
+  for (const a of SLOT_ANCHORS) {
+    const opt = document.createElement("option");
+    opt.value = a;
+    opt.textContent = SLOT_LABELS[a];
+    slotSel.appendChild(opt);
+  }
+  populateFontSelect(row.querySelector(".label-font"));
+
+  const measure = debounce(() => measureLabelRow(row), 300);
+  row.querySelector(".label-lines").addEventListener("input", measure);
+  row.querySelector(".label-size").addEventListener("input", measure);
+  row.querySelector(".label-font").addEventListener("change", measure);
+  slotSel.addEventListener("change", () => {
+    presetAligns(row);
+    validateLabels();
+  });
+  const h = row.querySelector(".label-halign");
+  const v = row.querySelector(".label-valign");
+  h.addEventListener("change", () => {
+    h.dataset.touched = "1";
+    validateLabels();
+  });
+  v.addEventListener("change", () => {
+    v.dataset.touched = "1";
+    validateLabels();
+  });
+  row.querySelector(".label-remove").addEventListener("click", () => {
+    row.remove();
+    validateLabels();
+  });
+
+  $("labels-list").appendChild(row);
+  if (preset) applyLabelPreset(row, preset);
+  presetAligns(row);
+  measureLabelRow(row);
+  return row;
+}
+
+// Replace all label rows from saved settings (regenerate).
+function applyLabels(labels) {
+  const list = $("labels-list");
+  if (list) list.replaceChildren();
+  if (Array.isArray(labels)) {
+    for (const l of labels) addLabelRow(l);
+  }
+  validateLabels();
+}
+
+// Render the 3x3 availability grid from a placement-slots response.
+function renderSlotGrid(data) {
+  const grid = $("placement-grid");
+  if (!grid) return;
+  grid.replaceChildren();
+  const byAnchor = {};
+  for (const s of data.slots) byAnchor[s.slot] = s;
+  for (const a of SLOT_ANCHORS) {
+    const s = byAnchor[a] || {
+      available: false,
+      free_width: 0,
+      free_height: 0,
+    };
+    const cell = document.createElement("div");
+    cell.className = `placement-cell ${s.available ? "free" : "occupied"}`;
+    const title = document.createElement("strong");
+    title.textContent = SLOT_LABELS[a];
+    const info = document.createElement("span");
+    info.textContent = s.available
+      ? `${s.free_width}×${s.free_height}px free`
+      : "occupied";
+    cell.append(title, info);
+    grid.appendChild(cell);
+  }
+}
+
+// Compute free placement slots for the active tab (grid or notecard),
+// mirroring the corresponding render request, then refresh the grid and
+// re-validate the labels.
+async function findFreeSlots() {
+  const statusEl = $("placement-status");
+  statusEl.textContent = "Computing free slots…";
+  try {
+    const activeTab = document.querySelector(".tab.active");
+    const which = activeTab ? activeTab.dataset.tab : "grid";
+    let resp;
+    if (which === "grid") {
+      const glw = readGlwOptions();
+      const body = {
+        lower_left_x: parseInt($("ll_x").value, 10),
+        lower_left_y: parseInt($("ll_y").value, 10),
+        upper_right_x: parseInt($("ur_x").value, 10),
+        upper_right_y: parseInt($("ur_y").value, 10),
+        ...readSharedParams(),
+      };
+      if (glw) body.glw = glw;
+      resp = await fetch("/api/render/placement-slots/grid-rectangle", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } else {
+      const fd = new FormData();
+      appendNotecardSourceToForm(fd);
+      appendBordersToForm(fd);
+      const shared = readSharedParams();
+      fd.append("max_width", String(shared.max_width));
+      fd.append("max_height", String(shared.max_height));
+      fd.append("format", shared.format);
+      if (shared.missing_map_tile_color)
+        fd.append("missing_map_tile_color", shared.missing_map_tile_color);
+      if (shared.missing_region_color)
+        fd.append("missing_region_color", shared.missing_region_color);
+      fd.append("color", $("route_color").value);
+      const glw = readGlwOptions();
+      if (glw) fd.append("glw_json", JSON.stringify(glw));
+      resp = await fetch("/api/render/placement-slots/usb-notecard", {
+        method: "POST",
+        body: fd,
+      });
+    }
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    lastPlacementSlots = {};
+    for (const s of data.slots) lastPlacementSlots[s.slot] = s;
+    renderSlotGrid(data);
+    statusEl.textContent = `Free slots for a ${data.image_width}×${data.image_height}px render.`;
+    document
+      .querySelectorAll("#labels-list .label-row")
+      .forEach((row) => measureLabelRow(row));
+    validateLabels();
+  } catch (err) {
+    statusEl.textContent = `Could not compute slots: ${err.message}`;
+  }
+}
+
+// Small debounce helper for the live text measurement.
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const addBtn = $("add_label");
+  if (addBtn)
+    addBtn.addEventListener("click", () => {
+      addLabelRow();
+      validateLabels();
+    });
+  const findBtn = $("find_slots");
+  if (findBtn) findBtn.addEventListener("click", () => findFreeSlots());
+  const legendSel = $("glw_legend_slot");
+  if (legendSel) legendSel.addEventListener("change", validateLabels);
+  const glwEnabled = $("glw_enabled");
+  if (glwEnabled) glwEnabled.addEventListener("change", validateLabels);
+  // The slot occupancy differs between the grid and notecard tabs, so a tab
+  // switch invalidates the cached result.
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      lastPlacementSlots = null;
+      const grid = $("placement-grid");
+      if (grid) grid.replaceChildren();
+      const st = $("placement-status");
+      if (st) st.textContent = "";
+      validateLabels();
+    });
+  });
+  validateLabels();
 });

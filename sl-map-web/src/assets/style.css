@@ -621,3 +621,52 @@ body.auth-page {
   color: var(--muted, #888);
   font-style: italic;
 }
+
+/* --- placement slots & text labels --- */
+
+.field-error {
+  color: #c0392b;
+  font-size: 0.85em;
+  align-self: center;
+}
+
+.placement-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  max-width: 36rem;
+  margin: 0.5rem 0;
+}
+
+.placement-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+  text-align: center;
+  font-size: 0.85em;
+}
+
+.placement-cell.free {
+  border-color: #2e8b57;
+  background: rgba(46, 139, 87, 0.12);
+}
+
+.placement-cell.occupied {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.1);
+  color: var(--muted, #888);
+}
+
+.label-row {
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.label-measure {
+  margin: 0.25rem 0 0;
+}

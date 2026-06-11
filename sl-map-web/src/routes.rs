@@ -14,6 +14,7 @@ pub mod pages;
 pub mod render;
 pub mod renders;
 pub mod result;
+pub mod text;
 pub mod users;
 
 use axum::Router;
@@ -131,6 +132,8 @@ pub fn build(state: AppState) -> Router {
         .route("/api/render/{id}/metadata", get(result::metadata))
         // available fonts (for the GLW label dropdown)
         .route("/api/fonts", get(fonts::list))
+        // rendered text size for the label placement-fit check
+        .route("/api/text/measure", post(text::measure))
         // groups
         .route("/api/groups", get(groups::list_mine).post(groups::create))
         .route(

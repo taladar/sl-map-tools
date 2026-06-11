@@ -6,22 +6,6 @@
 //! tilde-style wave glyphs, and white text labels with a 1-pixel black
 //! drop shadow for legibility on varied tile backgrounds.
 
-/// Position of the optional base wind/current/wave legend on the
-/// rendered map.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LegendPosition {
-    /// Place the legend panel in the top-left corner of the map.
-    TopLeft,
-    /// Place the legend panel in the top-right corner of the map.
-    TopRight,
-    /// Place the legend panel in the bottom-left corner of the map.
-    BottomLeft,
-    /// Place the legend panel in the bottom-right corner of the map.
-    BottomRight,
-    /// Do not render a legend (default).
-    None,
-}
-
 /// Per-element RGBA colours used when drawing a GLW overlay.
 #[derive(Debug, Clone, Copy)]
 pub struct GlwColorPalette {
@@ -96,9 +80,9 @@ pub struct GlwStyle {
     pub label_overrides: bool,
     /// Label font size in pixels.
     pub label_font_px: f32,
-    /// Where to place the base wind/current/wave legend (or `None` to
-    /// skip it).
-    pub legend_position: LegendPosition,
+    /// Which placement slot the base wind/current/wave legend goes in, or
+    /// `None` to skip it (the default).
+    pub legend_position: Option<sl_map_apis::coverage::PlacementSlot>,
     /// Whether to draw a dashed outer rectangle/circle representing the
     /// margin band. Off by default; useful for diagnostic renders.
     pub draw_margin_band: bool,
@@ -125,7 +109,7 @@ impl Default for GlwStyle {
             arrow_thickness_pixels: 6.0,
             label_overrides: true,
             label_font_px: 14.0,
-            legend_position: LegendPosition::None,
+            legend_position: None,
             draw_margin_band: false,
             margin_dash_pixels: 6.0,
             margin_gap_pixels: 4.0,

@@ -309,6 +309,21 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
             color,
         );
     }
+
+    /// draw an arbitrary multi-line text label with a drop shadow at the given
+    /// top-left pixel `origin`, using a caller-supplied font and
+    /// [`crate::text::LabelStyle`]. Lines stack downward. This is the building
+    /// block for free-floating labels (legends, logos captions, manual labels)
+    /// that are not tied to any particular overlay.
+    fn draw_text_label<F: ab_glyph::Font>(
+        &mut self,
+        origin: (i32, i32),
+        lines: &[String],
+        style: &crate::text::LabelStyle,
+        font: &F,
+    ) {
+        crate::text::draw_multi_line_with_shadow(self, origin.0, origin.1, style, font, lines);
+    }
 }
 
 /// where a map tile came from when fetched through the cache

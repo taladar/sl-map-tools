@@ -3,9 +3,10 @@
 //!
 //! Scanned once at startup. The render workers then resolve a
 //! client-supplied `font_id` (the filename basename) to a path under
-//! that directory and load the bytes via `fs_err::read` +
-//! `ab_glyph::FontVec::try_from_vec`. The library never bundles a font;
-//! every font the user can pick comes from this directory.
+//! that directory and load it via [`sl_map_apis::text::load_font`]. Display
+//! names come from [`sl_map_apis::text::embedded_font_name`] (falling back to
+//! [`sl_map_apis::text::display_name_from_file_name`]). The library never
+//! bundles a font; every font the user can pick comes from this directory.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -94,11 +95,13 @@ impl FontDirectory {
             // a truly unloadable font fails later at render via
             // `ab_glyph`, matching the pre-existing behaviour.
             let display_name = match fs_err::read(&path) {
-                Ok(bytes) => embedded_name(&bytes)
-                    .map_or_else(|| display_name_for(id), |name| format!("{name} ({id})")),
+                Ok(bytes) => sl_map_apis::text::embedded_font_name(&bytes).map_or_else(
+                    || sl_map_apis::text::display_name_from_file_name(id),
+                    |name| format!("{name} ({id})"),
+                ),
                 Err(err) => {
                     tracing::warn!(font = id, %err, "could not read font for name extraction");
-                    display_name_for(id)
+                    sl_map_apis::text::display_name_from_file_name(id)
                 }
             };
             by_id.insert(id.to_owned(), FontEntry { path, display_name });
@@ -146,67 +149,13 @@ impl FontDirectory {
     }
 }
 
-/// Convert a font filename (`DejaVuSans.ttf`) into a friendlier
-/// display name (`DejaVu Sans`). The conversion is intentionally
-/// simple: strip the extension, then replace `-` and `_` with spaces.
-fn display_name_for(id: &str) -> String {
-    let stem = id.rsplit_once('.').map_or(id, |(s, _)| s);
-    stem.replace(['-', '_'], " ")
-}
-
-/// Extract a human-readable name from a TTF `name` table. Prefers the
-/// Full font name (id 4), then the typographic family (id 16), then the
-/// legacy family (id 1). Returns `None` when the file cannot be parsed or
-/// has no decodable, non-empty record — the caller then falls back to the
-/// filename via [`display_name_for`].
-fn embedded_name(bytes: &[u8]) -> Option<String> {
-    let face = ttf_parser::Face::parse(bytes, 0).ok()?;
-    let names = face.names();
-    // Name IDs from the OpenType `name` table, in display preference.
-    for want in [4u16, 16, 1] {
-        for i in 0..names.len() {
-            let Some(name) = names.get(i) else { continue };
-            if name.name_id != want || !name.is_unicode() {
-                continue;
-            }
-            // `to_string` decodes Windows/Unicode UTF-16BE records and
-            // returns `None` for encodings it cannot handle.
-            if let Some(decoded) = name.to_string() {
-                let trimmed = decoded.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_owned());
-                }
-            }
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    /// The font checked in at the workspace root, used to exercise the
-    /// `name`-table extraction offline.
+    /// The font checked in at the workspace root.
     const DEJAVU: &[u8] = include_bytes!("../../DejaVuSans.ttf");
-
-    #[test]
-    fn display_name_drops_extension_and_replaces_separators() {
-        assert_eq!(display_name_for("DejaVuSans.ttf"), "DejaVuSans");
-        assert_eq!(display_name_for("noto-sans-mono.ttf"), "noto sans mono");
-        assert_eq!(display_name_for("source_code_pro.ttf"), "source code pro");
-    }
-
-    #[test]
-    fn embedded_name_extracts_full_name() {
-        assert_eq!(embedded_name(DEJAVU).as_deref(), Some("DejaVu Sans"));
-    }
-
-    #[test]
-    fn embedded_name_rejects_garbage() {
-        assert_eq!(embedded_name(b"not a font"), None);
-    }
 
     #[test]
     fn list_uses_embedded_name_with_id() -> Result<(), Box<dyn std::error::Error>> {

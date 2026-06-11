@@ -14,7 +14,8 @@
 //! ```
 
 use image::GenericImage;
-use sl_glw::{GlwEvent, GlwStyle, LegendPosition, MapLikeGlwExt as _};
+use sl_glw::{GlwEvent, GlwStyle, MapLikeGlwExt as _};
+use sl_map_apis::coverage::PlacementSlot;
 use sl_map_apis::map_tiles::MapLike;
 use sl_types::map::{GridCoordinates, GridRectangle, GridRectangleLike, ZoomLevel};
 
@@ -169,7 +170,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // sample exercises the override-boundary and legend rendering.
     let style = GlwStyle {
         draw_margin_band: true,
-        legend_position: LegendPosition::TopLeft,
+        legend_position: Some(PlacementSlot::TopLeft),
         ..GlwStyle::default()
     };
 

@@ -7,7 +7,6 @@ pub(crate) mod geometry;
 pub(crate) mod parse;
 pub mod render;
 pub mod style;
-pub(crate) mod text;
 pub mod types;
 
 pub use crate::cache::GlwEventCache;
@@ -17,7 +16,7 @@ pub use crate::client::{
 };
 pub use crate::error::{Error, FetchError, GlwEventCacheError, ParseError, RenderError};
 pub use crate::render::{MapLikeGlwExt, draw_glw_event};
-pub use crate::style::{GlwColorPalette, GlwStyle, LegendPosition};
+pub use crate::style::{GlwColorPalette, GlwStyle};
 pub use crate::types::{
     Area, AreaList, Base, BaseCurrents, BaseWaves, BaseWind, Circle, CircleList, CurrentsOverride,
     EventId, GlwEvent, GlwEventKey, GustsPercent, KnotSpeed, MarginMeters, Overlap,

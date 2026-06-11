@@ -3,3 +3,4 @@
 pub mod coverage;
 pub mod map_tiles;
 pub mod region;
+pub mod text;

@@ -3853,6 +3853,7 @@ dependencies = [
 name = "sl-map-apis"
 version = "0.4.0"
 dependencies = [
+ "ab_glyph",
  "derive_more",
  "http",
  "http-cache-semantics",
@@ -3870,6 +3871,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-test",
+ "ttf-parser",
  "uniform-cubic-splines",
 ]
 
@@ -3938,7 +3940,6 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "ttf-parser",
  "uuid",
  "zeroize",
 ]

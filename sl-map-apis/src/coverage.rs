@@ -9,10 +9,10 @@
 //! choosing where to place those extra elements.
 //!
 //! The image is reduced to a coarse boolean [`OccupancyGrid`] and each of the
-//! nine [`SlotAnchor`]s is evaluated for the largest empty rectangle that can be
+//! nine [`PlacementSlot`]s is evaluated for the largest empty rectangle that can be
 //! anchored there ([`OccupancyGrid::evaluate_slots`]). Adjacent anchors that
 //! share one contiguous free area are reported in
-//! [`PlacementSlot::connected_neighbours`] so a caller can tell that, for
+//! [`PlacementSlotInfo::connected_neighbours`] so a caller can tell that, for
 //! example, two neighbouring anchors together could hold a larger element.
 
 use crate::map_tiles::MapLike;
@@ -32,11 +32,81 @@ enum AxisMode {
     End,
 }
 
+/// horizontal alignment of content within an available span
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HAlign {
+    /// against the left edge of the span
+    Left,
+    /// centred within the span
+    Center,
+    /// against the right edge of the span
+    Right,
+}
+
+/// vertical alignment of content within an available span
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VAlign {
+    /// against the top edge of the span
+    Top,
+    /// centred within the span
+    Center,
+    /// against the bottom edge of the span
+    Bottom,
+}
+
+impl HAlign {
+    /// pixel offset of `content`-wide content within an `available`-wide span for
+    /// this alignment, clamped so the content never starts past the span end
+    #[must_use]
+    pub const fn offset(self, content: u32, available: u32) -> u32 {
+        let slack = available.saturating_sub(content);
+        match self {
+            Self::Left => 0,
+            Self::Center => slack / 2,
+            Self::Right => slack,
+        }
+    }
+}
+
+impl VAlign {
+    /// pixel offset of `content`-tall content within an `available`-tall span for
+    /// this alignment, clamped so the content never starts past the span end
+    #[must_use]
+    pub const fn offset(self, content: u32, available: u32) -> u32 {
+        let slack = available.saturating_sub(content);
+        match self {
+            Self::Top => 0,
+            Self::Center => slack / 2,
+            Self::Bottom => slack,
+        }
+    }
+}
+
+/// pixel origin of `content`-sized content within a `total`-sized image axis for
+/// the given anchoring mode: `Start` hugs the low edge by `margin`, `End` hugs
+/// the high edge by `margin`, `Center` centres; all clamped to stay inside
+const fn axis_origin(mode: AxisMode, content: u32, total: u32, margin: u32) -> u32 {
+    let slack = total.saturating_sub(content);
+    match mode {
+        // hug the low edge, but never start so far in that the content overflows
+        AxisMode::Start => {
+            if margin < slack {
+                margin
+            } else {
+                slack
+            }
+        }
+        AxisMode::Center => slack / 2,
+        // hug the high edge, leaving `margin` if there is room
+        AxisMode::End => slack.saturating_sub(margin),
+    }
+}
+
 /// one of the nine fixed candidate anchor positions on a map, laid out as a
 /// conceptual 3x3 grid (the four corners, the four side midpoints and the
 /// centre)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SlotAnchor {
+pub enum PlacementSlot {
     /// top-left corner
     TopLeft,
     /// middle of the top edge
@@ -57,7 +127,7 @@ pub enum SlotAnchor {
     BottomRight,
 }
 
-impl SlotAnchor {
+impl PlacementSlot {
     /// all nine anchors, in reading order (top row left-to-right, then middle,
     /// then bottom)
     pub const ALL: [Self; 9] = [
@@ -71,6 +141,24 @@ impl SlotAnchor {
         Self::BottomCenter,
         Self::BottomRight,
     ];
+
+    /// the stable snake_case name for this slot (`top_left` … `bottom_right`).
+    /// This is the inverse of the [`FromStr`](std::str::FromStr) impl and the
+    /// value used in JSON; [`Display`](std::fmt::Display) yields the same text.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TopLeft => "top_left",
+            Self::TopCenter => "top_center",
+            Self::TopRight => "top_right",
+            Self::MiddleLeft => "middle_left",
+            Self::Center => "center",
+            Self::MiddleRight => "middle_right",
+            Self::BottomLeft => "bottom_left",
+            Self::BottomCenter => "bottom_center",
+            Self::BottomRight => "bottom_right",
+        }
+    }
 
     /// the position of this anchor in the conceptual 3x3 layout as
     /// `(horizontal_index, vertical_index)`, each in `0..3` with `0` against the
@@ -110,6 +198,46 @@ impl SlotAnchor {
         }
     }
 
+    /// the natural alignment for content placed at this anchor: the slot's own
+    /// 3x3 position, biased to the outside of the image (e.g. `TopLeft` →
+    /// left/top, `Center` → center/center, `BottomRight` → right/bottom). Used
+    /// as the default alignment for text labels, overridable per axis.
+    #[must_use]
+    pub const fn default_alignment(self) -> (HAlign, VAlign) {
+        let (h, v) = self.cell_3x3();
+        let ha = match h {
+            0 => HAlign::Left,
+            1 => HAlign::Center,
+            _ => HAlign::Right,
+        };
+        let va = match v {
+            0 => VAlign::Top,
+            1 => VAlign::Center,
+            _ => VAlign::Bottom,
+        };
+        (ha, va)
+    }
+
+    /// pixel origin (top-left) at which to place a `content_w` × `content_h` box
+    /// anchored at this slot within a `img_w` × `img_h` image: corners hug their
+    /// edges leaving `margin` px, edge-midpoints and the centre centre the box on
+    /// the relevant axis. All clamped to keep the box inside the image. This is
+    /// the single source of truth for positioning a fixed-size element (e.g. the
+    /// legend) at a slot.
+    #[must_use]
+    pub const fn anchored_origin(
+        self,
+        content_w: u32,
+        content_h: u32,
+        img_w: u32,
+        img_h: u32,
+        margin: u32,
+    ) -> (u32, u32) {
+        let x = axis_origin(self.horizontal(), content_w, img_w, margin);
+        let y = axis_origin(self.vertical(), content_h, img_h, margin);
+        (x, y)
+    }
+
     /// the anchors orthogonally adjacent to this one in the 3x3 layout (the
     /// up/down/left/right neighbours, never the diagonals)
     #[must_use]
@@ -127,6 +255,37 @@ impl SlotAnchor {
     }
 }
 
+impl std::fmt::Display for PlacementSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Error returned by [`PlacementSlot`]'s [`FromStr`](std::str::FromStr) impl
+/// when the string is not one of the nine snake_case slot names.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("`{0}` is not a valid placement slot name")]
+pub struct ParsePlacementSlotError(String);
+
+impl std::str::FromStr for PlacementSlot {
+    type Err = ParsePlacementSlotError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "top_left" => Self::TopLeft,
+            "top_center" => Self::TopCenter,
+            "top_right" => Self::TopRight,
+            "middle_left" => Self::MiddleLeft,
+            "center" => Self::Center,
+            "middle_right" => Self::MiddleRight,
+            "bottom_left" => Self::BottomLeft,
+            "bottom_center" => Self::BottomCenter,
+            "bottom_right" => Self::BottomRight,
+            other => return Err(ParsePlacementSlotError(other.to_owned())),
+        })
+    }
+}
+
 /// an axis-aligned rectangle in image pixel coordinates (origin top-left)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PixelRect {
@@ -140,11 +299,11 @@ pub struct PixelRect {
     pub height: u32,
 }
 
-/// the result of evaluating one [`SlotAnchor`] against an [`OccupancyGrid`]
+/// the result of evaluating one [`PlacementSlot`] against an [`OccupancyGrid`]
 #[derive(Debug, Clone, PartialEq)]
-pub struct PlacementSlot {
-    /// which anchor this describes
-    pub anchor: SlotAnchor,
+pub struct PlacementSlotInfo {
+    /// which slot this describes
+    pub slot: PlacementSlot,
     /// whether there is any free space at this anchor at all (i.e. the anchor
     /// itself is not covered by overlay content)
     pub available: bool,
@@ -159,7 +318,7 @@ pub struct PlacementSlot {
     pub occupied_fraction: f32,
     /// the orthogonally adjacent anchors that share one contiguous free area
     /// with this anchor, so they could be combined for a larger element
-    pub connected_neighbours: Vec<SlotAnchor>,
+    pub connected_neighbours: Vec<PlacementSlot>,
 }
 
 /// a coarse boolean occupancy grid downsampled from an overlay coverage mask
@@ -333,7 +492,7 @@ impl OccupancyGrid {
     }
 
     /// the cell `(row, col)` that the given anchor sits in
-    fn anchor_cell(&self, anchor: SlotAnchor) -> (u32, u32) {
+    fn anchor_cell(&self, anchor: PlacementSlot) -> (u32, u32) {
         let col = match anchor.horizontal() {
             AxisMode::Start => 0,
             AxisMode::Center => self.img_width / 2 / self.cell_size,
@@ -351,7 +510,7 @@ impl OccupancyGrid {
 
     /// the fraction of the local third-of-the-map block around the anchor that
     /// is occupied
-    fn local_occupied_fraction(&self, anchor: SlotAnchor) -> f32 {
+    fn local_occupied_fraction(&self, anchor: PlacementSlot) -> f32 {
         if self.cols == 0 || self.rows == 0 {
             return 0f32;
         }
@@ -438,7 +597,7 @@ impl OccupancyGrid {
 
     /// the connected-component id of the cell the anchor sits in, or `None` if
     /// that cell is occupied (or the grid is empty)
-    fn anchor_component(&self, anchor: SlotAnchor, comp: &[i32]) -> Option<i32> {
+    fn anchor_component(&self, anchor: PlacementSlot, comp: &[i32]) -> Option<i32> {
         if self.cols == 0 || self.rows == 0 {
             return None;
         }
@@ -452,7 +611,7 @@ impl OccupancyGrid {
 
     /// the orthogonally adjacent anchors that share a contiguous free area with
     /// the given anchor
-    fn connected_neighbours(&self, anchor: SlotAnchor, comp: &[i32]) -> Vec<SlotAnchor> {
+    fn connected_neighbours(&self, anchor: PlacementSlot, comp: &[i32]) -> Vec<PlacementSlot> {
         let Some(my) = self.anchor_component(anchor, comp) else {
             return Vec::new();
         };
@@ -465,9 +624,9 @@ impl OccupancyGrid {
 
     /// evaluate all nine anchors against this grid
     #[must_use]
-    pub fn evaluate_slots(&self) -> Vec<PlacementSlot> {
+    pub fn evaluate_slots(&self) -> Vec<PlacementSlotInfo> {
         let components = self.free_components();
-        SlotAnchor::ALL
+        PlacementSlot::ALL
             .into_iter()
             .map(|anchor| {
                 let free = self.largest_free_rect(anchor.horizontal(), anchor.vertical());
@@ -475,8 +634,8 @@ impl OccupancyGrid {
                     free.map(|(r0, r1, c0, c1)| self.cell_rect_to_pixels(r0, r1, c0, c1));
                 let free_size = free_rect.map_or((0, 0), |r| (r.width, r.height));
                 let available = free_size.0 > 0 && free_size.1 > 0;
-                PlacementSlot {
-                    anchor,
+                PlacementSlotInfo {
+                    slot: anchor,
                     available,
                     free_rect,
                     free_size,
@@ -507,10 +666,13 @@ mod test {
         }
     }
 
-    fn slot(slots: &[PlacementSlot], anchor: SlotAnchor) -> Result<PlacementSlot, String> {
+    fn slot(
+        slots: &[PlacementSlotInfo],
+        anchor: PlacementSlot,
+    ) -> Result<PlacementSlotInfo, String> {
         slots
             .iter()
-            .find(|s| s.anchor == anchor)
+            .find(|s| s.slot == anchor)
             .cloned()
             .ok_or_else(|| format!("anchor {anchor:?} should be evaluated"))
     }
@@ -521,9 +683,9 @@ mod test {
         let slots = grid.evaluate_slots();
         assert_eq!(slots.len(), 9);
         for s in &slots {
-            assert!(s.available, "{:?} should be available", s.anchor);
+            assert!(s.available, "{:?} should be available", s.slot);
             // an entirely empty map: the largest rectangle covers the whole image
-            assert_eq!(s.free_size, (80, 80), "{:?}", s.anchor);
+            assert_eq!(s.free_size, (80, 80), "{:?}", s.slot);
             assert!(s.occupied_fraction.abs() < f32::EPSILON);
         }
     }
@@ -533,7 +695,7 @@ mod test {
         let grid = grid_from_cells(8, 8, 10, vec![true; 64]);
         let slots = grid.evaluate_slots();
         for s in &slots {
-            assert!(!s.available, "{:?} should not be available", s.anchor);
+            assert!(!s.available, "{:?} should not be available", s.slot);
             assert_eq!(s.free_rect, None);
             assert_eq!(s.free_size, (0, 0));
             assert!(s.connected_neighbours.is_empty());
@@ -546,13 +708,13 @@ mod test {
         let occupied: Vec<bool> = (0..64u32).map(|i| matches!(i % 8, 3 | 4)).collect();
         let grid = grid_from_cells(8, 8, 10, occupied);
         let slots = grid.evaluate_slots();
-        assert!(slot(&slots, SlotAnchor::MiddleLeft)?.available);
-        assert!(slot(&slots, SlotAnchor::MiddleRight)?.available);
+        assert!(slot(&slots, PlacementSlot::MiddleLeft)?.available);
+        assert!(slot(&slots, PlacementSlot::MiddleRight)?.available);
         // the centre anchor sits on the occupied stripe
-        assert!(!slot(&slots, SlotAnchor::Center)?.available);
+        assert!(!slot(&slots, PlacementSlot::Center)?.available);
         // the free left block is 3 columns wide -> 30 px
-        assert_eq!(slot(&slots, SlotAnchor::MiddleLeft)?.free_size.0, 30);
-        assert_eq!(slot(&slots, SlotAnchor::MiddleRight)?.free_size.0, 30);
+        assert_eq!(slot(&slots, PlacementSlot::MiddleLeft)?.free_size.0, 30);
+        assert_eq!(slot(&slots, PlacementSlot::MiddleRight)?.free_size.0, 30);
         Ok(())
     }
 
@@ -562,13 +724,13 @@ mod test {
         let occupied: Vec<bool> = (0..64u32).map(|i| i == 0).collect();
         let grid = grid_from_cells(8, 8, 10, occupied);
         let slots = grid.evaluate_slots();
-        let top_left = slot(&slots, SlotAnchor::TopLeft)?.free_size;
+        let top_left = slot(&slots, PlacementSlot::TopLeft)?.free_size;
 
         // mirror horizontally: occupy only the top-right corner cell
         let mirrored: Vec<bool> = (0..64u32).map(|i| i == 7).collect();
         let mirrored_grid = grid_from_cells(8, 8, 10, mirrored);
         let mirrored_slots = mirrored_grid.evaluate_slots();
-        let top_right = slot(&mirrored_slots, SlotAnchor::TopRight)?.free_size;
+        let top_right = slot(&mirrored_slots, PlacementSlot::TopRight)?.free_size;
 
         assert_eq!(top_left, top_right);
         Ok(())
@@ -580,10 +742,10 @@ mod test {
         // entirely free grid: every anchor connects to all its 3x3 neighbours
         let grid = grid_from_cells(9, 9, 10, vec![false; 81]);
         let slots = grid.evaluate_slots();
-        let center = slot(&slots, SlotAnchor::Center)?;
+        let center = slot(&slots, PlacementSlot::Center)?;
         let mut neighbours = center.connected_neighbours.clone();
         neighbours.sort_by_key(|a| format!("{a:?}"));
-        let mut expected = SlotAnchor::Center.neighbours();
+        let mut expected = PlacementSlot::Center.neighbours();
         expected.sort_by_key(|a| format!("{a:?}"));
         assert_eq!(neighbours, expected);
         Ok(())
@@ -598,17 +760,17 @@ mod test {
         let slots = grid.evaluate_slots();
         // TopLeft and TopRight live in different components (split by the band),
         // and neither connects to TopCenter (which sits on the band)
-        let top_left = slot(&slots, SlotAnchor::TopLeft)?;
+        let top_left = slot(&slots, PlacementSlot::TopLeft)?;
         assert!(
             !top_left
                 .connected_neighbours
-                .contains(&SlotAnchor::TopCenter)
+                .contains(&PlacementSlot::TopCenter)
         );
         // TopLeft still connects downward to MiddleLeft (same left component)
         assert!(
             top_left
                 .connected_neighbours
-                .contains(&SlotAnchor::MiddleLeft)
+                .contains(&PlacementSlot::MiddleLeft)
         );
         Ok(())
     }
@@ -616,12 +778,88 @@ mod test {
     #[test]
     fn neighbours_are_orthogonal_only() {
         assert_eq!(
-            SlotAnchor::TopLeft.neighbours(),
-            vec![SlotAnchor::TopCenter, SlotAnchor::MiddleLeft]
+            PlacementSlot::TopLeft.neighbours(),
+            vec![PlacementSlot::TopCenter, PlacementSlot::MiddleLeft]
         );
-        let center = SlotAnchor::Center.neighbours();
+        let center = PlacementSlot::Center.neighbours();
         assert_eq!(center.len(), 4);
-        assert!(!center.contains(&SlotAnchor::TopLeft));
+        assert!(!center.contains(&PlacementSlot::TopLeft));
+    }
+
+    #[test]
+    fn as_str_and_from_str_round_trip() {
+        for slot in PlacementSlot::ALL {
+            assert_eq!(slot.as_str().parse::<PlacementSlot>().ok(), Some(slot));
+            // Display yields the same text as as_str
+            assert_eq!(slot.to_string(), slot.as_str());
+        }
+        assert_eq!("nonsense".parse::<PlacementSlot>().ok(), None);
+    }
+
+    #[test]
+    fn default_alignment_matches_slot_outward() {
+        assert_eq!(
+            PlacementSlot::TopLeft.default_alignment(),
+            (HAlign::Left, VAlign::Top)
+        );
+        assert_eq!(
+            PlacementSlot::TopCenter.default_alignment(),
+            (HAlign::Center, VAlign::Top)
+        );
+        assert_eq!(
+            PlacementSlot::MiddleRight.default_alignment(),
+            (HAlign::Right, VAlign::Center)
+        );
+        assert_eq!(
+            PlacementSlot::Center.default_alignment(),
+            (HAlign::Center, VAlign::Center)
+        );
+        assert_eq!(
+            PlacementSlot::BottomRight.default_alignment(),
+            (HAlign::Right, VAlign::Bottom)
+        );
+    }
+
+    #[test]
+    fn align_offset_clamps_and_centres() {
+        // content fits: left/top = 0, centre = half slack, right/bottom = full slack
+        assert_eq!(HAlign::Left.offset(20, 100), 0);
+        assert_eq!(HAlign::Center.offset(20, 100), 40);
+        assert_eq!(HAlign::Right.offset(20, 100), 80);
+        assert_eq!(VAlign::Bottom.offset(30, 100), 70);
+        // content larger than span: never negative/wraps
+        assert_eq!(HAlign::Right.offset(120, 100), 0);
+        assert_eq!(VAlign::Center.offset(120, 100), 0);
+    }
+
+    #[test]
+    fn anchored_origin_hugs_edges_and_centres() {
+        // 200x100 image, a 40x20 box, 8px margin
+        assert_eq!(
+            PlacementSlot::TopLeft.anchored_origin(40, 20, 200, 100, 8),
+            (8, 8)
+        );
+        assert_eq!(
+            PlacementSlot::TopRight.anchored_origin(40, 20, 200, 100, 8),
+            (200 - 40 - 8, 8)
+        );
+        assert_eq!(
+            PlacementSlot::BottomRight.anchored_origin(40, 20, 200, 100, 8),
+            (200 - 40 - 8, 100 - 20 - 8)
+        );
+        assert_eq!(
+            PlacementSlot::Center.anchored_origin(40, 20, 200, 100, 8),
+            ((200 - 40) / 2, (100 - 20) / 2)
+        );
+        assert_eq!(
+            PlacementSlot::TopCenter.anchored_origin(40, 20, 200, 100, 8),
+            ((200 - 40) / 2, 8)
+        );
+        // box larger than image clamps to origin without underflow
+        assert_eq!(
+            PlacementSlot::BottomRight.anchored_origin(400, 200, 200, 100, 8),
+            (0, 0)
+        );
     }
 
     mod with_map {
@@ -671,10 +909,10 @@ mod test {
             let grid = OccupancyGrid::from_map(&map, DEFAULT_COVERAGE_GRID);
             let slots = grid.evaluate_slots();
             // the covered top-left corner has no free space
-            assert!(!slot(&slots, SlotAnchor::TopLeft)?.available);
-            assert!(slot(&slots, SlotAnchor::TopLeft)?.occupied_fraction > 0f32);
+            assert!(!slot(&slots, PlacementSlot::TopLeft)?.available);
+            assert!(slot(&slots, PlacementSlot::TopLeft)?.occupied_fraction > 0f32);
             // the far corner is wide open
-            let bottom_right = slot(&slots, SlotAnchor::BottomRight)?;
+            let bottom_right = slot(&slots, PlacementSlot::BottomRight)?;
             assert!(bottom_right.available);
             assert!(bottom_right.free_size.0 >= 80);
             assert!(bottom_right.free_size.1 >= 80);
@@ -692,9 +930,9 @@ mod test {
             let grid = OccupancyGrid::from_map(&map, DEFAULT_COVERAGE_GRID);
             let slots = grid.evaluate_slots();
             // the route runs through the middle of the map
-            assert!(!slot(&slots, SlotAnchor::Center)?.available);
+            assert!(!slot(&slots, PlacementSlot::Center)?.available);
             // the top-right corner is far from the descending diagonal
-            assert!(slot(&slots, SlotAnchor::TopRight)?.available);
+            assert!(slot(&slots, PlacementSlot::TopRight)?.available);
             Ok(())
         }
     }

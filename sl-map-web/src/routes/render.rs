@@ -150,6 +150,31 @@ pub struct GlwStyleOverrides {
     pub area_fill_color: Option<String>,
 }
 
+/// A free-floating text label to draw in one of the nine placement slots.
+/// Independent of the GLW overlay (labels can be added to any render).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextLabel {
+    /// placement-slot anchor name (`top_left` … `center` … `bottom_right`).
+    pub slot: String,
+    /// the text, one entry per line. Empty / all-blank labels draw nothing.
+    pub lines: Vec<String>,
+    /// id of the font to draw this label with (per-snippet). Must match one
+    /// returned by `GET /api/fonts`.
+    pub font_id: String,
+    /// font size in pixels.
+    pub font_px: f32,
+    /// hex colour string (`#rrggbb`) for the text.
+    pub color: String,
+    /// horizontal alignment within the slot's free rectangle
+    /// (`left` | `center` | `right`); absent → the slot's outward default.
+    #[serde(default)]
+    pub h_align: Option<String>,
+    /// vertical alignment within the slot's free rectangle
+    /// (`top` | `center` | `bottom`); absent → the slot's outward default.
+    #[serde(default)]
+    pub v_align: Option<String>,
+}
+
 /// Per-render GLW configuration accepted by both render endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlwRenderOptions {
@@ -167,6 +192,11 @@ pub struct GlwRenderOptions {
     /// optional style overrides; absent fields use library defaults.
     #[serde(default)]
     pub style: GlwStyleOverrides,
+    /// which placement slot the base legend goes in (`top_left` …
+    /// `bottom_right`, or `none` to hide it). Absent → `top_left`
+    /// (back-compat with renders saved before this field existed).
+    #[serde(default)]
+    pub legend_slot: Option<String>,
 }
 
 /// Body of `POST /api/render/grid-rectangle` (JSON).
@@ -201,6 +231,10 @@ pub struct GridRectangleRequest {
     /// auto-saved GLW row inherits this render's `save_to` destination.
     #[serde(default)]
     pub glw: Option<GlwRenderOptions>,
+    /// zero or more free-floating text labels to draw in placement slots
+    /// (independent of the GLW overlay).
+    #[serde(default)]
+    pub labels: Vec<TextLabel>,
 }
 
 /// Response shape for both render endpoints.
@@ -268,6 +302,9 @@ pub struct SavedGridRectangleSettings {
     /// `saved_glw_data` instead of refetching from the GLW server.
     #[serde(default)]
     pub glw: Option<GlwRenderOptions>,
+    /// free-floating text labels drawn on the render.
+    #[serde(default)]
+    pub labels: Vec<TextLabel>,
 }
 
 /// Persisted form fields for a USB-notecard render.
@@ -304,6 +341,9 @@ pub struct SavedUsbNotecardSettings {
     /// GLW overlay used for the render. See [`SavedGridRectangleSettings::glw`].
     #[serde(default)]
     pub glw: Option<GlwRenderOptions>,
+    /// free-floating text labels drawn on the render.
+    #[serde(default)]
+    pub labels: Vec<TextLabel>,
 }
 
 /// `POST /api/render/grid-rectangle` — start a render from explicit corners.
@@ -354,6 +394,7 @@ pub async fn grid_rectangle(
         // fresh-fetch so the carrier always lands as `SavedId` at rest
         // (stable Regenerate).
         glw: req.glw.clone(),
+        labels: req.labels.clone(),
     });
     let render_id = Uuid::new_v4();
     insert_render_row(
@@ -373,7 +414,7 @@ pub async fn grid_rectangle(
         destination,
         created_by: user.user_id,
     });
-    spawn_grid_rectangle_job(state, job_id, job, rect, common, glw_ctx);
+    spawn_grid_rectangle_job(state, job_id, job, rect, common, glw_ctx, req.labels);
     Ok(Json(StartedResponse {
         job_id,
         notecard: None,
@@ -418,6 +459,7 @@ pub async fn usb_notecard(
         // The worker may rewrite this in place after a successful
         // fresh-fetch so the carrier always lands as `SavedId` at rest.
         glw: parsed.glw.clone(),
+        labels: parsed.labels.clone(),
     });
 
     let render_id = Uuid::new_v4();
@@ -450,6 +492,7 @@ pub async fn usb_notecard(
         parsed.common,
         parsed.with_without_route,
         glw_ctx,
+        parsed.labels,
     );
     Ok(Json(StartedResponse {
         job_id,
@@ -481,13 +524,13 @@ pub struct PixelRectDto {
     pub height: u32,
 }
 
-/// One of the nine candidate placement anchors and how much free space it has.
+/// One of the nine candidate placement slots and how much free space it has.
 #[derive(Debug, Clone, Serialize)]
 pub struct SlotDto {
-    /// the anchor name (`top_left`, `top_center`, …, `center`, …,
+    /// the slot name (`top_left`, `top_center`, …, `center`, …,
     /// `bottom_right`).
-    pub anchor: &'static str,
-    /// whether the anchor itself is free of overlay content.
+    pub slot: &'static str,
+    /// whether the slot itself is free of overlay content.
     pub available: bool,
     /// the largest empty rectangle that can be placed anchored here, or
     /// `null` when the anchor is covered.
@@ -516,24 +559,9 @@ pub struct PlacementSlotsResponse {
     pub slots: Vec<SlotDto>,
 }
 
-/// Stable snake_case name for a [`sl_map_apis::coverage::SlotAnchor`].
-const fn anchor_name(anchor: sl_map_apis::coverage::SlotAnchor) -> &'static str {
-    use sl_map_apis::coverage::SlotAnchor as A;
-    match anchor {
-        A::TopLeft => "top_left",
-        A::TopCenter => "top_center",
-        A::TopRight => "top_right",
-        A::MiddleLeft => "middle_left",
-        A::Center => "center",
-        A::MiddleRight => "middle_right",
-        A::BottomLeft => "bottom_left",
-        A::BottomCenter => "bottom_center",
-        A::BottomRight => "bottom_right",
-    }
-}
-
 /// Reduce a drawn-on blank map to the nine-slot placement report.
 fn compute_placement_slots(map: &Map) -> PlacementSlotsResponse {
+    use sl_map_apis::coverage::PlacementSlot;
     let image = sl_map_apis::map_tiles::MapLike::image(map);
     let (image_width, image_height) = image.dimensions();
     let slots = sl_map_apis::coverage::OccupancyGrid::from_map(
@@ -542,22 +570,22 @@ fn compute_placement_slots(map: &Map) -> PlacementSlotsResponse {
     )
     .evaluate_slots()
     .into_iter()
-    .map(|slot| SlotDto {
-        anchor: anchor_name(slot.anchor),
-        available: slot.available,
-        free_rect: slot.free_rect.map(|r| PixelRectDto {
+    .map(|info| SlotDto {
+        slot: info.slot.as_str(),
+        available: info.available,
+        free_rect: info.free_rect.map(|r| PixelRectDto {
             x: r.x,
             y: r.y,
             width: r.width,
             height: r.height,
         }),
-        free_width: slot.free_size.0,
-        free_height: slot.free_size.1,
-        occupied_fraction: slot.occupied_fraction,
-        connected_neighbours: slot
+        free_width: info.free_size.0,
+        free_height: info.free_size.1,
+        occupied_fraction: info.occupied_fraction,
+        connected_neighbours: info
             .connected_neighbours
             .into_iter()
-            .map(anchor_name)
+            .map(PlacementSlot::as_str)
             .collect(),
     })
     .collect();
@@ -612,14 +640,15 @@ async fn apply_glw_overlay_readonly(
         .fonts
         .path_for(&options.font_id)
         .ok_or_else(|| Error::BadRequest(format!("unknown font_id `{}`", options.font_id)))?;
-    let font_bytes = fs_err::read(font_path)?;
-    let font = ab_glyph::FontVec::try_from_vec(font_bytes)?;
+    let font = sl_map_apis::text::load_font(font_path)?;
     let Some(event) = resolve_glw_event_readonly(state, user_id, &options.source).await? else {
         tracing::warn!("GLW event not found; placement slots computed without overlay");
         return Ok(());
     };
-    let mut style = build_glw_style(&options.style)?;
-    style.legend_position = sl_glw::LegendPosition::None;
+    // The legend is excluded from occupancy (it is a candidate element, not a
+    // constraint), so its slot does not matter here.
+    let mut style = build_glw_style(&options.style, None)?;
+    style.legend_position = None;
     map.draw_glw_event_with_font(&event, &style, &font)?;
     Ok(())
 }
@@ -742,6 +771,9 @@ struct ParsedRenderForm {
     /// the browser doesn't have to send nested objects through
     /// `FormData`.
     glw: Option<GlwRenderOptions>,
+    /// free-floating text labels. Carried in the multipart form as the
+    /// `labels_json` field — a JSON-stringified `Vec<TextLabel>`.
+    labels: Vec<TextLabel>,
 }
 
 /// Where the notecard for a render comes from.
@@ -778,6 +810,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
     let mut destination_raw: Option<String> = None;
     let mut notecard_name: Option<String> = None;
     let mut glw: Option<GlwRenderOptions> = None;
+    let mut labels: Vec<TextLabel> = Vec::new();
     let mut multipart = multipart;
     while let Some(field) = multipart.next_field().await? {
         let Some(name) = field.name().map(str::to_owned) else {
@@ -866,6 +899,13 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
                     );
                 }
             }
+            "labels_json" => {
+                let raw = field.text().await?;
+                if !raw.trim().is_empty() {
+                    labels = serde_json::from_str::<Vec<TextLabel>>(&raw)
+                        .map_err(|e| Error::BadRequest(format!("invalid labels_json: {e}")))?;
+                }
+            }
             _ => {}
         }
     }
@@ -906,6 +946,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
         common,
         with_without_route,
         glw,
+        labels,
     })
 }
 
@@ -1244,10 +1285,18 @@ fn spawn_grid_rectangle_job(
     rect: GridRectangle,
     common: CommonParams,
     glw_ctx: Option<GlwJobCtx>,
+    labels: Vec<TextLabel>,
 ) {
     drop(tokio::spawn(async move {
-        let result =
-            run_grid_rectangle_job(state.clone(), Arc::clone(&job), rect, common, glw_ctx).await;
+        let result = run_grid_rectangle_job(
+            state.clone(),
+            Arc::clone(&job),
+            rect,
+            common,
+            glw_ctx,
+            labels,
+        )
+        .await;
         let outcome = finish_job(&job, result).await;
         finalize_render_row(&state, job_id, &outcome).await;
         tracing::info!("render job {job_id} finished");
@@ -1270,6 +1319,7 @@ fn spawn_usb_notecard_job(
     common: CommonParams,
     with_without_route: bool,
     glw_ctx: Option<GlwJobCtx>,
+    labels: Vec<TextLabel>,
 ) {
     drop(tokio::spawn(async move {
         let result = run_usb_notecard_job(
@@ -1283,6 +1333,7 @@ fn spawn_usb_notecard_job(
             common,
             with_without_route,
             glw_ctx,
+            labels,
         )
         .await;
         let outcome = finish_job(&job, result).await;
@@ -1298,6 +1349,7 @@ async fn run_grid_rectangle_job(
     rect: GridRectangle,
     common: CommonParams,
     glw_ctx: Option<GlwJobCtx>,
+    labels: Vec<TextLabel>,
 ) -> Result<JobOutcome, Error> {
     let metadata = build_metadata(&rect);
     let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
@@ -1320,8 +1372,14 @@ async fn run_grid_rectangle_job(
     // signal completion to subscribers
     let _join = forwarder.await;
     // Layering: base map below, GLW overlay on top. No route for the
-    // grid-rectangle path.
+    // grid-rectangle path. Labels go last, above everything.
     let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
+    draw_labels_on_map(
+        &state.fonts,
+        &labels,
+        legend_slot_of(glw_ctx.as_ref()),
+        &mut map,
+    )?;
     let image = encode_map(&map, common.format)?;
     Ok(JobOutcome::Ok {
         image,
@@ -1348,6 +1406,7 @@ async fn run_usb_notecard_job(
     common: CommonParams,
     with_without_route: bool,
     glw_ctx: Option<GlwJobCtx>,
+    labels: Vec<TextLabel>,
 ) -> Result<JobOutcome, Error> {
     let (border_north, border_south, border_east, border_west) = borders;
     let bare_rect = {
@@ -1395,9 +1454,18 @@ async fn run_usb_notecard_job(
         // route line stays the most-readable element of the final
         // image.
         let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
-        let mut region = state.region_cache.lock().await;
-        map.draw_route_with_progress(&mut region, &notecard, route_color, Some(&tx))
-            .await?;
+        {
+            let mut region = state.region_cache.lock().await;
+            map.draw_route_with_progress(&mut region, &notecard, route_color, Some(&tx))
+                .await?;
+        }
+        // Labels go last, above the route.
+        draw_labels_on_map(
+            &state.fonts,
+            &labels,
+            legend_slot_of(glw_ctx.as_ref()),
+            &mut map,
+        )?;
         (without_route, map, glw_data_id)
     };
     drop(tx);
@@ -1706,25 +1774,27 @@ async fn apply_glw_overlay_to_map(
         .fonts
         .path_for(&ctx.options.font_id)
         .ok_or_else(|| Error::BadRequest(format!("unknown font_id `{}`", ctx.options.font_id)))?;
-    let font_bytes = fs_err::read(font_path)?;
-    let font = ab_glyph::FontVec::try_from_vec(font_bytes)?;
+    let font = sl_map_apis::text::load_font(font_path)?;
 
     let resolved = resolve_glw_event(state, ctx).await?;
     let Some(resolved) = resolved else {
         tracing::warn!("GLW event not found (server returned no event); rendering without overlay");
         return Ok(None);
     };
-    let style = build_glw_style(&ctx.options.style)?;
+    let style = build_glw_style(&ctx.options.style, ctx.options.legend_slot.as_deref())?;
     map.draw_glw_event_with_font(&resolved.event, &style, &font)?;
     Ok(Some(resolved.glw_data_id))
 }
 
-/// Start from [`sl_glw::GlwStyle::default`] (with the legend pinned to
-/// `TopLeft` for the web's standard look), then layer the user's
+/// Start from [`sl_glw::GlwStyle::default`] with the legend placed in the
+/// requested slot (defaulting to `TopLeft`), then layer the user's
 /// per-element colour and toggle overrides.
-fn build_glw_style(overrides: &GlwStyleOverrides) -> Result<sl_glw::GlwStyle, Error> {
+fn build_glw_style(
+    overrides: &GlwStyleOverrides,
+    legend_slot: Option<&str>,
+) -> Result<sl_glw::GlwStyle, Error> {
     let mut style = sl_glw::GlwStyle {
-        legend_position: sl_glw::LegendPosition::TopLeft,
+        legend_position: legend_position_from_slot(legend_slot)?,
         draw_margin_band: overrides.margin_band,
         ..sl_glw::GlwStyle::default()
     };
@@ -1750,6 +1820,171 @@ fn build_glw_style(overrides: &GlwStyleOverrides) -> Result<sl_glw::GlwStyle, Er
         style.palette.area_fill = Some(parse_color(c.trim())?);
     }
     Ok(style)
+}
+
+/// Map a legend-slot name to a placement slot (or `None` to hide it). Absent /
+/// empty → `TopLeft` (back-compat); `"none"` → hidden; any of the nine slot
+/// names → that slot; anything else is a bad request.
+fn legend_position_from_slot(
+    slot: Option<&str>,
+) -> Result<Option<sl_map_apis::coverage::PlacementSlot>, Error> {
+    use sl_map_apis::coverage::PlacementSlot;
+    let name = match slot {
+        None => return Ok(Some(PlacementSlot::TopLeft)),
+        Some(s) => s.trim(),
+    };
+    match name {
+        "" => Ok(Some(PlacementSlot::TopLeft)),
+        "none" => Ok(None),
+        other => other
+            .parse::<PlacementSlot>()
+            .map(Some)
+            .map_err(|err| Error::BadRequest(err.to_string())),
+    }
+}
+
+/// The slot anchor the base legend occupies for this job (if any): `None`
+/// when there is no GLW overlay, the legend is hidden, or the slot is
+/// invalid (the invalid case fails earlier in `apply_glw_overlay_to_map`).
+fn legend_slot_of(ctx: Option<&GlwJobCtx>) -> Option<sl_map_apis::coverage::PlacementSlot> {
+    let ctx = ctx?;
+    legend_position_from_slot(ctx.options.legend_slot.as_deref())
+        .ok()
+        .flatten()
+}
+
+/// Parse an optional horizontal-alignment name; absent/empty → `None` (use
+/// the slot default).
+fn parse_h_align(value: Option<&str>) -> Result<Option<sl_map_apis::coverage::HAlign>, Error> {
+    use sl_map_apis::coverage::HAlign;
+    match value.map(str::trim).filter(|s| !s.is_empty()) {
+        None => Ok(None),
+        Some("left") => Ok(Some(HAlign::Left)),
+        Some("center") => Ok(Some(HAlign::Center)),
+        Some("right") => Ok(Some(HAlign::Right)),
+        Some(other) => Err(Error::BadRequest(format!("invalid h_align `{other}`"))),
+    }
+}
+
+/// Parse an optional vertical-alignment name; absent/empty → `None` (use the
+/// slot default).
+fn parse_v_align(value: Option<&str>) -> Result<Option<sl_map_apis::coverage::VAlign>, Error> {
+    use sl_map_apis::coverage::VAlign;
+    match value.map(str::trim).filter(|s| !s.is_empty()) {
+        None => Ok(None),
+        Some("top") => Ok(Some(VAlign::Top)),
+        Some("center") => Ok(Some(VAlign::Center)),
+        Some("bottom") => Ok(Some(VAlign::Bottom)),
+        Some(other) => Err(Error::BadRequest(format!("invalid v_align `{other}`"))),
+    }
+}
+
+/// Draw the free-floating text labels onto `map`, last (above the route and
+/// GLW overlay). Rejects (as a `BadRequest`) any label that overflows its
+/// slot's free space, two labels sharing a slot, or a label sharing the
+/// legend's slot — these mirror the client-side checks and are the
+/// authoritative fallback. Each label is aligned within its slot's free
+/// rectangle using its own alignment, defaulting to the slot's outward
+/// alignment.
+fn draw_labels_on_map(
+    fonts: &crate::fonts::FontDirectory,
+    labels: &[TextLabel],
+    legend_slot: Option<sl_map_apis::coverage::PlacementSlot>,
+    map: &mut Map,
+) -> Result<(), Error> {
+    use sl_map_apis::map_tiles::MapLike as _;
+    if labels.is_empty() {
+        return Ok(());
+    }
+    // Resolve every label's slot and reject collisions before drawing.
+    let resolved_slots: Vec<sl_map_apis::coverage::PlacementSlot> = labels
+        .iter()
+        .map(|label| {
+            label
+                .slot
+                .parse()
+                .map_err(|err: sl_map_apis::coverage::ParsePlacementSlotError| {
+                    Error::BadRequest(err.to_string())
+                })
+        })
+        .collect::<Result<_, _>>()?;
+    let mut used: Vec<sl_map_apis::coverage::PlacementSlot> = Vec::new();
+    for anchor in &resolved_slots {
+        if legend_slot == Some(*anchor) {
+            return Err(Error::BadRequest(format!(
+                "a label uses slot `{anchor}` which is occupied by the legend"
+            )));
+        }
+        if used.contains(anchor) {
+            return Err(Error::BadRequest(format!(
+                "two labels target the same slot `{anchor}`"
+            )));
+        }
+        used.push(*anchor);
+    }
+    // Authoritative free space for each slot, measured on the current map.
+    let slots = sl_map_apis::coverage::OccupancyGrid::from_map(
+        map,
+        sl_map_apis::coverage::DEFAULT_COVERAGE_GRID,
+    )
+    .evaluate_slots();
+    for (label, anchor) in labels.iter().zip(resolved_slots.iter()) {
+        let lines: Vec<String> = label.lines.clone();
+        if lines.iter().all(|line| line.trim().is_empty()) {
+            // a blank label draws nothing and reserves nothing
+            continue;
+        }
+        if !(label.font_px.is_finite() && label.font_px > 0f32) {
+            return Err(Error::BadRequest(format!(
+                "label font size must be a positive number of pixels, got {}",
+                label.font_px
+            )));
+        }
+        let font_path = fonts
+            .path_for(&label.font_id)
+            .ok_or_else(|| Error::BadRequest(format!("unknown font_id `{}`", label.font_id)))?;
+        let font = sl_map_apis::text::load_font(font_path)?;
+        let color = parse_color(label.color.trim())?;
+        let scale = ab_glyph::PxScale::from(label.font_px);
+        let (text_w, text_h) = sl_map_apis::text::measure_text(scale, &font, &lines);
+        let slot = slots
+            .iter()
+            .find(|info| info.slot == *anchor)
+            .ok_or_else(|| Error::BadRequest(format!("slot `{anchor}` not found")))?;
+        let Some(rect) = slot.free_rect else {
+            return Err(Error::BadRequest(format!(
+                "slot `{anchor}` is fully covered; no room for a label"
+            )));
+        };
+        if text_w > rect.width || text_h > rect.height {
+            return Err(Error::BadRequest(format!(
+                "label text renders at {text_w}x{text_h} px but slot `{anchor}` only has {}x{} px free",
+                rect.width, rect.height
+            )));
+        }
+        // Align within the free rectangle: the label's own value, else the
+        // slot's outward default.
+        let (default_h, default_v) = anchor.default_alignment();
+        let h = parse_h_align(label.h_align.as_deref())?.unwrap_or(default_h);
+        let v = parse_v_align(label.v_align.as_deref())?.unwrap_or(default_v);
+        let origin_x = rect.x.saturating_add(h.offset(text_w, rect.width));
+        let origin_y = rect.y.saturating_add(v.offset(text_h, rect.height));
+        let style = sl_map_apis::text::LabelStyle {
+            scale,
+            fg: color,
+            shadow: Rgba([0, 0, 0, 180]),
+        };
+        map.draw_text_label(
+            (
+                i32::try_from(origin_x).unwrap_or(0),
+                i32::try_from(origin_y).unwrap_or(0),
+            ),
+            &lines,
+            &style,
+            &font,
+        );
+    }
+    Ok(())
 }
 
 /// Rewrite a `saved_renders.settings_json` so the carried GLW source
@@ -1815,12 +2050,12 @@ mod placement_slots_tests {
         // with no overlay drawn (and the legend excluded by design) every
         // anchor is free, including the legend's default top-left corner
         for s in &resp.slots {
-            assert!(s.available, "{} should be free", s.anchor);
+            assert!(s.available, "{} should be free", s.slot);
         }
         let top_left = resp
             .slots
             .iter()
-            .find(|s| s.anchor == "top_left")
+            .find(|s| s.slot == "top_left")
             .ok_or("missing top_left slot")?;
         assert!(top_left.free_rect.is_some());
         Ok(())
@@ -1837,15 +2072,169 @@ mod placement_slots_tests {
         let center = resp
             .slots
             .iter()
-            .find(|s| s.anchor == "center")
+            .find(|s| s.slot == "center")
             .ok_or("missing center slot")?;
         assert!(!center.available);
         let top_right = resp
             .slots
             .iter()
-            .find(|s| s.anchor == "top_right")
+            .find(|s| s.slot == "top_right")
             .ok_or("missing top_right slot")?;
         assert!(top_right.available);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use pretty_assertions::assert_matches;
+    use sl_map_apis::coverage::{HAlign, PlacementSlot, VAlign};
+    use sl_types::map::ZoomLevel;
+
+    /// A `FontDirectory` scanning the workspace root, which contains the
+    /// bundled `DejaVuSans.ttf` (font id `DejaVuSans.ttf`).
+    fn test_fonts() -> Result<crate::fonts::FontDirectory, Box<dyn std::error::Error>> {
+        let root = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
+        Ok(crate::fonts::FontDirectory::scan(root)?)
+    }
+
+    /// A blank 352x352 RGBA map (11 sims at zoom 4) — every slot fully free.
+    fn blank_map() -> Result<Map, Box<dyn std::error::Error>> {
+        let rect = GridRectangle::new(
+            GridCoordinates::new(1130, 1130),
+            GridCoordinates::new(1140, 1140),
+        );
+        Ok(Map::blank(rect, ZoomLevel::try_new(4)?))
+    }
+
+    fn label(slot: &str, font_px: f32, lines: &[&str]) -> TextLabel {
+        TextLabel {
+            slot: slot.to_owned(),
+            lines: lines.iter().map(|s| (*s).to_owned()).collect(),
+            font_id: "DejaVuSans.ttf".to_owned(),
+            font_px,
+            color: "#ffffff".to_owned(),
+            h_align: None,
+            v_align: None,
+        }
+    }
+
+    fn any_pixel_drawn(map: &Map) -> bool {
+        let (w, h) = image::GenericImageView::dimensions(map);
+        for y in 0..h {
+            for x in 0..w {
+                let image::Rgba([_, _, _, a]) = image::GenericImageView::get_pixel(map, x, y);
+                if a != 0 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn legend_position_from_slot_maps_names() -> Result<(), Box<dyn std::error::Error>> {
+        use sl_map_apis::coverage::PlacementSlot as P;
+        assert_eq!(legend_position_from_slot(None)?, Some(P::TopLeft));
+        assert_eq!(legend_position_from_slot(Some(""))?, Some(P::TopLeft));
+        assert_eq!(legend_position_from_slot(Some("none"))?, None);
+        assert_eq!(legend_position_from_slot(Some("center"))?, Some(P::Center));
+        assert_eq!(
+            legend_position_from_slot(Some("bottom_right"))?,
+            Some(P::BottomRight)
+        );
+        assert_matches!(legend_position_from_slot(Some("nonsense")), Err(_));
+        Ok(())
+    }
+
+    #[test]
+    fn slot_parsers_and_alignment() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            "middle_left".parse::<PlacementSlot>()?,
+            PlacementSlot::MiddleLeft
+        );
+        assert_matches!("nope".parse::<PlacementSlot>(), Err(_));
+        assert_eq!(parse_h_align(None)?, None);
+        assert_eq!(parse_h_align(Some("right"))?, Some(HAlign::Right));
+        assert_eq!(parse_v_align(Some("bottom"))?, Some(VAlign::Bottom));
+        assert_matches!(parse_h_align(Some("sideways")), Err(_));
+        Ok(())
+    }
+
+    #[test]
+    fn small_label_draws_and_oversized_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
+        let fonts = test_fonts()?;
+
+        let mut map = blank_map()?;
+        draw_labels_on_map(&fonts, &[label("top_left", 18f32, &["Hi"])], None, &mut map)?;
+        assert!(any_pixel_drawn(&map), "a fitting label should draw pixels");
+
+        // a font far too large to fit the 352px map is rejected
+        let mut map2 = blank_map()?;
+        let err = draw_labels_on_map(
+            &fonts,
+            &[label("center", 4000f32, &["BIG"])],
+            None,
+            &mut map2,
+        );
+        assert_matches!(
+            err,
+            Err(Error::BadRequest(_)),
+            "oversized label must be rejected"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn slot_collisions_are_rejected() -> Result<(), Box<dyn std::error::Error>> {
+        let fonts = test_fonts()?;
+
+        // two labels in the same slot
+        let mut map = blank_map()?;
+        let dup = draw_labels_on_map(
+            &fonts,
+            &[
+                label("top_right", 16f32, &["a"]),
+                label("top_right", 16f32, &["b"]),
+            ],
+            None,
+            &mut map,
+        );
+        assert_matches!(
+            dup,
+            Err(Error::BadRequest(_)),
+            "duplicate slot must be rejected"
+        );
+
+        // a label sharing the legend's slot
+        let mut map2 = blank_map()?;
+        let clash = draw_labels_on_map(
+            &fonts,
+            &[label("top_left", 16f32, &["x"])],
+            Some(PlacementSlot::TopLeft),
+            &mut map2,
+        );
+        assert_matches!(
+            clash,
+            Err(Error::BadRequest(_)),
+            "legend collision must be rejected"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn blank_label_is_skipped() -> Result<(), Box<dyn std::error::Error>> {
+        let fonts = test_fonts()?;
+        let mut map = blank_map()?;
+        draw_labels_on_map(
+            &fonts,
+            &[label("center", 16f32, &["", "   "])],
+            None,
+            &mut map,
+        )?;
+        assert!(!any_pixel_drawn(&map), "an all-blank label draws nothing");
         Ok(())
     }
 }

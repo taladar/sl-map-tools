@@ -82,6 +82,15 @@ pub enum Error {
     GlwJsonError(#[from] serde_json::Error),
 }
 
+impl From<sl_map_apis::text::FontError> for Error {
+    fn from(value: sl_map_apis::text::FontError) -> Self {
+        match value {
+            sl_map_apis::text::FontError::Read { source, .. } => Self::IoError(source),
+            sl_map_apis::text::FontError::Parse(invalid) => Self::FontParseError(invalid),
+        }
+    }
+}
+
 /// Generate a map from a rectangle of grid coordinates
 #[derive(clap::Parser, Debug, Clone)]
 pub struct FromGridRectangle {
@@ -245,7 +254,7 @@ impl GlwOverlayArgs {
     /// apply any CLI overrides the user supplied.
     fn build_style(&self) -> sl_glw::GlwStyle {
         let mut style = sl_glw::GlwStyle {
-            legend_position: sl_glw::LegendPosition::TopLeft,
+            legend_position: Some(sl_map_apis::coverage::PlacementSlot::TopLeft),
             draw_margin_band: self.glw_margin_band,
             ..sl_glw::GlwStyle::default()
         };
@@ -533,8 +542,7 @@ async fn fetch_and_draw_glw(
     let Some(font_path) = font_path else {
         return Err(crate::Error::FontRequired);
     };
-    let font_bytes = fs_err::read(font_path)?;
-    let font = ab_glyph::FontVec::try_from_vec(font_bytes)?;
+    let font = sl_map_apis::text::load_font(font_path)?;
 
     let event: Option<sl_glw::GlwEvent> = match source {
         GlwSource::ById(id) => {

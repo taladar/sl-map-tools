@@ -13,6 +13,7 @@ categories = ["api-bindings"]
 exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 
 [dependencies]
+ab_glyph = "0.2.29"
 derive_more = { version = "2.1.1", features = ["debug"] }
 http = "1.4.0"
 http-cache-semantics = { version = "3.0.0", features = ["reqwest"] }
@@ -31,6 +32,7 @@ sl-types = { path = "../sl-types", version = "0.3.0" }
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
+ttf-parser = "0.25"
 uniform-cubic-splines = { version = "0.5.2", default-features = false }
 
 [dev-dependencies]

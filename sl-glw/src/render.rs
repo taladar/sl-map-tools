@@ -20,10 +20,11 @@ use ab_glyph::Font;
 use sl_map_apis::map_tiles::MapLike;
 use sl_types::map::{GridRectangleLike as _, RegionCoordinates};
 
+use sl_map_apis::text::{LabelStyle, measure_text};
+
 use crate::error::RenderError;
 use crate::geometry;
-use crate::style::{GlwStyle, LegendPosition};
-use crate::text;
+use crate::style::GlwStyle;
 use crate::types::{
     Area, Base, Circle, CurrentsOverride, GlwEvent, KnotSpeed, WaveHeight, WavesOverride,
     WindDirection, WindOverride,
@@ -103,7 +104,7 @@ pub trait MapLikeGlwExt: MapLike {
                 self.draw_glw_circle_label(circle, &event.base, style, font)?;
             }
         }
-        if style.legend_position != LegendPosition::None {
+        if style.legend_position.is_some() {
             self.draw_glw_base_legend(&event.base, style, font)?;
         }
         Ok(())
@@ -143,9 +144,8 @@ pub trait MapLikeGlwExt: MapLike {
         draw_circle_label_default(self, circle, base, style, font)
     }
 
-    /// Draw the base wind/current/wave legend in the corner of the map
-    /// specified by `style.legend_position`. No-op if the position is
-    /// [`LegendPosition::None`].
+    /// Draw the base wind/current/wave legend in the placement slot given by
+    /// `style.legend_position`. No-op if that is `None`.
     ///
     /// # Errors
     ///
@@ -603,19 +603,18 @@ where
     let (x0, x1) = sort_pair(sw_x, ne_x);
     let (y0, y1) = sort_pair(sw_y, ne_y);
     let scale = ab_glyph::PxScale::from(style.label_font_px);
-    let (text_w, text_h) = text::multi_line_size(scale, font, &lines);
+    let (text_w, text_h) = measure_text(scale, font, &lines);
     let inset_y = 6_i32;
     let centre_x = x0.midpoint(x1);
     let x = i32::try_from(centre_x).unwrap_or(0) - i32::try_from(text_w / 2).unwrap_or(0);
     let y = i32::try_from(y1).unwrap_or(0) - i32::try_from(text_h).unwrap_or(0) - inset_y;
     let y = y.max(i32::try_from(y0).unwrap_or(0) + inset_y);
-    let text_style = text::TextStyle {
-        font,
+    let label_style = LabelStyle {
         scale,
         fg: style.palette.label_fg,
         shadow: style.palette.label_shadow,
     };
-    text::draw_multi_line_with_shadow(map, x, y, &text_style, &lines);
+    map.draw_text_label((x, y), &lines, &label_style, font);
     Ok(())
 }
 
@@ -642,7 +641,7 @@ where
     };
     let radius_px = (circle.radius.meters() * map.pixels_per_meter()).max(1.0);
     let scale = ab_glyph::PxScale::from(style.label_font_px);
-    let (text_w, text_h) = text::multi_line_size(scale, font, &lines);
+    let (text_w, text_h) = measure_text(scale, font, &lines);
     let diameter = 2.0 * radius_px;
     let inset = 4.0_f32;
     // Place the label inside the circle if it comfortably fits (with a
@@ -655,13 +654,12 @@ where
     } else {
         (center.1 + radius_px + inset) as i32
     };
-    let text_style = text::TextStyle {
-        font,
+    let label_style = LabelStyle {
         scale,
         fg: style.palette.label_fg,
         shadow: style.palette.label_shadow,
     };
-    text::draw_multi_line_with_shadow(map, x, y, &text_style, &lines);
+    map.draw_text_label((x, y), &lines, &label_style, font);
     Ok(())
 }
 
@@ -678,45 +676,39 @@ where
     M: MapLike + ?Sized,
     F: Font,
 {
-    if style.legend_position == LegendPosition::None {
+    let Some(anchor) = style.legend_position else {
         return Ok(());
-    }
+    };
     let lines = build_base_legend_lines(base);
     let scale = ab_glyph::PxScale::from(style.label_font_px);
-    let (text_w, text_h) = text::multi_line_size(scale, font, &lines);
+    let (text_w, text_h) = measure_text(scale, font, &lines);
     let pad: u32 = 6;
     let panel_w = text_w + pad * 2;
     let panel_h = text_h + pad * 2;
     let (img_w, img_h) = image::GenericImageView::dimensions(map.image());
     let edge_gap: u32 = 8;
-    let (px_origin, py_origin) = match style.legend_position {
-        LegendPosition::TopLeft => (edge_gap, edge_gap),
-        LegendPosition::TopRight => (img_w.saturating_sub(panel_w + edge_gap), edge_gap),
-        LegendPosition::BottomLeft => (edge_gap, img_h.saturating_sub(panel_h + edge_gap)),
-        LegendPosition::BottomRight => (
-            img_w.saturating_sub(panel_w + edge_gap),
-            img_h.saturating_sub(panel_h + edge_gap),
-        ),
-        LegendPosition::None => return Ok(()),
-    };
+    // corners hug their edge by `edge_gap`, side-midpoints and the centre centre
+    // the panel on the relevant axis — shared with the placement-slot logic
+    let (px_origin, py_origin) = anchor.anchored_origin(panel_w, panel_h, img_w, img_h, edge_gap);
     let rect = imageproc::rect::Rect::at(
         i32::try_from(px_origin).unwrap_or(0),
         i32::try_from(py_origin).unwrap_or(0),
     )
     .of_size(panel_w.max(1), panel_h.max(1));
     imageproc::drawing::draw_filled_rect_mut(map.image_mut(), rect, style.palette.legend_bg);
-    let text_style = text::TextStyle {
-        font,
+    let label_style = LabelStyle {
         scale,
         fg: style.palette.legend_fg,
         shadow: style.palette.label_shadow,
     };
-    text::draw_multi_line_with_shadow(
-        map,
-        i32::try_from(px_origin + pad).unwrap_or(0),
-        i32::try_from(py_origin + pad).unwrap_or(0),
-        &text_style,
+    map.draw_text_label(
+        (
+            i32::try_from(px_origin + pad).unwrap_or(0),
+            i32::try_from(py_origin + pad).unwrap_or(0),
+        ),
         &lines,
+        &label_style,
+        font,
     );
     Ok(())
 }
@@ -752,5 +744,104 @@ fn draw_wave_glyph<M: MapLike + ?Sized>(
             }
             prev = Some((x, y));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use sl_map_apis::coverage::PlacementSlot;
+    use sl_map_apis::map_tiles::Map;
+    use sl_types::map::{GridCoordinates, GridRectangle, ZoomLevel};
+
+    /// Load the repository's bundled DejaVuSans font for text tests.
+    fn test_font() -> Result<ab_glyph::FontVec, Box<dyn std::error::Error>> {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../DejaVuSans.ttf");
+        Ok(ab_glyph::FontVec::try_from_vec(fs_err::read(path)?)?)
+    }
+
+    /// A blank 352x352 RGBA map (11 sims at zoom 4) for drawing tests.
+    fn blank_map() -> Result<Map, Box<dyn std::error::Error>> {
+        let grid = GridRectangle::new(
+            GridCoordinates::new(1130, 1130),
+            GridCoordinates::new(1140, 1140),
+        );
+        Ok(Map::blank(grid, ZoomLevel::try_new(4)?))
+    }
+
+    /// Alpha channel of the pixel at `(x, y)`.
+    fn alpha_at(map: &Map, x: u32, y: u32) -> u8 {
+        let image::Rgba([_, _, _, a]) = image::GenericImageView::get_pixel(map, x, y);
+        a
+    }
+
+    /// Minimal GLW event with only a base block, for legend tests.
+    const BASE_ONLY_JSON: &str = r#"{
+        "eventId": 1, "eventName": "t", "eventKey": "k",
+        "directorName": "d", "directorKey": "b609826a-b167-41e0-8e67-9fc0e78b97a1",
+        "base": {
+            "wind": { "dir": 175, "speed": 17, "gusts": 8, "shifts": 5, "period": 90 },
+            "waves": { "height": 1.5, "speed": 3, "length": 35, "heightVar": 5, "lengthVar": 5,
+                       "effects": { "speed": 1, "steer": 1 } },
+            "currents": { "speed": 0, "dir": 180, "waterDepth": 0 }
+        },
+        "areas": {}, "circles": {}
+    }"#;
+
+    #[test]
+    fn legend_follows_the_chosen_slot() -> Result<(), Box<dyn std::error::Error>> {
+        let font = test_font()?;
+        let event: crate::types::GlwEvent = serde_json::from_str(BASE_ONLY_JSON)?;
+        let (w, h) = {
+            let map = blank_map()?;
+            image::GenericImageView::dimensions(&map)
+        };
+
+        // top-left: pixels near the top-left corner are written, far corner clean
+        let mut tl = blank_map()?;
+        let style_tl = GlwStyle {
+            legend_position: Some(PlacementSlot::TopLeft),
+            ..GlwStyle::default()
+        };
+        tl.draw_glw_event_with_font(&event, &style_tl, &font)?;
+        assert!(
+            alpha_at(&tl, 12, 12) != 0,
+            "TopLeft legend should fill its corner"
+        );
+        assert_eq!(alpha_at(&tl, w - 2, h - 2), 0, "far corner stays clear");
+
+        // bottom-right: mirrored
+        let mut br = blank_map()?;
+        let style_br = GlwStyle {
+            legend_position: Some(PlacementSlot::BottomRight),
+            ..GlwStyle::default()
+        };
+        br.draw_glw_event_with_font(&event, &style_br, &font)?;
+        assert!(
+            alpha_at(&br, w - 12, h - 12) != 0,
+            "BottomRight legend fills its corner"
+        );
+        assert_eq!(alpha_at(&br, 1, 1), 0, "top-left stays clear");
+
+        // every one of the nine positions renders without panicking and draws something
+        for position in PlacementSlot::ALL {
+            let mut map = blank_map()?;
+            let style = GlwStyle {
+                legend_position: Some(position),
+                ..GlwStyle::default()
+            };
+            map.draw_glw_event_with_font(&event, &style, &font)?;
+            let mut any = false;
+            for y in 0..h {
+                for x in 0..w {
+                    if alpha_at(&map, x, y) != 0 {
+                        any = true;
+                    }
+                }
+            }
+            assert!(any, "legend at {position:?} should draw pixels");
+        }
+        Ok(())
     }
 }

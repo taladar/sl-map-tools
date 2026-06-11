@@ -112,6 +112,15 @@ impl From<MapError> for Error {
     }
 }
 
+impl From<sl_map_apis::text::FontError> for Error {
+    fn from(value: sl_map_apis::text::FontError) -> Self {
+        match value {
+            sl_map_apis::text::FontError::Read { source, .. } => Self::Io(source),
+            sl_map_apis::text::FontError::Parse(invalid) => Self::FontParse(invalid),
+        }
+    }
+}
+
 impl From<MapTileCacheError> for Error {
     fn from(value: MapTileCacheError) -> Self {
         Self::MapTileCache(Box::new(value))

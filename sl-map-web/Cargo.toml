@@ -6,6 +6,8 @@ license = "MIT OR Apache-2.0"
 version = "0.2.1"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2024"
+# assert_matches! (used in tests) was stabilized in Rust 1.96.0
+rust-version = "1.96.0"
 repository = "https://github.com/taladar/sl-map-tools"
 keywords = ["map", "route", "secondlife", "usb_notecard", "web"]
 categories = ["web-programming::http-server"]
@@ -87,12 +89,13 @@ tracing-subscriber = { version = "0.3.23", features = [
   "env-filter",
   "tracing-log",
 ] }
-ttf-parser = "0.25"
 uuid = { version = "1.23.1", features = ["serde", "v4"] }
 zeroize = "1"
 
 [dev-dependencies]
-pretty_assertions = "1.4.1"
+# `unstable` enables pretty_assertions::assert_matches, which relies on the
+# std assert_matches macro stabilised in Rust 1.96 (see package.rust-version).
+pretty_assertions = { version = "1.4.1", features = ["unstable"] }
 tempfile = "3.27.0"
 
 [lints.clippy]

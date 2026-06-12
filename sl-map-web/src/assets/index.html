@@ -260,10 +260,6 @@
           <input type="number" id="ur_y" value="1500" min="0" max="65535" />
         </label>
       </div>
-      <div class="row buttons">
-        <button type="button" id="grid_preview">Preview</button>
-        <button type="button" id="grid_render">Generate</button>
-      </div>
     </section>
 
     <section id="tab-notecard" class="tab-panel">
@@ -370,10 +366,6 @@
         </div>
         <p class="note">Setting "All sides" overrides the per-side fields.</p>
       </fieldset>
-      <div class="row buttons">
-        <button type="button" id="notecard_preview">Preview</button>
-        <button type="button" id="notecard_render">Generate</button>
-      </div>
     </section>
 
     <section id="placement-fieldset">
@@ -531,6 +523,9 @@
         include regions outside the requested rectangle — those extra regions
         will not appear in the final render.
       </p>
+      <div class="row buttons">
+        <button type="button" id="preview_btn">Preview</button>
+      </div>
       <p id="preview-status" class="status"></p>
       <div
         id="preview-container"
@@ -541,6 +536,9 @@
 
     <section class="render-area">
       <h2>Render</h2>
+      <div class="row buttons">
+        <button type="button" id="generate_btn">Generate</button>
+      </div>
       <div id="render-progress" class="hidden">
         <p id="render-status" class="status"></p>
         <div class="tile-legend" aria-label="Tile status legend">

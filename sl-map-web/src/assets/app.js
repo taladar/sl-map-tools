@@ -176,6 +176,13 @@ function activeSubtab() {
   return t ? t.dataset.subtab : "file";
 }
 
+// Which source tab ("grid" or "notecard") is active. The shared Preview and
+// Generate buttons dispatch on this.
+function activeTab() {
+  const t = document.querySelector(".tab.active");
+  return t ? t.dataset.tab : "grid";
+}
+
 // --- shared param helpers ---
 
 $("missing_map_tile_enabled").addEventListener("change", (e) => {
@@ -702,7 +709,7 @@ window.addEventListener("resize", () => {
 
 // --- preview handlers ---
 
-$("grid_preview").addEventListener("click", () => {
+function previewGrid() {
   const rect = {
     lower_left_x: parseInt($("ll_x").value, 10),
     lower_left_y: parseInt($("ll_y").value, 10),
@@ -710,7 +717,7 @@ $("grid_preview").addEventListener("click", () => {
     upper_right_y: parseInt($("ur_y").value, 10),
   };
   renderPreview(rect, null);
-});
+}
 
 // Populate a FormData with the notecard source fields for whichever
 // subtab is active. Throws if the relevant fields are empty.
@@ -750,7 +757,7 @@ async function buildNotecardForm() {
   return fd;
 }
 
-$("notecard_preview").addEventListener("click", async () => {
+async function previewNotecard() {
   $("preview-status").textContent = "Resolving notecard…";
   try {
     const fd = await buildNotecardForm();
@@ -764,6 +771,12 @@ $("notecard_preview").addEventListener("click", async () => {
   } catch (err) {
     $("preview-status").textContent = `Preview failed: ${err.message}`;
   }
+}
+
+// Shared Preview button (in the Preview panel): dispatch on the active tab.
+$("preview_btn").addEventListener("click", () => {
+  if (activeTab() === "notecard") previewNotecard();
+  else previewGrid();
 });
 
 // --- render handlers ---
@@ -938,7 +951,7 @@ function showResult(jobId, meta, withWithoutRoute) {
   }
 }
 
-$("grid_render").addEventListener("click", async () => {
+async function renderGrid() {
   startRenderUI();
   try {
     const glw = readGlwOptions();
@@ -966,9 +979,9 @@ $("grid_render").addEventListener("click", async () => {
   } catch (err) {
     renderStatusEl.textContent = `Render failed: ${err.message}`;
   }
-});
+}
 
-$("notecard_render").addEventListener("click", async () => {
+async function renderNotecard() {
   startRenderUI();
   try {
     const fd = new FormData();
@@ -1005,6 +1018,12 @@ $("notecard_render").addEventListener("click", async () => {
   } catch (err) {
     renderStatusEl.textContent = `Render failed: ${err.message}`;
   }
+}
+
+// Shared Generate button (in the Render panel): dispatch on the active tab.
+$("generate_btn").addEventListener("click", () => {
+  if (activeTab() === "notecard") renderNotecard();
+  else renderGrid();
 });
 
 // After the server resolves a freshly uploaded (or auto-copied) notecard,
@@ -1568,12 +1587,10 @@ function legendSlotValue() {
   return sel.value === "none" ? null : sel.value;
 }
 
-// Enable/disable both Generate buttons together.
+// Enable/disable the Generate button.
 function setGenerateEnabled(ok) {
-  for (const id of ["grid_render", "notecard_render"]) {
-    const btn = $(id);
-    if (btn) btn.disabled = !ok;
-  }
+  const btn = $("generate_btn");
+  if (btn) btn.disabled = !ok;
 }
 
 // Preset a row's alignment dropdowns to its slot's outward default, unless

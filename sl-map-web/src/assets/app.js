@@ -631,11 +631,23 @@ function renderPreview(rect, waypoints) {
 // the bounds rectangle from the viewport dataset. Shown only when GLW is
 // enabled; the fetch returns null (and the image is dropped) when no legend
 // slot is set.
+// Clear a stale overlay error from the preview status, but only if it is still
+// showing that error (so a successful overlay refresh clears its own prior
+// failure without clobbering the "Preview at zoom…" line or another overlay's
+// error).
+function clearOverlayError(prefix) {
+  const el = $("preview-status");
+  if (el && el.textContent.startsWith(prefix)) el.textContent = "";
+}
+
 function drawLegendOverlay(viewport, rect) {
   if (!viewport) return;
   const old = viewport.querySelector("img.glw-legend");
   if (old) old.remove();
-  if (!($("glw_enabled") && $("glw_enabled").checked)) return;
+  if (!($("glw_enabled") && $("glw_enabled").checked)) {
+    clearOverlayError("GLW legend failed");
+    return;
+  }
   const bx = parseFloat(viewport.dataset.boundsX);
   const by = parseFloat(viewport.dataset.boundsY);
   const bw = parseFloat(viewport.dataset.boundsW);
@@ -650,6 +662,7 @@ function drawLegendOverlay(viewport, rect) {
   viewport.appendChild(img);
   fetchGlwLegendOverlay(rect)
     .then((url) => {
+      clearOverlayError("GLW legend failed");
       if (!url) {
         img.remove();
         return;
@@ -685,6 +698,7 @@ function drawPlacementOverlay(viewport, rect) {
   viewport.appendChild(img);
   fetchPlacementOverlay(rect)
     .then((url) => {
+      clearOverlayError("Placement preview failed");
       if (!url) {
         img.remove();
         return;

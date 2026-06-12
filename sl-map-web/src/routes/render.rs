@@ -587,8 +587,9 @@ pub struct SlotDto {
     pub slot: &'static str,
     /// whether the slot itself is free of overlay content.
     pub available: bool,
-    /// the largest empty rectangle that can be placed anchored here, or
-    /// `null` when the anchor is covered.
+    /// the largest empty rectangle that can be placed anchored here, confined to
+    /// this slot's own third of the map so the nine slots never overlap, or
+    /// `null` when the slot's third has no free space at the anchor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub free_rect: Option<PixelRectDto>,
     /// width of [`Self::free_rect`] in pixels (`0` when covered).

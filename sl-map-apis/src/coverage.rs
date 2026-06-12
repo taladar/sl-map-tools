@@ -9,11 +9,16 @@
 //! choosing where to place those extra elements.
 //!
 //! The image is reduced to a coarse boolean [`OccupancyGrid`] and each of the
-//! nine [`PlacementSlot`]s is evaluated for the largest empty rectangle that can be
-//! anchored there ([`OccupancyGrid::evaluate_slots`]). Adjacent anchors that
-//! share one contiguous free area are reported in
-//! [`PlacementSlotInfo::connected_neighbours`] so a caller can tell that, for
-//! example, two neighbouring anchors together could hold a larger element.
+//! nine [`PlacementSlot`]s is evaluated for the largest empty rectangle that can
+//! be anchored within its own third of the map
+//! ([`OccupancyGrid::evaluate_slots`]). The nine thirds tile the image exactly
+//! (the centre third on each axis absorbs the division remainder so the two edge
+//! thirds stay equal), so the per-slot rectangles never overlap and can be
+//! assigned to independent elements. Adjacent anchors that share one contiguous
+//! free area are reported in [`PlacementSlotInfo::connected_neighbours`], and a
+//! `span_fill` element may grow across them ([`OccupancyGrid::spanned_region`])
+//! into one larger rectangle that takes the minimum extent of the slots it
+//! crosses on the perpendicular axis.
 
 use crate::map_tiles::MapLike;
 
@@ -99,6 +104,39 @@ const fn axis_origin(mode: AxisMode, content: u32, total: u32, margin: u32) -> u
         AxisMode::Center => slack / 2,
         // hug the high edge, leaving `margin` if there is room
         AxisMode::End => slack.saturating_sub(margin),
+    }
+}
+
+/// the widest contiguous run of `true` (free) entries in `col_free`, positioned
+/// per the anchoring mode: `Start` hugs index `0`, `End` hugs the last index,
+/// `Center` centres the run within the slice. Returned as `(offset, width)` into
+/// the slice (`width == 0` when nothing is free in the required position).
+fn run_for_mode(col_free: &[bool], mode: AxisMode) -> (u32, u32) {
+    let n = u32::try_from(col_free.len()).unwrap_or(u32::MAX);
+    match mode {
+        AxisMode::Start => {
+            let mut w = 0;
+            while w < n && col_free.get(w as usize).copied().unwrap_or(false) {
+                w += 1;
+            }
+            (0, w)
+        }
+        AxisMode::End => {
+            let mut w = 0;
+            while w < n && col_free.get((n - 1 - w) as usize).copied().unwrap_or(false) {
+                w += 1;
+            }
+            (n - w, w)
+        }
+        AxisMode::Center => {
+            for w in (1..=n).rev() {
+                let c0 = (n - w) / 2;
+                if (c0..c0 + w).all(|c| col_free.get(c as usize).copied().unwrap_or(false)) {
+                    return (c0, w);
+                }
+            }
+            (n / 2, 0)
+        }
     }
 }
 
@@ -307,8 +345,10 @@ pub struct PlacementSlotInfo {
     /// whether there is any free space at this anchor at all (i.e. the anchor
     /// itself is not covered by overlay content)
     pub available: bool,
-    /// the largest empty rectangle that can be placed anchored at this slot, in
-    /// pixel coordinates, or `None` if the anchor is covered
+    /// the largest empty rectangle that can be placed anchored at this slot,
+    /// confined to the slot's own third of the map so the nine slot rectangles
+    /// never overlap, in pixel coordinates, or `None` if the slot's third has no
+    /// free space at the anchor
     pub free_rect: Option<PixelRect>,
     /// convenience `(width, height)` of [`Self::free_rect`] in pixels, `(0, 0)`
     /// when there is no free rectangle
@@ -417,78 +457,83 @@ impl OccupancyGrid {
         }
     }
 
-    /// the inclusive-start, exclusive-end row range covering `h` rows for the
-    /// given vertical anchoring mode
-    const fn row_range(&self, h: u32, mode: AxisMode) -> (u32, u32) {
-        match mode {
-            AxisMode::Start => (0, h),
-            AxisMode::End => (self.rows - h, self.rows),
-            AxisMode::Center => {
-                let r0 = (self.rows - h) / 2;
-                (r0, r0 + h)
-            }
+    /// the half-open range `[lo, hi)` of grid columns covered by the third-of-
+    /// the-grid at horizontal index `h3` (`0..3`). The two edge thirds each get
+    /// `cols / 3` columns and the centre third absorbs the division remainder,
+    /// so the left and right thirds are always equal in size. The three ranges
+    /// tile `0..cols` exactly, sharing boundaries with no gap or overlap.
+    const fn col_band(&self, h3: u32) -> (u32, u32) {
+        let edge = self.cols / 3;
+        match h3 {
+            0 => (0, edge),
+            1 => (edge, self.cols - edge),
+            _ => (self.cols - edge, self.cols),
         }
     }
 
-    /// the widest contiguous run of free columns consistent with the horizontal
-    /// anchoring mode, given which columns are entirely free over the row range,
-    /// returned as `(c0, width)`
-    fn max_width(&self, col_free: &[bool], mode: AxisMode) -> (u32, u32) {
-        match mode {
-            AxisMode::Start => {
-                let mut w = 0;
-                while w < self.cols && col_free.get(w as usize).copied().unwrap_or(false) {
-                    w += 1;
-                }
-                (0, w)
-            }
-            AxisMode::End => {
-                let mut w = 0;
-                while w < self.cols
-                    && col_free
-                        .get((self.cols - 1 - w) as usize)
-                        .copied()
-                        .unwrap_or(false)
-                {
-                    w += 1;
-                }
-                (self.cols - w, w)
-            }
-            AxisMode::Center => {
-                for w in (1..=self.cols).rev() {
-                    let c0 = (self.cols - w) / 2;
-                    let c1 = c0 + w;
-                    if (c0..c1).all(|c| col_free.get(c as usize).copied().unwrap_or(false)) {
-                        return (c0, w);
-                    }
-                }
-                (self.cols / 2, 0)
-            }
+    /// the half-open range `[lo, hi)` of grid rows covered by the third-of-the-
+    /// grid at vertical index `v3` (`0..3`); the centre third absorbs the
+    /// remainder so the top and bottom thirds stay equal. See [`Self::col_band`].
+    const fn row_band(&self, v3: u32) -> (u32, u32) {
+        let edge = self.rows / 3;
+        match v3 {
+            0 => (0, edge),
+            1 => (edge, self.rows - edge),
+            _ => (self.rows - edge, self.rows),
         }
     }
 
     /// the largest all-free cell rectangle anchored per the given axis modes,
-    /// returned as an exclusive cell rectangle `(r0, r1, c0, c1)`
-    fn largest_free_rect(&self, hmode: AxisMode, vmode: AxisMode) -> Option<(u32, u32, u32, u32)> {
-        if self.cols == 0 || self.rows == 0 {
+    /// confined to the column range `[c_lo, c_hi)` and row range `[r_lo, r_hi)`,
+    /// returned as an exclusive cell rectangle `(r0, r1, c0, c1)`. Confining the
+    /// search to a slot's own third (see [`Self::col_band`] / [`Self::row_band`])
+    /// keeps the nine per-slot rectangles from overlapping one another.
+    fn largest_free_rect_in(
+        &self,
+        c_lo: u32,
+        c_hi: u32,
+        r_lo: u32,
+        r_hi: u32,
+        hmode: AxisMode,
+        vmode: AxisMode,
+    ) -> Option<(u32, u32, u32, u32)> {
+        if c_lo >= c_hi || r_lo >= r_hi {
             return None;
         }
+        let band_rows = r_hi - r_lo;
         let mut best: Option<(u32, u32, u32, u32, u32)> = None;
-        for h in 1..=self.rows {
-            let (r0, r1) = self.row_range(h, vmode);
-            let col_free: Vec<bool> = (0..self.cols)
+        for h in 1..=band_rows {
+            let (r0, r1) = match vmode {
+                AxisMode::Start => (r_lo, r_lo + h),
+                AxisMode::End => (r_hi - h, r_hi),
+                AxisMode::Center => {
+                    let r0 = r_lo + (band_rows - h) / 2;
+                    (r0, r0 + h)
+                }
+            };
+            let col_free: Vec<bool> = (c_lo..c_hi)
                 .map(|c| (r0..r1).all(|r| self.is_free(r, c)))
                 .collect();
-            let (c0, w) = self.max_width(&col_free, hmode);
+            let (off, w) = run_for_mode(&col_free, hmode);
             if w == 0 {
                 continue;
             }
             let area = w * h;
             if best.is_none_or(|b| area > b.0) {
-                best = Some((area, r0, r1, c0, c0 + w));
+                best = Some((area, r0, r1, c_lo + off, c_lo + off + w));
             }
         }
         best.map(|(_, r0, r1, c0, c1)| (r0, r1, c0, c1))
+    }
+
+    /// the largest all-free cell rectangle anchored per the given axis modes,
+    /// searched over the whole grid (the basis for a `span_fill` placement, which
+    /// may grow across slot boundaries), returned as an exclusive cell rectangle
+    /// `(r0, r1, c0, c1)`. Because it is a single contiguous rectangle it spans
+    /// neighbouring thirds only where their free space touches and is limited to
+    /// the minimum extent of those thirds on the perpendicular axis.
+    fn largest_free_rect(&self, hmode: AxisMode, vmode: AxisMode) -> Option<(u32, u32, u32, u32)> {
+        self.largest_free_rect_in(0, self.cols, 0, self.rows, hmode, vmode)
     }
 
     /// the cell `(row, col)` that the given anchor sits in
@@ -515,20 +560,8 @@ impl OccupancyGrid {
             return 0f32;
         }
         let (hi, vi) = anchor.cell_3x3();
-        let hi = u32::from(hi);
-        let vi = u32::from(vi);
-        let c0 = hi * self.cols / 3;
-        let c1 = if hi == 2 {
-            self.cols
-        } else {
-            (hi + 1) * self.cols / 3
-        };
-        let r0 = vi * self.rows / 3;
-        let r1 = if vi == 2 {
-            self.rows
-        } else {
-            (vi + 1) * self.rows / 3
-        };
+        let (c0, c1) = self.col_band(u32::from(hi));
+        let (r0, r1) = self.row_band(u32::from(vi));
         let mut total = 0u32;
         let mut occ = 0u32;
         for r in r0..r1 {
@@ -629,7 +662,17 @@ impl OccupancyGrid {
         PlacementSlot::ALL
             .into_iter()
             .map(|anchor| {
-                let free = self.largest_free_rect(anchor.horizontal(), anchor.vertical());
+                let (h3, v3) = anchor.cell_3x3();
+                let (c_lo, c_hi) = self.col_band(u32::from(h3));
+                let (r_lo, r_hi) = self.row_band(u32::from(v3));
+                let free = self.largest_free_rect_in(
+                    c_lo,
+                    c_hi,
+                    r_lo,
+                    r_hi,
+                    anchor.horizontal(),
+                    anchor.vertical(),
+                );
                 let free_rect =
                     free.map(|(r0, r1, c0, c1)| self.cell_rect_to_pixels(r0, r1, c0, c1));
                 let free_size = free_rect.map_or((0, 0), |r| (r.width, r.height));
@@ -702,16 +745,53 @@ mod test {
     }
 
     #[test]
-    fn empty_grid_all_slots_fully_available() {
+    fn empty_grid_confines_each_slot_to_its_third() -> Result<(), Box<dyn std::error::Error>> {
+        // 8 cells per side, 10 px each = 80 px. 8 / 3 = 2 edge cells, so the
+        // column/row bands are 2 | 4 | 2 cells -> 20 | 40 | 20 px.
         let grid = grid_from_cells(8, 8, 10, vec![false; 64]);
         let slots = grid.evaluate_slots();
         assert_eq!(slots.len(), 9);
         for s in &slots {
             assert!(s.available, "{:?} should be available", s.slot);
-            // an entirely empty map: the largest rectangle covers the whole image
-            assert_eq!(s.free_size, (80, 80), "{:?}", s.slot);
             assert!(s.occupied_fraction.abs() < f32::EPSILON);
         }
+        // on an empty map each slot fills exactly its own third (no overlap into
+        // neighbouring thirds), the centre third being the wider one.
+        let size = |a| slot(&slots, a).map(|s| s.free_size);
+        assert_eq!(size(PlacementSlot::TopLeft)?, (20, 20));
+        assert_eq!(size(PlacementSlot::TopCenter)?, (40, 20));
+        assert_eq!(size(PlacementSlot::TopRight)?, (20, 20));
+        assert_eq!(size(PlacementSlot::MiddleLeft)?, (20, 40));
+        assert_eq!(size(PlacementSlot::Center)?, (40, 40));
+        assert_eq!(size(PlacementSlot::BottomRight)?, (20, 20));
+        Ok(())
+    }
+
+    #[test]
+    fn empty_grid_slot_rects_tile_without_overlap() -> Result<(), Box<dyn std::error::Error>> {
+        // the nine free rectangles of an empty map must partition the whole
+        // image: pairwise disjoint and their areas summing to the full image.
+        let grid = grid_from_cells(8, 8, 10, vec![false; 64]);
+        let rects: Vec<PixelRect> = grid
+            .evaluate_slots()
+            .into_iter()
+            .filter_map(|s| s.free_rect)
+            .collect();
+        assert_eq!(rects.len(), 9);
+        let overlaps = |a: &PixelRect, b: &PixelRect| {
+            a.x < b.x + b.width
+                && b.x < a.x + a.width
+                && a.y < b.y + b.height
+                && b.y < a.y + a.height
+        };
+        for (i, a) in rects.iter().enumerate() {
+            for b in rects.iter().skip(i + 1) {
+                assert!(!overlaps(a, b), "{a:?} overlaps {b:?}");
+            }
+        }
+        let total: u32 = rects.iter().map(|r| r.width * r.height).sum();
+        assert_eq!(total, 80 * 80, "the nine thirds tile the whole image");
+        Ok(())
     }
 
     #[test]
@@ -736,22 +816,25 @@ mod test {
         assert!(slot(&slots, PlacementSlot::MiddleRight)?.available);
         // the centre anchor sits on the occupied stripe
         assert!(!slot(&slots, PlacementSlot::Center)?.available);
-        // the free left block is 3 columns wide -> 30 px
-        assert_eq!(slot(&slots, PlacementSlot::MiddleLeft)?.free_size.0, 30);
-        assert_eq!(slot(&slots, PlacementSlot::MiddleRight)?.free_size.0, 30);
+        // confined to its third, the free left block is the 2-cell left band -> 20 px
+        assert_eq!(slot(&slots, PlacementSlot::MiddleLeft)?.free_size.0, 20);
+        assert_eq!(slot(&slots, PlacementSlot::MiddleRight)?.free_size.0, 20);
         Ok(())
     }
 
     #[test]
     fn horizontal_mirror_swaps_left_and_right() -> Result<(), Box<dyn std::error::Error>> {
-        // occupy only the top-left corner cell
-        let occupied: Vec<bool> = (0..64u32).map(|i| i == 0).collect();
+        // occupy one interior cell of the top-left third (row 1, col 1 -> 9)
+        let occupied: Vec<bool> = (0..64u32).map(|i| i == 9).collect();
         let grid = grid_from_cells(8, 8, 10, occupied);
         let slots = grid.evaluate_slots();
         let top_left = slot(&slots, PlacementSlot::TopLeft)?.free_size;
+        assert_ne!(top_left, (0, 0), "the top-left third still has free space");
 
-        // mirror horizontally: occupy only the top-right corner cell
-        let mirrored: Vec<bool> = (0..64u32).map(|i| i == 7).collect();
+        // mirror horizontally (col -> 7 - col): the occupied cell lands in the
+        // top-right third (row 1, col 6 -> 14) and TopRight must report the
+        // mirror-image free size
+        let mirrored: Vec<bool> = (0..64u32).map(|i| i == 14).collect();
         let mirrored_grid = grid_from_cells(8, 8, 10, mirrored);
         let mirrored_slots = mirrored_grid.evaluate_slots();
         let top_right = slot(&mirrored_slots, PlacementSlot::TopRight)?.free_size;
@@ -935,6 +1018,50 @@ mod test {
         Ok(())
     }
 
+    #[test]
+    fn centre_third_absorbs_remainder_keeping_edges_equal() -> Result<(), Box<dyn std::error::Error>>
+    {
+        // 11 cells per side is not divisible by 3: 11 / 3 = 3 edge cells, so the
+        // bands are 3 | 5 | 3. The two edge thirds must stay equal and the centre
+        // third must be the wider one (it absorbs the remainder).
+        let grid = grid_from_cells(11, 11, 10, vec![false; 121]);
+        let slots = grid.evaluate_slots();
+        let size = |a| slot(&slots, a).map(|s| s.free_size);
+        assert_eq!(size(PlacementSlot::TopLeft)?, (30, 30));
+        assert_eq!(size(PlacementSlot::TopRight)?, (30, 30));
+        assert_eq!(size(PlacementSlot::BottomLeft)?, (30, 30));
+        assert_eq!(size(PlacementSlot::BottomRight)?, (30, 30));
+        assert_eq!(size(PlacementSlot::Center)?, (50, 50));
+        Ok(())
+    }
+
+    #[test]
+    fn spanned_region_uses_minimum_perpendicular_extent() -> Result<(), Box<dyn std::error::Error>>
+    {
+        // left third (cols 0..3) is free 4 rows deep; the rest of the top is free
+        // only 2 rows deep. A span from top-left can either stay narrow-and-tall
+        // (3 cols x 4 rows) or grow full-width-and-short (9 cols x 2 rows). The
+        // wider rectangle wins on area, and its height is the *minimum* depth
+        // across the thirds it crosses (2 rows), not the left third's 4.
+        let occupied: Vec<bool> = (0..54u32)
+            .map(|i| {
+                let (row, col) = (i / 9, i % 9);
+                let free = if col < 3 { row < 4 } else { row < 2 };
+                !free
+            })
+            .collect();
+        let grid = grid_from_cells(9, 6, 10, occupied);
+        let (_slots, rect) = grid
+            .spanned_region(PlacementSlot::TopLeft)
+            .ok_or("top_left anchor is free")?;
+        assert_eq!(rect.width, 90, "the span grows across the full width");
+        assert_eq!(
+            rect.height, 20,
+            "the span is clipped to the shallower thirds"
+        );
+        Ok(())
+    }
+
     mod with_map {
         use super::*;
         use crate::map_tiles::Map;
@@ -984,11 +1111,13 @@ mod test {
             // the covered top-left corner has no free space
             assert!(!slot(&slots, PlacementSlot::TopLeft)?.available);
             assert!(slot(&slots, PlacementSlot::TopLeft)?.occupied_fraction > 0f32);
-            // the far corner is wide open
+            // the far corner is wide open: free across its whole third (the
+            // 128 px image splits into thirds of ~42 px, so the bottom-right
+            // third is unobstructed end to end)
             let bottom_right = slot(&slots, PlacementSlot::BottomRight)?;
             assert!(bottom_right.available);
-            assert!(bottom_right.free_size.0 >= 80);
-            assert!(bottom_right.free_size.1 >= 80);
+            assert!(bottom_right.free_size.0 >= 40);
+            assert!(bottom_right.free_size.1 >= 40);
             Ok(())
         }
 

@@ -2138,6 +2138,10 @@ async function editLogo(g) {
       const va = form.querySelector(".gm-valign");
       const preview = form.querySelector(".gm-preview");
       const fit = form.querySelector(".gm-fit");
+      const uploadName = form.querySelector(".gm-upload-name");
+      const uploadFile = form.querySelector(".gm-upload-file");
+      const uploadBtn = form.querySelector(".gm-upload-btn");
+      const uploadStatus = form.querySelector(".gm-upload-status");
       populateLogoSelect(pick, existing ? existing.logo_id : undefined);
       if (existing) {
         scale.value = String(existing.scale);
@@ -2174,6 +2178,50 @@ async function editLogo(g) {
       };
       pick.addEventListener("change", refresh);
       scale.addEventListener("change", refresh);
+      // Upload a new logo into the active save_to library straight from the
+      // modal, then select it. Mirrors the library page's uploadLogo(), but
+      // keeps the user in the placement flow instead of sending them away.
+      // Logos must share the render's library (same-scope rule), so the upload
+      // always targets the current save_to scope.
+      uploadBtn.addEventListener("click", async () => {
+        const name = uploadName.value.trim();
+        const file = uploadFile.files && uploadFile.files[0];
+        if (!name) {
+          uploadStatus.textContent = "Enter a name for the new logo.";
+          return;
+        }
+        if (!file) {
+          uploadStatus.textContent = "Choose an image file to upload.";
+          return;
+        }
+        const scope = $("save_to")
+          ? $("save_to").value || "personal"
+          : "personal";
+        const fd = new FormData();
+        fd.append("scope", scope);
+        fd.append("name", name);
+        fd.append("file", file);
+        uploadBtn.disabled = true;
+        uploadStatus.textContent = "Uploading…";
+        try {
+          const resp = await fetch("/api/logos", { method: "POST", body: fd });
+          if (!resp.ok) {
+            uploadStatus.textContent = "";
+            await showError(resp);
+            return;
+          }
+          const body = await resp.json().catch(() => ({}));
+          const newId = body.logo ? body.logo.logo_id : undefined;
+          await loadLogosForScope();
+          populateLogoSelect(pick, newId);
+          uploadName.value = "";
+          uploadFile.value = "";
+          uploadStatus.textContent = "Logo uploaded.";
+          refresh();
+        } finally {
+          uploadBtn.disabled = false;
+        }
+      });
       refresh();
       return () => {
         if (!pick.value) {

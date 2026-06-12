@@ -386,8 +386,10 @@ async function fetchGlwLegendOverlay(rect) {
 // the grid tab posts JSON, the notecard tab posts the multipart form (the
 // server re-derives the rectangle from the notecard). Throws on server error.
 async function fetchPlacementOverlay(rect) {
-  const labels = readLabels();
-  const logos = readLogos();
+  // Only the placements that currently fit: the preview stays useful even when
+  // one label/logo overflows its slot (it is shown as a red box instead).
+  const labels = readLabels(false);
+  const logos = readLogos(false);
   if (!labels.length && !logos.length) return null;
   const activeTab = document.querySelector(".tab.active");
   const which = activeTab ? activeTab.dataset.tab : "grid";
@@ -606,10 +608,10 @@ function renderPreview(rect, waypoints) {
   viewport.dataset.boundsW = String(boundsW);
   viewport.dataset.boundsH = String(boundsH);
 
-  // GLW legend and the text-labels/logos overlays, both rendered server-side at
-  // the final-image resolution and dropped into the bounds rectangle.
+  // GLW legend (independent of fit). The labels/logos overlay is drawn by
+  // findFreeSlots() below, once the per-slot fit has been recomputed, so an
+  // overflowing placement is excluded rather than failing the whole batch.
   drawLegendOverlay(viewport, rect);
-  drawPlacementOverlay(viewport, rect);
 
   container.appendChild(viewport);
   fitViewport(container, viewport, widthPx, heightPx);
@@ -1804,11 +1806,15 @@ function rectForGroup(g) {
   };
 }
 
-// Read the label groups into the render request shape.
-function readLabels() {
+// Read the label groups into the render request shape. With
+// `includeErrored = false` the groups that currently fail validation (e.g. text
+// too large for the slot) are skipped, so a single overflowing label cannot
+// fail the whole preview batch.
+function readLabels(includeErrored = true) {
   const out = [];
   for (const g of slotGroups) {
     if (g.type !== "label") continue;
+    if (!includeErrored && g.error) continue;
     const c = g.config;
     out.push({
       slot: primaryAnchor(g),
@@ -2034,11 +2040,15 @@ async function loadLogosForScope() {
   validateLabels();
 }
 
-// Read the logo groups into the render request shape.
-function readLogos() {
+// Read the logo groups into the render request shape. With
+// `includeErrored = false` the groups that currently fail validation (e.g. a
+// logo too large for the slot) are skipped, so one overflowing logo cannot fail
+// the whole preview batch.
+function readLogos(includeErrored = true) {
   const out = [];
   for (const g of slotGroups) {
     if (g.type !== "logo") continue;
+    if (!includeErrored && g.error) continue;
     const c = g.config;
     out.push({
       slot: primaryAnchor(g),
@@ -2598,7 +2608,11 @@ async function findFreeSlots() {
       height: data.image_height,
     };
     statusEl.textContent = `Free slots for a ${data.image_width}×${data.image_height}px render.`;
+    // Validate first (sets each group's fit error), then draw the labels/logos
+    // overlay so it includes only the placements that currently fit.
     validateLabels();
+    const vp = $("preview-container").querySelector(".viewport");
+    if (vp && lastPreviewRect) drawPlacementOverlay(vp, lastPreviewRect);
   } catch (err) {
     statusEl.textContent = `Could not compute slots: ${err.message}`;
   }

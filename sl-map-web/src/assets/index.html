@@ -394,30 +394,51 @@
 
     <template id="logo-modal-template">
       <div class="modal-form">
-        <div class="row">
-          <label class="grow"
-            >Logo
-            <select class="gm-pick"></select>
-          </label>
-          <img class="logo-thumb gm-preview hidden" alt="logo preview" />
+        <nav class="subtabs" role="tablist">
+          <button
+            type="button"
+            class="subtab gm-source-tab active"
+            data-logo-source="reuse"
+          >
+            Reuse existing logo
+          </button>
+          <button
+            type="button"
+            class="subtab gm-source-tab"
+            data-logo-source="upload"
+          >
+            Upload new logo
+          </button>
+        </nav>
+        <div
+          class="subtab-panel gm-source-panel active"
+          data-logo-source="reuse"
+        >
+          <div class="row">
+            <label class="grow"
+              >Logo
+              <select class="gm-pick"></select>
+            </label>
+          </div>
         </div>
-        <p class="note">Or upload a new logo to this library:</p>
-        <div class="row gm-upload-row">
-          <label class="grow"
-            >New logo name
-            <input type="text" class="gm-upload-name" maxlength="128" />
-          </label>
-          <label
-            >Image (PNG, JPEG or WebP, max 5&nbsp;MiB / 2048&nbsp;px)
-            <input
-              type="file"
-              class="gm-upload-file"
-              accept="image/png,image/jpeg,image/webp"
-            />
-          </label>
-          <button type="button" class="modal-btn gm-upload-btn">Upload</button>
+        <div class="subtab-panel gm-source-panel" data-logo-source="upload">
+          <div class="row">
+            <label class="grow"
+              >New logo name
+              <input type="text" class="gm-upload-name" maxlength="128" />
+            </label>
+            <label
+              >Image (PNG, JPEG or WebP, max 5&nbsp;MiB / 2048&nbsp;px)
+              <input
+                type="file"
+                class="gm-upload-file"
+                accept="image/png,image/jpeg,image/webp"
+              />
+            </label>
+          </div>
+          <p class="status gm-upload-status"></p>
         </div>
-        <p class="status gm-upload-status"></p>
+        <img class="logo-thumb gm-preview hidden" alt="logo preview" />
         <div class="row">
           <label
             >Scale

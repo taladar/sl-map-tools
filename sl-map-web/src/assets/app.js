@@ -2140,8 +2140,9 @@ async function editLogo(g) {
       const fit = form.querySelector(".gm-fit");
       const uploadName = form.querySelector(".gm-upload-name");
       const uploadFile = form.querySelector(".gm-upload-file");
-      const uploadBtn = form.querySelector(".gm-upload-btn");
       const uploadStatus = form.querySelector(".gm-upload-status");
+      const sourceTabs = form.querySelectorAll(".gm-source-tab");
+      const sourcePanels = form.querySelectorAll(".gm-source-panel");
       populateLogoSelect(pick, existing ? existing.logo_id : undefined);
       if (existing) {
         scale.value = String(existing.scale);
@@ -2152,18 +2153,41 @@ async function editLogo(g) {
         va.value = def.v;
       }
       const rect = rectForGroup(g);
-      const refresh = () => {
-        if (pick.value) {
-          preview.src = `/api/logos/${pick.value}/image`;
+      // Which source the two subtabs select: "reuse" a saved logo or "upload" a
+      // new one (resolved when the user confirms the modal, like the notecard
+      // source subtabs). Default to upload only when adding into an empty
+      // library, so an empty picker is not the first thing shown.
+      let source = !existing && loadedLogos.length === 0 ? "upload" : "reuse";
+      // Object URL + intrinsic size of the file chosen on the upload tab, so the
+      // preview and fit check work before the file is actually uploaded.
+      let uploadUrl = null;
+      let uploadDims = null;
+      const setPreview = (src) => {
+        if (src) {
+          preview.src = src;
           preview.classList.remove("hidden");
         } else {
           preview.removeAttribute("src");
           preview.classList.add("hidden");
         }
-        const opt = pick.selectedOptions[0];
+      };
+      const refresh = () => {
+        let dims = null;
+        if (source === "upload") {
+          setPreview(uploadUrl);
+          dims = uploadDims;
+        } else {
+          setPreview(pick.value ? `/api/logos/${pick.value}/image` : null);
+          const opt = pick.selectedOptions[0];
+          if (pick.value && opt)
+            dims = {
+              w: parseInt(opt.dataset.w, 10) || 0,
+              h: parseInt(opt.dataset.h, 10) || 0,
+            };
+        }
         const s = parseInt(scale.value, 10) || 1;
-        const w = (opt ? parseInt(opt.dataset.w, 10) || 0 : 0) * s;
-        const h = (opt ? parseInt(opt.dataset.h, 10) || 0 : 0) * s;
+        const w = (dims ? dims.w : 0) * s;
+        const h = (dims ? dims.h : 0) * s;
         if (w && h) {
           let t = `Logo ${w}×${h}px`;
           if (rect && rect.available) {
@@ -2176,54 +2200,86 @@ async function editLogo(g) {
           fit.textContent = "";
         }
       };
+      const activateSource = (name) => {
+        source = name;
+        sourceTabs.forEach((t) =>
+          t.classList.toggle("active", t.dataset.logoSource === name),
+        );
+        sourcePanels.forEach((p) =>
+          p.classList.toggle("active", p.dataset.logoSource === name),
+        );
+        refresh();
+      };
+      sourceTabs.forEach((t) =>
+        t.addEventListener("click", () => activateSource(t.dataset.logoSource)),
+      );
       pick.addEventListener("change", refresh);
       scale.addEventListener("change", refresh);
-      // Upload a new logo into the active save_to library straight from the
-      // modal, then select it. Mirrors the library page's uploadLogo(), but
-      // keeps the user in the placement flow instead of sending them away.
-      // Logos must share the render's library (same-scope rule), so the upload
-      // always targets the current save_to scope.
-      uploadBtn.addEventListener("click", async () => {
-        const name = uploadName.value.trim();
+      uploadFile.addEventListener("change", () => {
+        if (uploadUrl) URL.revokeObjectURL(uploadUrl);
+        uploadUrl = null;
+        uploadDims = null;
+        uploadStatus.textContent = "";
         const file = uploadFile.files && uploadFile.files[0];
-        if (!name) {
-          uploadStatus.textContent = "Enter a name for the new logo.";
-          return;
+        if (file) {
+          uploadUrl = URL.createObjectURL(file);
+          const probe = new Image();
+          probe.onload = () => {
+            uploadDims = { w: probe.naturalWidth, h: probe.naturalHeight };
+            refresh();
+          };
+          probe.src = uploadUrl;
         }
-        if (!file) {
-          uploadStatus.textContent = "Choose an image file to upload.";
-          return;
-        }
-        const scope = $("save_to")
-          ? $("save_to").value || "personal"
-          : "personal";
-        const fd = new FormData();
-        fd.append("scope", scope);
-        fd.append("name", name);
-        fd.append("file", file);
-        uploadBtn.disabled = true;
-        uploadStatus.textContent = "Uploading…";
-        try {
-          const resp = await fetch("/api/logos", { method: "POST", body: fd });
+        refresh();
+      });
+      activateSource(source);
+      return async () => {
+        if (source === "upload") {
+          const name = uploadName.value.trim();
+          const file = uploadFile.files && uploadFile.files[0];
+          if (!name) {
+            uploadStatus.textContent = "Enter a name for the new logo.";
+            return null;
+          }
+          if (!file) {
+            uploadStatus.textContent = "Choose an image file to upload.";
+            return null;
+          }
+          // Logos must share the render's library (same-scope rule), so the
+          // upload targets the current save_to scope.
+          const scope = $("save_to")
+            ? $("save_to").value || "personal"
+            : "personal";
+          const fd = new FormData();
+          fd.append("scope", scope);
+          fd.append("name", name);
+          fd.append("file", file);
+          uploadStatus.textContent = "Uploading…";
+          let resp;
+          try {
+            resp = await fetch("/api/logos", { method: "POST", body: fd });
+          } catch (_err) {
+            uploadStatus.textContent = "Upload failed; check your connection.";
+            return null;
+          }
           if (!resp.ok) {
             uploadStatus.textContent = "";
             await showError(resp);
-            return;
+            return null;
           }
           const body = await resp.json().catch(() => ({}));
-          const newId = body.logo ? body.logo.logo_id : undefined;
+          const logo = body.logo || {};
+          // Make the new logo available to the picker for later edits.
           await loadLogosForScope();
-          populateLogoSelect(pick, newId);
-          uploadName.value = "";
-          uploadFile.value = "";
-          uploadStatus.textContent = "Logo uploaded.";
-          refresh();
-        } finally {
-          uploadBtn.disabled = false;
+          return {
+            logo_id: logo.logo_id,
+            scale: parseInt(scale.value, 10) || 1,
+            h_align: ha.value,
+            v_align: va.value,
+            w: logo.width || 0,
+            h: logo.height || 0,
+          };
         }
-      });
-      refresh();
-      return () => {
         if (!pick.value) {
           fit.textContent = "Choose a logo.";
           return null;

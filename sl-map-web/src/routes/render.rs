@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 use sl_map_apis::map_tiles::{Map, MapProgressEvent};
 use sl_map_apis::region::usb_notecard_to_grid_rectangle;
 use sl_types::map::{
-    GridCoordinates, GridRectangle, GridRectangleLike as _, USBNotecard, ZoomLevel,
+    GridCoordinates, GridRectangle, GridRectangleLike as _, RegionCoordinates, USBNotecard,
+    ZoomLevel,
 };
 use uuid::Uuid;
 
@@ -996,6 +997,105 @@ pub async fn glw_legend_preview(
     }
     // PNG keeps the transparent background so only the legend composites over
     // the client's tiles.
+    let image = encode_map(&map, OutputFormat::Png)?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], image).into_response())
+}
+
+/// One already-resolved route waypoint in a [`RoutePreviewRequest`]. The
+/// region has already been resolved to grid coordinates by the client's
+/// `/api/notecard/derive-rectangle` call, so the preview endpoint needs no
+/// region lookup (no DB / network). Mirrors the fields of
+/// [`crate::routes::notecards`]'s `ResolvedWaypoint`; `z` is irrelevant to the
+/// pixel mapping and is omitted.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RoutePreviewWaypoint {
+    /// resolved x grid coordinate of the region.
+    pub region_x: u16,
+    /// resolved y grid coordinate of the region.
+    pub region_y: u16,
+    /// in-region x coordinate of the waypoint (metres).
+    pub x: f32,
+    /// in-region y coordinate of the waypoint (metres).
+    pub y: f32,
+}
+
+/// Body of `POST /api/render/route-preview` (JSON).
+#[derive(Debug, Clone, Deserialize)]
+pub struct RoutePreviewRequest {
+    /// lower-left x grid coordinate of the final-image rectangle.
+    pub lower_left_x: u16,
+    /// lower-left y grid coordinate of the final-image rectangle.
+    pub lower_left_y: u16,
+    /// upper-right x grid coordinate of the final-image rectangle.
+    pub upper_right_x: u16,
+    /// upper-right y grid coordinate of the final-image rectangle.
+    pub upper_right_y: u16,
+    /// final-image fit width in pixels (so the route is rasterised at the same
+    /// resolution the real render uses).
+    pub max_width: u32,
+    /// final-image fit height in pixels.
+    pub max_height: u32,
+    /// route colour as `#rrggbb`.
+    pub color: String,
+    /// the already-resolved waypoints, in order.
+    pub waypoints: Vec<RoutePreviewWaypoint>,
+}
+
+/// `POST /api/render/route-preview` — rasterise just the route onto a
+/// transparent image at the final-image resolution, so the client-side preview
+/// can composite it over the map tiles exactly as the real render draws it.
+/// Read-only: nothing is persisted.
+///
+/// The route is drawn with the *same* code the final image uses
+/// ([`Map::draw_pixel_waypoint_route`] — Catmull-Rom spline + per-waypoint
+/// arrows + the route colour), onto a [`Map::blank_fit`] map sized for the
+/// request's `max_width` / `max_height`. The client drops the returned PNG into
+/// the preview's bounds rectangle (scaling it down), so the preview route is a
+/// pixel-faithful, merely-downscaled copy of what the output will contain —
+/// including correct arrow/line proportions and the same edge clipping. Unlike
+/// [`Map::draw_route_with_progress`] the waypoints arrive already resolved to
+/// grid coordinates, so this performs no region lookup.
+///
+/// # Errors
+///
+/// Returns [`Error::BadRequest`] if the dimensions are invalid, the colour
+/// fails to parse, or a waypoint falls outside the rectangle; propagates any
+/// error from the spline rasterisation or PNG encoding.
+pub async fn route_preview(
+    _user: CurrentUser,
+    Json(req): Json<RoutePreviewRequest>,
+) -> Result<axum::response::Response, Error> {
+    use axum::response::IntoResponse as _;
+    use sl_map_apis::map_tiles::MapLike as _;
+    validate_dimensions(req.max_width, req.max_height)?;
+    let color = parse_color(&req.color)?;
+    let rect = GridRectangle::new(
+        GridCoordinates::new(req.lower_left_x, req.lower_left_y),
+        GridCoordinates::new(req.upper_right_x, req.upper_right_y),
+    );
+    // Final-image resolution so the route matches the real render exactly once
+    // the client scales the PNG into the bounds rectangle.
+    let mut map = Map::blank_fit(rect, req.max_width, req.max_height)?;
+    let mut pixel_waypoints = Vec::with_capacity(req.waypoints.len());
+    for waypoint in &req.waypoints {
+        let grid = GridCoordinates::new(waypoint.region_x, waypoint.region_y);
+        let region_coordinates = RegionCoordinates::new(waypoint.x, waypoint.y, 0f32);
+        let (x, y) = map
+            .pixel_coordinates_for_coordinates(&grid, &region_coordinates)
+            .ok_or_else(|| {
+                Error::BadRequest("a route waypoint falls outside the rectangle".to_owned())
+            })?;
+        #[expect(
+            clippy::as_conversions,
+            clippy::cast_precision_loss,
+            reason = "matches draw_route_with_progress: pixel coordinates never approach 2^23"
+        )]
+        pixel_waypoints.push((x as f32, y as f32));
+    }
+    map.draw_pixel_waypoint_route(&pixel_waypoints, color)
+        .map_err(|err| Error::BadRequest(format!("route rasterisation failed: {err}")))?;
+    // PNG keeps the transparent background so only the route composites over the
+    // client's tiles.
     let image = encode_map(&map, OutputFormat::Png)?;
     Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], image).into_response())
 }
@@ -3028,6 +3128,140 @@ mod glw_preview_tests {
             }
         }
         assert!(any, "the GLW shapes should still be drawn");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod route_preview_tests {
+    //! Tests for the drawing the `route_preview` handler performs: converting
+    //! already-resolved waypoints to pixel coordinates and drawing the route
+    //! (spline + arrows, in the route colour) onto a blank final-image-sized
+    //! map — the very same `pixel_coordinates_for_coordinates` +
+    //! `draw_pixel_waypoint_route` calls the handler makes. The auth / HTTP
+    //! plumbing needs a full `AppState`, so these cover the pure drawing core.
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use sl_map_apis::map_tiles::MapLike as _;
+
+    /// Distinctive opaque colour the route is drawn in. The spline rectangles
+    /// and arrow polygons write it verbatim (no anti-aliasing), so it can be
+    /// matched exactly.
+    const ROUTE_COLOR: Rgba<u8> = Rgba([255, 0, 0, 255]);
+
+    /// Pixel coordinates are bounded by the (capped) output dimensions, so they
+    /// never approach `f32`'s 2^23 exact-integer ceiling — the same widening
+    /// `draw_route_with_progress` and the handler perform.
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_precision_loss,
+        reason = "pixel coordinates are bounded by the output dimensions and never approach 2^23"
+    )]
+    fn widen(v: u32) -> f32 {
+        v as f32
+    }
+
+    /// Convert one resolved waypoint `(region_x, region_y, x, y)` to pixel
+    /// coordinates exactly as the `route_preview` handler does.
+    fn pixel_for(map: &Map, rx: u16, ry: u16, x: f32, y: f32) -> Option<(f32, f32)> {
+        let (px, py) = map.pixel_coordinates_for_coordinates(
+            &GridCoordinates::new(rx, ry),
+            &RegionCoordinates::new(x, y, 0f32),
+        )?;
+        Some((widen(px), widen(py)))
+    }
+
+    /// Shortest distance from point `p` to the line segment `a`–`b`.
+    fn distance_to_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
+        let (px, py) = p;
+        let (ax, ay) = a;
+        let (bx, by) = b;
+        let (dx, dy) = (bx - ax, by - ay);
+        let len_sq = (dx * dx) + (dy * dy);
+        let t = if len_sq <= f32::EPSILON {
+            0f32
+        } else {
+            ((((px - ax) * dx) + ((py - ay) * dy)) / len_sq).clamp(0f32, 1f32)
+        };
+        let (cx, cy) = (ax + (t * dx), ay + (t * dy));
+        ((px - cx).powi(2) + (py - cy).powi(2)).sqrt()
+    }
+
+    /// The route is drawn in the requested colour over an otherwise fully
+    /// transparent background: this is the alignment + colour contract the
+    /// client relies on when compositing the PNG over the tiles.
+    #[test]
+    fn route_drawn_in_colour_on_transparent_background() -> Result<(), Box<dyn std::error::Error>> {
+        let rect = GridRectangle::new(
+            GridCoordinates::new(1000, 1000),
+            GridCoordinates::new(1010, 1010),
+        );
+        let mut map = Map::blank_fit(rect, 512, 512)?;
+        let pixel_waypoints = vec![
+            pixel_for(&map, 1001, 1001, 128f32, 128f32).ok_or("waypoint outside rect")?,
+            pixel_for(&map, 1009, 1009, 128f32, 128f32).ok_or("waypoint outside rect")?,
+        ];
+        map.draw_pixel_waypoint_route(&pixel_waypoints, ROUTE_COLOR)?;
+
+        let (w, h) = image::GenericImageView::dimensions(&map);
+        let mut coloured = 0u32;
+        let mut foreign = 0u32;
+        for y in 0..h {
+            for x in 0..w {
+                let image::Rgba([r, g, b, a]) = image::GenericImageView::get_pixel(&map, x, y);
+                if image::Rgba([r, g, b, a]) == ROUTE_COLOR {
+                    coloured += 1;
+                } else if a != 0 {
+                    // any non-transparent pixel that isn't the route colour
+                    foreign += 1;
+                }
+            }
+        }
+        assert!(
+            coloured > 0,
+            "the route must be drawn in the requested colour"
+        );
+        assert_eq!(
+            foreign, 0,
+            "only the route colour and full transparency may appear"
+        );
+        Ok(())
+    }
+
+    /// Three waypoints forming a peak are joined by a Catmull-Rom spline, not
+    /// straight segments: at least one route pixel lies clearly off both
+    /// straight chords between consecutive waypoints. This is what makes the
+    /// preview match the curved output instead of the old straight polyline.
+    #[test]
+    fn route_curves_between_waypoints() -> Result<(), Box<dyn std::error::Error>> {
+        let rect = GridRectangle::new(
+            GridCoordinates::new(1000, 1000),
+            GridCoordinates::new(1012, 1012),
+        );
+        let mut map = Map::blank_fit(rect, 512, 512)?;
+        // A ∧-shaped arc: ends low, middle high. The tangent at the middle is
+        // horizontal, so the spline bows away from the straight chords.
+        let p0 = pixel_for(&map, 1001, 1001, 128f32, 128f32).ok_or("waypoint outside rect")?;
+        let p1 = pixel_for(&map, 1006, 1006, 128f32, 128f32).ok_or("waypoint outside rect")?;
+        let p2 = pixel_for(&map, 1011, 1001, 128f32, 128f32).ok_or("waypoint outside rect")?;
+        map.draw_pixel_waypoint_route(&[p0, p1, p2], ROUTE_COLOR)?;
+
+        let (w, h) = image::GenericImageView::dimensions(&map);
+        let mut max_off = 0f32;
+        for y in 0..h {
+            for x in 0..w {
+                if image::GenericImageView::get_pixel(&map, x, y) == ROUTE_COLOR {
+                    let p = (widen(x), widen(y));
+                    let off = distance_to_segment(p, p0, p1).min(distance_to_segment(p, p1, p2));
+                    max_off = max_off.max(off);
+                }
+            }
+        }
+        assert!(
+            max_off > 4f32,
+            "the route should curve away from the straight chords (max off-chord \
+             distance was {max_off:.1} px); a straight polyline would stay on them"
+        );
         Ok(())
     }
 }

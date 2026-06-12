@@ -379,6 +379,38 @@ async function fetchGlwLegendOverlay(rect) {
   return URL.createObjectURL(await resp.blob());
 }
 
+// Fetch the route rendered at the final-image resolution as a blob URL, or null
+// when there are fewer than two waypoints (nothing to draw). The server draws
+// the route with the very same spline + arrows code the final render uses, onto
+// a transparent image the size of the final image; the caller drops it into the
+// bounds rectangle so it lines up with the tiles and looks identical to the
+// output. Throws on server error.
+async function fetchRoutePreview(rect, waypoints) {
+  if (!waypoints || waypoints.length <= 1) return null;
+  const shared = readSharedParams();
+  const resp = await fetch("/api/render/route-preview", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      lower_left_x: rect.lower_left_x,
+      lower_left_y: rect.lower_left_y,
+      upper_right_x: rect.upper_right_x,
+      upper_right_y: rect.upper_right_y,
+      max_width: shared.max_width,
+      max_height: shared.max_height,
+      color: $("route_color").value,
+      waypoints: waypoints.map((w) => ({
+        region_x: w.region_x,
+        region_y: w.region_y,
+        x: w.x,
+        y: w.y,
+      })),
+    }),
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  return URL.createObjectURL(await resp.blob());
+}
+
 // Fetch the text labels + logos rendered at the final-image resolution as a
 // blob URL, or null when there are none. The server places them on an
 // overlay-only map exactly as the final render does, so they line up with the
@@ -503,7 +535,6 @@ function renderPreview(rect, waypoints) {
   svg.setAttribute("width", widthPx);
   svg.setAttribute("height", heightPx);
   const ppRegion = pixelsPerRegion(z);
-  const ppMeter = ppRegion / 256;
 
   // Bounds rectangle. The upper-right corner is inclusive, so the rectangle
   // extends one region past upper_right to cover that region in full. SL y
@@ -545,33 +576,49 @@ function renderPreview(rect, waypoints) {
   boundsRect.setAttribute("vector-effect", "non-scaling-stroke");
   svg.appendChild(boundsRect);
 
-  if (waypoints && waypoints.length > 1) {
-    const points = waypoints
-      .map((w) => {
-        const px = (w.region_x - firstX) * ppRegion + w.x * ppMeter;
-        const py =
-          heightPx - ((w.region_y - firstY) * ppRegion + w.y * ppMeter);
-        return `${px.toFixed(1)},${py.toFixed(1)}`;
-      })
-      .join(" ");
-    const polyline = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "polyline",
-    );
-    polyline.setAttribute("points", points);
-    polyline.setAttribute("fill", "none");
-    polyline.setAttribute("stroke", $("route_color").value);
-    polyline.setAttribute("stroke-width", "3");
-    svg.appendChild(polyline);
-  }
-
   viewport.appendChild(svg);
+
+  // Route overlay. The server rasterises just the route — the very same
+  // Catmull-Rom spline + per-waypoint arrows + route colour the final render
+  // draws — onto a transparent image at the final-image resolution, which we
+  // drop into the bounds rectangle (the browser scales it down) so the preview
+  // route is a pixel-faithful copy of the output. Inserted before the bounds
+  // SVG so the dashed guide stays on top; the GLW overlay (below) is inserted
+  // before this image so the route stays above the GLW shapes, matching the
+  // final render's layering. The fetch is async, so the placeholder <img> is
+  // positioned now and its src filled in on arrival.
+  let routeImg = null;
+  if (waypoints && waypoints.length > 1) {
+    routeImg = document.createElement("img");
+    routeImg.className = "route-overlay";
+    routeImg.style.left = `${boundsX.toFixed(1)}px`;
+    routeImg.style.top = `${boundsY.toFixed(1)}px`;
+    routeImg.style.width = `${boundsW.toFixed(1)}px`;
+    routeImg.style.height = `${boundsH.toFixed(1)}px`;
+    viewport.insertBefore(routeImg, svg);
+    fetchRoutePreview(rect, waypoints)
+      .then((url) => {
+        if (!url) {
+          routeImg.remove();
+          return;
+        }
+        routeImg.src = url;
+        routeImg.addEventListener("load", () => URL.revokeObjectURL(url), {
+          once: true,
+        });
+      })
+      .catch((err) => {
+        routeImg.remove();
+        $("preview-status").textContent =
+          `Route overlay failed: ${err.message}`;
+      });
+  }
 
   // GLW overlay. The server rasterises just the geographic GLW shapes and
   // their labels (the legend is excluded — it is placed separately by the
   // placement-slot logic) onto a transparent image the size of the final-image
   // bounds at this same zoom level, which we drop into the bounds rectangle so
-  // it lines up with the tiles. Inserted before the route SVG so the route
+  // it lines up with the tiles. Inserted before the route image so the route
   // stays on top (matching the final render's layering: GLW under the route).
   // The fetch is async, so the placeholder <img> is positioned now and its src
   // filled in on arrival.
@@ -582,7 +629,7 @@ function renderPreview(rect, waypoints) {
     glwImg.style.top = `${boundsY.toFixed(1)}px`;
     glwImg.style.width = `${boundsW.toFixed(1)}px`;
     glwImg.style.height = `${boundsH.toFixed(1)}px`;
-    viewport.insertBefore(glwImg, svg);
+    viewport.insertBefore(glwImg, routeImg || svg);
     fetchGlwOverlay(rect, z)
       .then((url) => {
         if (!url) {

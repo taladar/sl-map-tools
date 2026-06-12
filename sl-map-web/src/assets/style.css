@@ -274,6 +274,16 @@ button:disabled {
   pointer-events: none;
 }
 
+/* Route PNG, rendered server-side at the final-image resolution with the very
+   same spline + arrows code the output uses, and dropped into the bounds
+   rectangle. Sits above the GLW shapes and below the bounds-guide SVG (so the
+   dashed rectangle stays visible) and the legend/labels overlays. JS sets the
+   explicit left/top/width/height. */
+.map-container img.route-overlay {
+  position: absolute;
+  pointer-events: none;
+}
+
 /* GLW base legend PNG, rendered at the final-image resolution and dropped into
    the bounds rectangle. z-index keeps it above the route SVG and the free-slot
    overlay so it reads as the legend the final render will place. */

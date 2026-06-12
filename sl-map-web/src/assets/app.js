@@ -2259,10 +2259,35 @@ function rectsTouch(a, b) {
   return -xGap > T || -yGap > T;
 }
 
+// Whether the slots of two groups together fill a solid axis-aligned rectangle
+// in the conceptual 3x3 grid (so combining never produces an L-shape or a
+// staggered region). Groups are disjoint, so this holds iff every cell of the
+// union's bounding box is occupied.
+function groupsFormRectangle(ga, gb) {
+  const cells = [...ga.slots, ...gb.slots].map((s) => SLOT_CELL[s]);
+  const cols = cells.map((c) => c[0]);
+  const rows = cells.map((c) => c[1]);
+  const c0 = Math.min(...cols);
+  const c1 = Math.max(...cols);
+  const r0 = Math.min(...rows);
+  const r1 = Math.max(...rows);
+  if (cells.length !== (c1 - c0 + 1) * (r1 - r0 + 1)) return false;
+  const present = new Set(cells.map(([c, r]) => `${c},${r}`));
+  for (let c = c0; c <= c1; c++) {
+    for (let r = r0; r <= r1; r++) {
+      if (!present.has(`${c},${r}`)) return false;
+    }
+  }
+  return true;
+}
+
 // Combine buttons on the shared edges of adjacent free slots that belong to
 // different groups, but only where the two groups' free rectangles actually
-// touch. Placed at the midpoint of the two slots' cell centres.
+// touch AND their slots together form a solid rectangle (no L-shapes or
+// staggers). One button per group pair, at the midpoint of the touching slots'
+// cell centres.
 function drawCombineButtons(layer, bx, by, bw, bh) {
+  const seen = new Set();
   for (let i = 0; i < SLOT_ANCHORS.length; i++) {
     for (let j = i + 1; j < SLOT_ANCHORS.length; j++) {
       const a = SLOT_ANCHORS[i];
@@ -2273,17 +2298,22 @@ function drawCombineButtons(layer, bx, by, bw, bh) {
       const ga = groupOf(a);
       const gb = groupOf(b);
       if (!ga || !gb || ga === gb) continue; // already combined
+      const key = ga.id < gb.id ? `${ga.id}-${gb.id}` : `${gb.id}-${ga.id}`;
+      if (seen.has(key)) continue; // one button per group pair
       const ra2 = rectForGroup(ga);
       const rb2 = rectForGroup(gb);
       if (!ra2 || !ra2.available || !ra2.free_rect) continue;
       if (!rb2 || !rb2.available || !rb2.free_rect) continue;
-      // Only combinable when the rectangles really touch (no gap between them).
+      // Only combinable when the rectangles really touch (no gap between them)
+      // and the result is a solid rectangle.
       if (!rectsTouch(ra2.free_rect, rb2.free_rect)) continue;
+      if (!groupsFormRectangle(ga, gb)) continue;
+      seen.add(key);
       const cx = bx + ((ca + cb) / 2 + 0.5) * (bw / 3);
       const cy = by + ((ra + rb) / 2 + 0.5) * (bh / 3);
       const btn = iconButton(
         "combine",
-        `Combine ${SLOT_LABELS[a]} + ${SLOT_LABELS[b]}`,
+        `Combine ${groupName(ga)} + ${groupName(gb)}`,
         false,
         () => combineSlots(a, b),
       );

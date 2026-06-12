@@ -714,26 +714,40 @@ impl OccupancyGrid {
     }
 
     /// The largest all-free pixel rectangle confined to the union of the thirds
-    /// of the given `slots`, anchored per `anchor`'s axis modes.
+    /// of the given `slots`.
     ///
     /// Unlike [`Self::spanned_region`] (which grows across a whole connected
     /// free region), this is restricted to *exactly* the slots the caller
     /// joined: cells outside the chosen slots' thirds are treated as occupied,
     /// so an L-shaped union yields the largest rectangle that fits inside it.
-    /// `anchor` should be one of `slots` (its primary anchor); it only biases
-    /// which equal-area rectangle wins. Returns `None` when the union is empty
-    /// or has no free rectangle.
+    /// The rectangle is anchored to the edges the *group* touches (a
+    /// centre+right group hugs the right edge, a top-left 2×2 hugs the top
+    /// left, a full row centres), rather than to any one slot's own anchoring,
+    /// so a combined slot never centres itself away from the edges its members
+    /// already reached. Returns `None` when the union is empty or fully covered.
     #[must_use]
-    pub fn subset_rect(&self, slots: &[PlacementSlot], anchor: PlacementSlot) -> Option<PixelRect> {
+    pub fn subset_rect(&self, slots: &[PlacementSlot]) -> Option<PixelRect> {
         if self.cols == 0 || self.rows == 0 || slots.is_empty() {
             return None;
         }
         // Allowed-cell mask = union of the chosen slots' thirds, plus its
-        // bounding cell band.
+        // bounding cell band, plus which outer thirds the group touches.
         let mut allowed = vec![false; (self.cols * self.rows) as usize];
         let (mut c_lo, mut c_hi, mut r_lo, mut r_hi) = (self.cols, 0u32, self.rows, 0u32);
+        let (mut has_left, mut has_right, mut has_top, mut has_bottom) =
+            (false, false, false, false);
         for &s in slots {
             let (h3, v3) = s.cell_3x3();
+            match h3 {
+                0 => has_left = true,
+                2 => has_right = true,
+                _ => {}
+            }
+            match v3 {
+                0 => has_top = true,
+                2 => has_bottom = true,
+                _ => {}
+            }
             let (cl, ch) = self.col_band(u32::from(h3));
             let (rl, rh) = self.row_band(u32::from(v3));
             c_lo = c_lo.min(cl);
@@ -758,7 +772,19 @@ impl OccupancyGrid {
                     .copied()
                     .unwrap_or(false)
         };
-        let (hmode, vmode) = (anchor.horizontal(), anchor.vertical());
+        // Anchor to whichever outer edge(s) the group reaches (centre only when
+        // it reaches both or neither), so the combined rectangle stays against
+        // those edges instead of centring within the union band.
+        let hmode = match (has_left, has_right) {
+            (true, false) => AxisMode::Start,
+            (false, true) => AxisMode::End,
+            _ => AxisMode::Center,
+        };
+        let vmode = match (has_top, has_bottom) {
+            (true, false) => AxisMode::Start,
+            (false, true) => AxisMode::End,
+            _ => AxisMode::Center,
+        };
         let band_rows = r_hi - r_lo;
         let mut best: Option<(u32, u32, u32, u32, u32)> = None;
         for h in 1..=band_rows {
@@ -1140,10 +1166,7 @@ mod test {
         let grid = grid_from_cells(9, 9, 10, vec![false; 81]);
         // top_left + top_center -> the top-left two thirds: 6 cells wide, 3 tall.
         let rect = grid
-            .subset_rect(
-                &[PlacementSlot::TopLeft, PlacementSlot::TopCenter],
-                PlacementSlot::TopLeft,
-            )
+            .subset_rect(&[PlacementSlot::TopLeft, PlacementSlot::TopCenter])
             .ok_or("the two free top slots have a combined rect")?;
         assert_eq!(
             (rect.x, rect.y, rect.width, rect.height),
@@ -1160,14 +1183,11 @@ mod test {
         // 6x3-cell top strip (anchored top-left), not a 6x6 block.
         let grid = grid_from_cells(9, 9, 10, vec![false; 81]);
         let rect = grid
-            .subset_rect(
-                &[
-                    PlacementSlot::TopLeft,
-                    PlacementSlot::TopCenter,
-                    PlacementSlot::MiddleLeft,
-                ],
+            .subset_rect(&[
                 PlacementSlot::TopLeft,
-            )
+                PlacementSlot::TopCenter,
+                PlacementSlot::MiddleLeft,
+            ])
             .ok_or("the L-shaped union has a free rect")?;
         // top strip: cols 0..6, rows 0..3 -> 60x30 px, never crossing into the
         // unselected centre third (which would make it 60x60).
@@ -1186,13 +1206,35 @@ mod test {
             .collect();
         let grid = grid_from_cells(9, 9, 10, occupied);
         assert!(
-            grid.subset_rect(
-                &[PlacementSlot::TopLeft, PlacementSlot::TopCenter],
-                PlacementSlot::TopLeft,
-            )
-            .is_none(),
+            grid.subset_rect(&[PlacementSlot::TopLeft, PlacementSlot::TopCenter])
+                .is_none(),
             "a fully covered union has no combined rect"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn subset_rect_hugs_the_edge_the_group_touches() -> Result<(), Box<dyn std::error::Error>> {
+        // bottom_center + bottom_right occupies cols 3..9, rows 6..9. Occupy the
+        // left column of that union (col 3): the largest free rect must hug the
+        // RIGHT edge (cols 4..9), not centre itself within the band.
+        let occupied: Vec<bool> = (0..81u32)
+            .map(|i| {
+                let (row, col) = (i / 9, i % 9);
+                col == 3 && row >= 6
+            })
+            .collect();
+        let grid = grid_from_cells(9, 9, 10, occupied);
+        let rect = grid
+            .subset_rect(&[PlacementSlot::BottomCenter, PlacementSlot::BottomRight])
+            .ok_or("the bottom centre+right union has a free rect")?;
+        assert_eq!(
+            (rect.x, rect.y, rect.width, rect.height),
+            (40, 60, 50, 30),
+            "the rect hugs the right edge instead of centring"
+        );
+        // its right edge reaches the grid's right edge (90 px), no gap there.
+        assert_eq!(rect.x + rect.width, 90);
         Ok(())
     }
 

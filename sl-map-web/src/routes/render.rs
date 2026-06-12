@@ -685,10 +685,9 @@ fn compute_placement_slots(
     let group_dtos = groups
         .iter()
         .filter(|g| g.len() > 1)
-        .filter_map(|g| {
-            let anchor = *g.first()?;
-            let rect = grid.subset_rect(g, anchor);
-            Some(GroupDto {
+        .map(|g| {
+            let rect = grid.subset_rect(g);
+            GroupDto {
                 slots: g.iter().map(|s| s.as_str()).collect(),
                 available: rect.is_some(),
                 free_rect: rect.map(|r| PixelRectDto {
@@ -699,7 +698,7 @@ fn compute_placement_slots(
                 }),
                 free_width: rect.map_or(0, |r| r.width),
                 free_height: rect.map_or(0, |r| r.height),
-            })
+            }
         })
         .collect();
     PlacementSlotsResponse {
@@ -2403,7 +2402,7 @@ fn resolve_placement(
     Error,
 > {
     if group.len() > 1 {
-        let rect = grid.subset_rect(group, anchor).ok_or_else(|| {
+        let rect = grid.subset_rect(group).ok_or_else(|| {
             Error::BadRequest(format!(
                 "the combined slot at `{anchor}` is fully covered; no room for content"
             ))

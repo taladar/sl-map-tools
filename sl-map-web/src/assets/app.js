@@ -376,14 +376,60 @@ function renderPreview(rect, waypoints) {
   }
   viewport.appendChild(tiles);
 
+  // A single overlay carries both the route polyline and the bounds
+  // rectangle so they scale together with the tiles. The preview tiles are
+  // aligned to tile boundaries (firstX/firstY), so they can show regions
+  // outside the requested rectangle; the rectangle marks the area that will
+  // actually appear in the final image.
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("route-overlay");
+  svg.setAttribute("viewBox", `0 0 ${widthPx} ${heightPx}`);
+  svg.setAttribute("width", widthPx);
+  svg.setAttribute("height", heightPx);
+  const ppRegion = pixelsPerRegion(z);
+  const ppMeter = ppRegion / 256;
+
+  // Bounds rectangle. The upper-right corner is inclusive, so the rectangle
+  // extends one region past upper_right to cover that region in full. SL y
+  // increases upward while DOM/SVG y increases downward, so the top edge is
+  // derived from the upper-right corner.
+  const boundsX = (rect.lower_left_x - firstX) * ppRegion;
+  const boundsY = heightPx - (rect.upper_right_y + 1 - firstY) * ppRegion;
+  const boundsW = sizeX * ppRegion;
+  const boundsH = sizeY * ppRegion;
+  // Dim everything outside the bounds: a full-viewport fill with the
+  // rectangle punched out via the even-odd fill rule. Drawn before the
+  // outline so the dashed border stays on top.
+  const dim = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  dim.setAttribute(
+    "d",
+    `M0 0 H${widthPx} V${heightPx} H0 Z ` +
+      `M${boundsX.toFixed(1)} ${boundsY.toFixed(1)} ` +
+      `h${boundsW.toFixed(1)} v${boundsH.toFixed(1)} ` +
+      `h${(-boundsW).toFixed(1)} Z`,
+  );
+  dim.setAttribute("fill-rule", "evenodd");
+  dim.setAttribute("fill", "#000");
+  dim.setAttribute("fill-opacity", "0.5");
+  svg.appendChild(dim);
+
+  const boundsRect = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "rect",
+  );
+  boundsRect.setAttribute("x", boundsX.toFixed(1));
+  boundsRect.setAttribute("y", boundsY.toFixed(1));
+  boundsRect.setAttribute("width", boundsW.toFixed(1));
+  boundsRect.setAttribute("height", boundsH.toFixed(1));
+  boundsRect.setAttribute("fill", "none");
+  boundsRect.setAttribute("stroke", "#ff2d2d");
+  boundsRect.setAttribute("stroke-width", "2");
+  boundsRect.setAttribute("stroke-dasharray", "6 4");
+  // keep the outline crisp regardless of the viewport's fit-to-width scale
+  boundsRect.setAttribute("vector-effect", "non-scaling-stroke");
+  svg.appendChild(boundsRect);
+
   if (waypoints && waypoints.length > 1) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.classList.add("route-overlay");
-    svg.setAttribute("viewBox", `0 0 ${widthPx} ${heightPx}`);
-    svg.setAttribute("width", widthPx);
-    svg.setAttribute("height", heightPx);
-    const ppRegion = pixelsPerRegion(z);
-    const ppMeter = ppRegion / 256;
     const points = waypoints
       .map((w) => {
         const px = (w.region_x - firstX) * ppRegion + w.x * ppMeter;
@@ -401,8 +447,9 @@ function renderPreview(rect, waypoints) {
     polyline.setAttribute("stroke", $("route_color").value);
     polyline.setAttribute("stroke-width", "3");
     svg.appendChild(polyline);
-    viewport.appendChild(svg);
   }
+
+  viewport.appendChild(svg);
 
   container.appendChild(viewport);
   fitViewport(container, viewport, widthPx, heightPx);

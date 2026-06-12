@@ -136,6 +136,13 @@ pub fn build(state: AppState) -> Router {
         // to the final-image bounds, for the client-side preview to composite
         // over the map tiles
         .route("/api/render/glw-preview", post(render::glw_preview))
+        // read-only: rasterise just the GLW base legend as a transparent PNG at
+        // the final-image resolution, for the preview to composite into the
+        // bounds rectangle at the legend's chosen slot
+        .route(
+            "/api/render/glw-legend-preview",
+            post(render::glw_legend_preview),
+        )
         .route("/api/render/{id}/events", get(events::events))
         .route("/api/render/{id}/image", get(result::image))
         .route(

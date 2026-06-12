@@ -274,6 +274,15 @@ button:disabled {
   pointer-events: none;
 }
 
+/* GLW base legend PNG, rendered at the final-image resolution and dropped into
+   the bounds rectangle. z-index keeps it above the route SVG and the free-slot
+   overlay so it reads as the legend the final render will place. */
+.map-container img.glw-legend {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+
 /* Free-placement-slot overlay, drawn on top of the tiles/route. Each free slot
    is a translucent green box (sized to its largest free rectangle); occupied
    slots get a red tag at their cell centre. JS sets the explicit positions. */

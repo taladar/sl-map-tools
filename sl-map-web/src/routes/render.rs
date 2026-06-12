@@ -859,6 +859,66 @@ pub async fn glw_preview(
     Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], image).into_response())
 }
 
+/// `POST /api/render/glw-legend-preview` — rasterise just the GLW base legend
+/// onto a transparent image the size of the final render, so the client-side
+/// preview can drop it into the final-image bounds rectangle and show the
+/// legend exactly where — and at the size — the final render will place it.
+///
+/// Unlike [`glw_preview`] this draws ONLY the legend (no geographic shapes or
+/// per-shape labels), and it renders at the final-image resolution
+/// (`Map::blank_fit` with the request's `max_width`/`max_height`) rather than
+/// the preview zoom, so the legend's anchored position and its fixed font size
+/// match the real render once the client scales the PNG into the bounds
+/// rectangle. The request reuses [`GridRectangleRequest`]; only the corners,
+/// `max_width`/`max_height` and `glw` (whose `legend_slot` chooses the slot)
+/// are consulted. When no GLW overlay is requested, the legend slot is `none`,
+/// or the GLW event cannot be resolved, the response is a fully transparent
+/// PNG, leaving the tiles unchanged.
+///
+/// # Errors
+///
+/// Returns an error if the dimensions are invalid, the font is unknown, the
+/// GLW colours fail to parse, or a referenced GLW row cannot be read.
+pub async fn glw_legend_preview(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Json(req): Json<GridRectangleRequest>,
+) -> Result<axum::response::Response, Error> {
+    use axum::response::IntoResponse as _;
+    use sl_glw::MapLikeGlwExt as _;
+    validate_dimensions(req.max_width, req.max_height)?;
+    let rect = GridRectangle::new(
+        GridCoordinates::new(req.lower_left_x, req.lower_left_y),
+        GridCoordinates::new(req.upper_right_x, req.upper_right_y),
+    );
+    // Final-image resolution so the legend matches the real render exactly.
+    let mut map = Map::blank_fit(rect, req.max_width, req.max_height)?;
+    if let Some(glw) = req.glw.as_ref() {
+        // Resolve the font first so a missing-font request fails fast.
+        let font_path = state
+            .fonts
+            .path_for(&glw.font_id)
+            .ok_or_else(|| Error::BadRequest(format!("unknown font_id `{}`", glw.font_id)))?;
+        let font = sl_map_apis::text::load_font(font_path)?;
+        let style = build_glw_style(&glw.style, glw.legend_slot.as_deref())?;
+        // Draw only the legend, at its chosen slot. `legend_position` is `None`
+        // when the slot is `none`, so skip the lookup/draw entirely then.
+        if style.legend_position.is_some() {
+            if let Some(event) =
+                resolve_glw_event_readonly(&state, user.user_id, &glw.source).await?
+            {
+                map.draw_glw_base_legend(&event.base, &style, &font)?;
+            } else {
+                tracing::warn!("GLW event not found; legend preview is fully transparent");
+            }
+        }
+    }
+    // PNG keeps the transparent background so only the legend composites over
+    // the client's tiles.
+    let image = encode_map(&map, OutputFormat::Png)?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], image).into_response())
+}
+
 /// Map a [`OutputFormat`] to its lowercase name used in the persisted
 /// settings JSON.
 const fn format_name(format: OutputFormat) -> &'static str {
@@ -2604,6 +2664,121 @@ mod glw_preview_tests {
             }
         }
         assert!(any, "the GLW shapes should still be drawn");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod glw_legend_preview_tests {
+    //! Tests for the drawing `glw_legend_preview` performs: rendering ONLY the
+    //! base legend onto a blank final-image-sized map at its chosen slot. The
+    //! resolution / HTTP plumbing needs a full `AppState`, so these cover the
+    //! pure drawing core (the same `draw_glw_base_legend` call the handler
+    //! makes) instead.
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use sl_glw::{GlwEvent, MapLikeGlwExt as _};
+
+    /// Minimal event with a non-zero base block (the legend only reads
+    /// `base`); the empty `areas`/`circles` keep the legend the only content.
+    const SAMPLE_JSON: &str = r#"{
+        "eventId": 6910,
+        "eventName": "test cruise",
+        "eventKey": "key cruise",
+        "directorName": "LaliaCasau Resident",
+        "directorKey": "b609826a-b167-41e0-8e67-9fc0e78b97a1",
+        "base": {
+            "wind": { "dir": 175, "speed": 17, "gusts": 8, "shifts": 5, "period": 90 },
+            "waves": {
+                "height": 1.5, "speed": 3, "length": 35,
+                "heightVar": 5, "lengthVar": 5,
+                "effects": { "speed": 1, "steer": 1 }
+            },
+            "currents": { "speed": 0, "dir": 180, "waterDepth": 0 }
+        },
+        "areas": {},
+        "circles": {}
+    }"#;
+
+    /// A font loaded from the workspace's bundled `DejaVuSans.ttf`.
+    fn test_font() -> Result<ab_glyph::FontVec, Box<dyn std::error::Error>> {
+        let root = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
+        let fonts = crate::fonts::FontDirectory::scan(root)?;
+        let path = fonts
+            .path_for("DejaVuSans.ttf")
+            .ok_or("bundled DejaVuSans.ttf font is missing")?;
+        Ok(sl_map_apis::text::load_font(path)?)
+    }
+
+    /// True if any non-transparent pixel falls inside the `w`×`h` corner at
+    /// `(ox, oy)`.
+    fn corner_has_pixels(map: &Map, ox: u32, oy: u32, w: u32, h: u32) -> bool {
+        for y in oy..oy.saturating_add(h) {
+            for x in ox..ox.saturating_add(w) {
+                let image::Rgba([_, _, _, a]) = image::GenericImageView::get_pixel(map, x, y);
+                if a != 0 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// The legend is drawn only in its chosen slot and nowhere else: a
+    /// `bottom_right` legend fills the bottom-right corner while leaving the
+    /// top-left corner transparent, and no shapes are drawn (legend-only).
+    #[test]
+    fn legend_drawn_only_in_chosen_slot() -> Result<(), Box<dyn std::error::Error>> {
+        let event: GlwEvent = serde_json::from_str(SAMPLE_JSON)?;
+        let font = test_font()?;
+        let rect = GridRectangle::new(
+            GridCoordinates::new(1130, 1045),
+            GridCoordinates::new(1140, 1055),
+        );
+        let mut map = Map::blank_fit(rect, 512, 512)?;
+        let style = build_glw_style(&GlwStyleOverrides::default(), Some("bottom_right"))?;
+        // Exactly what the handler does: draw the legend alone (no shapes).
+        map.draw_glw_base_legend(&event.base, &style, &font)?;
+        let (w, h) = image::GenericImageView::dimensions(&map);
+        assert!(
+            corner_has_pixels(&map, w.saturating_sub(80), h.saturating_sub(80), 80, 80),
+            "the bottom_right legend should fill the bottom-right corner"
+        );
+        assert!(
+            !corner_has_pixels(&map, 0, 0, 80, 80),
+            "no legend should appear in the unselected top-left corner"
+        );
+        Ok(())
+    }
+
+    /// A `none` legend slot yields `legend_position == None`, so the handler
+    /// skips drawing and the map stays fully transparent.
+    #[test]
+    fn legend_slot_none_draws_nothing() -> Result<(), Box<dyn std::error::Error>> {
+        let event: GlwEvent = serde_json::from_str(SAMPLE_JSON)?;
+        let font = test_font()?;
+        let rect = GridRectangle::new(
+            GridCoordinates::new(1130, 1045),
+            GridCoordinates::new(1140, 1055),
+        );
+        let mut map = Map::blank_fit(rect, 512, 512)?;
+        let style = build_glw_style(&GlwStyleOverrides::default(), Some("none"))?;
+        assert!(
+            style.legend_position.is_none(),
+            "the `none` slot must disable the legend"
+        );
+        // The handler only calls draw when legend_position.is_some(); mirror
+        // that guard, then assert nothing was drawn.
+        if style.legend_position.is_some() {
+            map.draw_glw_base_legend(&event.base, &style, &font)?;
+        }
+        let (w, h) = image::GenericImageView::dimensions(&map);
+        for y in 0..h {
+            for x in 0..w {
+                let image::Rgba([_, _, _, a]) = image::GenericImageView::get_pixel(&map, x, y);
+                assert_eq!(a, 0, "a `none` legend slot must leave the map transparent");
+            }
+        }
         Ok(())
     }
 }

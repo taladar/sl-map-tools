@@ -345,6 +345,33 @@ async function fetchGlwOverlay(rect, z) {
   return URL.createObjectURL(await resp.blob());
 }
 
+// Fetch the GLW base legend rendered at the final-image resolution as a blob
+// URL, or null when GLW is disabled or no legend slot is chosen. The server
+// draws only the legend, at the exact slot and size the final render uses,
+// onto a transparent image the size of the final image; the caller drops it
+// into the bounds rectangle so it lines up. Throws on server error.
+async function fetchGlwLegendOverlay(rect) {
+  const glw = readGlwOptions();
+  if (!glw) return null;
+  if (!glw.legend_slot || glw.legend_slot === "none") return null;
+  const shared = readSharedParams();
+  const resp = await fetch("/api/render/glw-legend-preview", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      lower_left_x: rect.lower_left_x,
+      lower_left_y: rect.lower_left_y,
+      upper_right_x: rect.upper_right_x,
+      upper_right_y: rect.upper_right_y,
+      max_width: shared.max_width,
+      max_height: shared.max_height,
+      glw,
+    }),
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  return URL.createObjectURL(await resp.blob());
+}
+
 function renderPreview(rect, waypoints) {
   const container = $("preview-container");
   container.replaceChildren();
@@ -505,6 +532,37 @@ function renderPreview(rect, waypoints) {
       .catch((err) => {
         glwImg.remove();
         $("preview-status").textContent = `GLW overlay failed: ${err.message}`;
+      });
+  }
+
+  // GLW base legend. Rendered server-side at the final-image resolution with
+  // only the legend drawn at its chosen slot, so it appears in the preview at
+  // the exact position and relative size the final render produces. Dropped
+  // into the bounds rectangle like the GLW overlay, but with a higher z-index
+  // (set in CSS) so it stays readable above the route and the slot overlay.
+  // Shown whenever GLW is enabled and a legend slot other than "none" is set.
+  if ($("glw_enabled") && $("glw_enabled").checked) {
+    const legendImg = document.createElement("img");
+    legendImg.className = "glw-legend";
+    legendImg.style.left = `${boundsX.toFixed(1)}px`;
+    legendImg.style.top = `${boundsY.toFixed(1)}px`;
+    legendImg.style.width = `${boundsW.toFixed(1)}px`;
+    legendImg.style.height = `${boundsH.toFixed(1)}px`;
+    viewport.appendChild(legendImg);
+    fetchGlwLegendOverlay(rect)
+      .then((url) => {
+        if (!url) {
+          legendImg.remove();
+          return;
+        }
+        legendImg.src = url;
+        legendImg.addEventListener("load", () => URL.revokeObjectURL(url), {
+          once: true,
+        });
+      })
+      .catch((err) => {
+        legendImg.remove();
+        $("preview-status").textContent = `GLW legend failed: ${err.message}`;
       });
   }
 

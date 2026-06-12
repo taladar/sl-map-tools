@@ -696,6 +696,8 @@ $("grid_render").addEventListener("click", async () => {
     if (glw) body.glw = glw;
     const labels = readLabels();
     if (labels.length) body.labels = labels;
+    const logos = readLogos();
+    if (logos.length) body.logos = logos;
     const resp = await fetch("/api/render/grid-rectangle", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -733,6 +735,8 @@ $("notecard_render").addEventListener("click", async () => {
     if (glw) fd.append("glw_json", JSON.stringify(glw));
     const labels = readLabels();
     if (labels.length) fd.append("labels_json", JSON.stringify(labels));
+    const logos = readLogos();
+    if (logos.length) fd.append("logos_json", JSON.stringify(logos));
     const resp = await fetch("/api/render/usb-notecard", {
       method: "POST",
       body: fd,
@@ -813,6 +817,7 @@ function applySettings(s) {
     }
     applyGlwSettings(s.glw);
     applyLabels(s.labels);
+    applyLogos(s.logos);
     const tab = document.querySelector('.tab[data-tab="grid"]');
     if (tab) tab.click();
   } else if (s.kind === "usb_notecard") {
@@ -840,6 +845,7 @@ function applySettings(s) {
     }
     applyGlwSettings(s.glw);
     applyLabels(s.labels);
+    applyLogos(s.logos);
     const tab = document.querySelector('.tab[data-tab="notecard"]');
     if (tab) tab.click();
   }
@@ -1189,6 +1195,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("save_to").addEventListener("change", () => {
     if (activeGlwSource() === "saved") loadSavedGlw().catch(() => {});
+    loadLogosForScope().catch(() => {});
   });
   const fillToggle = $("glw_area_fill_enabled");
   if (fillToggle) {
@@ -1356,25 +1363,65 @@ async function measureLabelRow(row) {
   validateLabels();
 }
 
-// Validate every label row, write inline errors next to the offending
-// control, and enable/disable the Generate buttons. Mirrors the server-side
-// checks in draw_labels_on_map.
+// The full connected free region touching `anchor`, computed by a BFS over
+// the per-slot `connected_neighbours` from the last placement-slots response.
+// Used to know which slots a `span_fill` placement reserves. Falls back to
+// just the anchor when slots have not been computed yet.
+function spannedSlots(anchor) {
+  if (!lastPlacementSlots) return [anchor];
+  const seen = new Set([anchor]);
+  const stack = [anchor];
+  while (stack.length) {
+    const info = lastPlacementSlots[stack.pop()];
+    for (const n of (info && info.connected_neighbours) || []) {
+      if (!seen.has(n)) {
+        seen.add(n);
+        stack.push(n);
+      }
+    }
+  }
+  return [...seen];
+}
+
+// The slots a label row reserves (its anchor, or the whole connected region
+// when "fill" is checked).
+function labelRowSlots(row) {
+  const slot = row.querySelector(".label-slot").value;
+  return row.querySelector(".label-span").checked ? spannedSlots(slot) : [slot];
+}
+
+// The slots a logo row reserves.
+function logoRowSlots(row) {
+  const slot = row.querySelector(".logo-slot").value;
+  return row.querySelector(".logo-span").checked ? spannedSlots(slot) : [slot];
+}
+
+// Validate every label and logo row against one shared pool of placement
+// slots, write inline errors next to the offending control, and
+// enable/disable the Generate buttons. Mirrors the server-side checks in
+// draw_labels_on_map / draw_logos_on_map (including the unified slot
+// reservation across labels and logos).
 function validateLabels() {
-  const rows = [...document.querySelectorAll("#labels-list .label-row")];
+  const labelRows = [...document.querySelectorAll("#labels-list .label-row")];
+  const logoRows = [...document.querySelectorAll("#logos-list .logo-row")];
   const legendErr = $("glw_legend_slot_error");
   if (legendErr) legendErr.textContent = "";
   const legendSlot = legendSlotValue();
   let ok = true;
 
-  // count slot usage among non-blank labels
-  const slotCount = {};
-  for (const row of rows) {
+  // Usage count over the shared slot pool from every active placement.
+  const slotUse = {};
+  for (const row of labelRows) {
     if (labelRowBlank(row)) continue;
-    const slot = row.querySelector(".label-slot").value;
-    slotCount[slot] = (slotCount[slot] || 0) + 1;
+    for (const s of labelRowSlots(row)) slotUse[s] = (slotUse[s] || 0) + 1;
+  }
+  for (const row of logoRows) {
+    if (!row.querySelector(".logo-pick").value) continue;
+    for (const s of logoRowSlots(row)) slotUse[s] = (slotUse[s] || 0) + 1;
   }
 
-  for (const row of rows) {
+  // ---- text labels ----
+  for (const row of labelRows) {
     const slotErr = row.querySelector(".label-slot-error");
     const sizeErr = row.querySelector(".label-size-error");
     const measureEl = row.querySelector(".label-measure");
@@ -1383,15 +1430,15 @@ function validateLabels() {
     measureEl.textContent = "";
     if (labelRowBlank(row)) continue;
 
-    const slot = row.querySelector(".label-slot").value;
-    if (legendSlot && slot === legendSlot) {
+    const anchor = row.querySelector(".label-slot").value;
+    const slots = labelRowSlots(row);
+    if (legendSlot && slots.includes(legendSlot)) {
       slotErr.textContent = "This slot is used by the legend.";
-      if (legendErr)
-        legendErr.textContent = "A text label also uses this slot.";
+      if (legendErr) legendErr.textContent = "A placement also uses this slot.";
       ok = false;
     }
-    if (slotCount[slot] > 1) {
-      slotErr.textContent = "Another label already uses this slot.";
+    if (slots.some((s) => slotUse[s] > 1)) {
+      slotErr.textContent = "Another placement already uses this slot.";
       ok = false;
     }
 
@@ -1400,7 +1447,7 @@ function validateLabels() {
       ok = false;
       continue;
     }
-    const ps = lastPlacementSlots[slot];
+    const ps = lastPlacementSlots[anchor];
     if (!ps || !ps.available) {
       if (!slotErr.textContent)
         slotErr.textContent = "This slot is covered by route / GLW content.";
@@ -1417,6 +1464,57 @@ function validateLabels() {
       }
     }
   }
+
+  // ---- logos ----
+  for (const row of logoRows) {
+    const slotErr = row.querySelector(".logo-slot-error");
+    const measureEl = row.querySelector(".logo-measure");
+    slotErr.textContent = "";
+    measureEl.textContent = "";
+    const pick = row.querySelector(".logo-pick");
+    if (!pick.value) {
+      measureEl.textContent = "Choose a logo.";
+      ok = false;
+      continue;
+    }
+
+    const anchor = row.querySelector(".logo-slot").value;
+    const slots = logoRowSlots(row);
+    if (legendSlot && slots.includes(legendSlot)) {
+      slotErr.textContent = "This slot is used by the legend.";
+      if (legendErr) legendErr.textContent = "A placement also uses this slot.";
+      ok = false;
+    }
+    if (slots.some((s) => slotUse[s] > 1)) {
+      slotErr.textContent = "Another placement already uses this slot.";
+      ok = false;
+    }
+
+    const scale = parseInt(row.querySelector(".logo-scale").value, 10) || 1;
+    const opt = pick.selectedOptions[0];
+    const w = (opt ? parseInt(opt.dataset.w, 10) || 0 : 0) * scale;
+    const h = (opt ? parseInt(opt.dataset.h, 10) || 0 : 0) * scale;
+
+    if (!lastPlacementSlots) {
+      measureEl.textContent = 'Run "Find free slots" to check this logo fits.';
+      ok = false;
+      continue;
+    }
+    const ps = lastPlacementSlots[anchor];
+    if (!ps || !ps.available) {
+      if (!slotErr.textContent)
+        slotErr.textContent = "This slot is covered by route / GLW content.";
+      ok = false;
+      continue;
+    }
+    measureEl.textContent = `Logo ${w}×${h}px — slot free ${ps.free_width}×${ps.free_height}px`;
+    if (w > ps.free_width || h > ps.free_height) {
+      measureEl.textContent +=
+        " — too large; enable Fill connected free area or choose a larger slot.";
+      ok = false;
+    }
+  }
+
   setGenerateEnabled(ok);
 }
 
@@ -1493,6 +1591,170 @@ function applyLabels(labels) {
   if (list) list.replaceChildren();
   if (Array.isArray(labels)) {
     for (const l of labels) addLabelRow(l);
+  }
+  validateLabels();
+}
+
+// Logos available in the current save_to scope, shared between the per-row
+// pickers. Filled by loadLogosForScope().
+let loadedLogos = [];
+
+// Fill a per-row logo <select> from loadedLogos, preserving the desired
+// selection across reloads via dataset.want. Each option carries the logo's
+// intrinsic pixel size in data-w / data-h for the fit check.
+function populateLogoSelect(sel, selected) {
+  if (!sel) return;
+  if (selected) sel.dataset.want = selected;
+  const want = sel.dataset.want || sel.value;
+  sel.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = loadedLogos.length
+    ? "(choose a logo)"
+    : "(no logos in this scope)";
+  sel.appendChild(placeholder);
+  for (const l of loadedLogos) {
+    const opt = document.createElement("option");
+    opt.value = l.logo_id;
+    opt.textContent = `${l.name} (${l.width}×${l.height})`;
+    opt.dataset.w = String(l.width);
+    opt.dataset.h = String(l.height);
+    sel.appendChild(opt);
+  }
+  if (want && loadedLogos.some((l) => l.logo_id === want)) sel.value = want;
+}
+
+// Load the logos for the active save_to scope and repopulate every row's
+// picker. Logos must live in the same library as the render (same-scope
+// rule), so this re-runs whenever save_to changes.
+async function loadLogosForScope() {
+  const scope = $("save_to") ? $("save_to").value || "personal" : "personal";
+  try {
+    const resp = await fetch(`/api/logos?scope=${encodeURIComponent(scope)}`);
+    loadedLogos = resp.ok ? (await resp.json()).logos || [] : [];
+  } catch (_err) {
+    loadedLogos = [];
+  }
+  document
+    .querySelectorAll("#logos-list .logo-row")
+    .forEach((row) => populateLogoSelect(row.querySelector(".logo-pick")));
+  validateLabels();
+}
+
+// Read the current logo rows into the request shape. Rows with no logo
+// chosen are dropped.
+function readLogos() {
+  const out = [];
+  for (const row of document.querySelectorAll("#logos-list .logo-row")) {
+    const logoId = row.querySelector(".logo-pick").value;
+    if (!logoId) continue;
+    out.push({
+      slot: row.querySelector(".logo-slot").value,
+      logo_id: logoId,
+      scale: parseInt(row.querySelector(".logo-scale").value, 10) || 1,
+      span_fill: row.querySelector(".logo-span").checked,
+      h_align: row.querySelector(".logo-halign").value,
+      v_align: row.querySelector(".logo-valign").value,
+    });
+  }
+  return out;
+}
+
+// Preset a logo row's alignment dropdowns to its slot's outward default,
+// unless the user has already changed them.
+function presetLogoAligns(row) {
+  const def = slotDefaultAlign(row.querySelector(".logo-slot").value);
+  const h = row.querySelector(".logo-halign");
+  const v = row.querySelector(".logo-valign");
+  if (!h.dataset.touched) h.value = def.h;
+  if (!v.dataset.touched) v.value = def.v;
+}
+
+// Update a logo row's preview thumbnail to the chosen logo.
+function updateLogoPreview(row) {
+  const pick = row.querySelector(".logo-pick");
+  const img = row.querySelector(".logo-preview");
+  if (pick.value) {
+    img.src = `/api/logos/${pick.value}/image`;
+    img.classList.remove("hidden");
+  } else {
+    img.removeAttribute("src");
+    img.classList.add("hidden");
+  }
+}
+
+// Restore a logo row's controls from a saved LogoPlacement (regenerate).
+function applyLogoPreset(row, l) {
+  if (l.logo_id) populateLogoSelect(row.querySelector(".logo-pick"), l.logo_id);
+  if (l.slot) row.querySelector(".logo-slot").value = l.slot;
+  if (l.scale != null) row.querySelector(".logo-scale").value = String(l.scale);
+  if (l.span_fill) row.querySelector(".logo-span").checked = true;
+  const h = row.querySelector(".logo-halign");
+  const v = row.querySelector(".logo-valign");
+  if (l.h_align) {
+    h.value = l.h_align;
+    h.dataset.touched = "1";
+  }
+  if (l.v_align) {
+    v.value = l.v_align;
+    v.dataset.touched = "1";
+  }
+}
+
+// Add a new logo row (optionally pre-filled) and wire up its listeners.
+function addLogoRow(preset) {
+  const tpl = $("logo-row-template");
+  if (!tpl) return null;
+  const row = tpl.content.firstElementChild.cloneNode(true);
+
+  const slotSel = row.querySelector(".logo-slot");
+  for (const a of SLOT_ANCHORS) {
+    const opt = document.createElement("option");
+    opt.value = a;
+    opt.textContent = SLOT_LABELS[a];
+    slotSel.appendChild(opt);
+  }
+  populateLogoSelect(row.querySelector(".logo-pick"));
+
+  const pick = row.querySelector(".logo-pick");
+  pick.addEventListener("change", () => {
+    updateLogoPreview(row);
+    validateLabels();
+  });
+  slotSel.addEventListener("change", () => {
+    presetLogoAligns(row);
+    validateLabels();
+  });
+  row.querySelector(".logo-scale").addEventListener("change", validateLabels);
+  row.querySelector(".logo-span").addEventListener("change", validateLabels);
+  const h = row.querySelector(".logo-halign");
+  const v = row.querySelector(".logo-valign");
+  h.addEventListener("change", () => {
+    h.dataset.touched = "1";
+    validateLabels();
+  });
+  v.addEventListener("change", () => {
+    v.dataset.touched = "1";
+    validateLabels();
+  });
+  row.querySelector(".logo-remove").addEventListener("click", () => {
+    row.remove();
+    validateLabels();
+  });
+
+  $("logos-list").appendChild(row);
+  if (preset) applyLogoPreset(row, preset);
+  presetLogoAligns(row);
+  updateLogoPreview(row);
+  return row;
+}
+
+// Replace all logo rows from saved settings (regenerate).
+function applyLogos(logos) {
+  const list = $("logos-list");
+  if (list) list.replaceChildren();
+  if (Array.isArray(logos)) {
+    for (const l of logos) addLogoRow(l);
   }
   validateLabels();
 }
@@ -1599,6 +1861,13 @@ document.addEventListener("DOMContentLoaded", () => {
       addLabelRow();
       validateLabels();
     });
+  const addLogoBtn = $("add_logo");
+  if (addLogoBtn)
+    addLogoBtn.addEventListener("click", () => {
+      addLogoRow();
+      validateLabels();
+    });
+  loadLogosForScope().catch(() => {});
   const findBtn = $("find_slots");
   if (findBtn) findBtn.addEventListener("click", () => findFreeSlots());
   const legendSel = $("glw_legend_slot");

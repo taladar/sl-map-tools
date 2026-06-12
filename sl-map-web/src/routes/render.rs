@@ -173,6 +173,43 @@ pub struct TextLabel {
     /// (`top` | `center` | `bottom`); absent → the slot's outward default.
     #[serde(default)]
     pub v_align: Option<String>,
+    /// when `true`, the label grows across the whole connected free region
+    /// touching its anchor slot (e.g. all three bottom slots → a full-width
+    /// bottom label) and reserves every slot it covers.
+    #[serde(default)]
+    pub span_fill: bool,
+}
+
+/// Default integer scale factor for a [`LogoPlacement`].
+const fn default_logo_scale() -> u8 {
+    1
+}
+
+/// A logo image to composite into one of the nine placement slots, drawn at
+/// its native pixel size (optionally integer-doubled) and aligned within the
+/// slot's free rectangle like a text label.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogoPlacement {
+    /// placement-slot anchor name (`top_left` … `center` … `bottom_right`).
+    pub slot: String,
+    /// id of the saved logo (`saved_logos.logo_id`) to draw.
+    pub logo_id: Uuid,
+    /// integer scale factor applied with nearest-neighbour sampling (no
+    /// blur). Must be `1` or `2`.
+    #[serde(default = "default_logo_scale")]
+    pub scale: u8,
+    /// when `true`, the logo grows across the whole connected free region
+    /// touching its anchor slot and reserves every slot it covers.
+    #[serde(default)]
+    pub span_fill: bool,
+    /// horizontal alignment within the (single-slot or spanned) free
+    /// rectangle; absent → the slot's outward default.
+    #[serde(default)]
+    pub h_align: Option<String>,
+    /// vertical alignment within the free rectangle; absent → the slot's
+    /// outward default.
+    #[serde(default)]
+    pub v_align: Option<String>,
 }
 
 /// Per-render GLW configuration accepted by both render endpoints.
@@ -235,6 +272,9 @@ pub struct GridRectangleRequest {
     /// (independent of the GLW overlay).
     #[serde(default)]
     pub labels: Vec<TextLabel>,
+    /// zero or more logo images to composite in placement slots.
+    #[serde(default)]
+    pub logos: Vec<LogoPlacement>,
 }
 
 /// Response shape for both render endpoints.
@@ -305,6 +345,9 @@ pub struct SavedGridRectangleSettings {
     /// free-floating text labels drawn on the render.
     #[serde(default)]
     pub labels: Vec<TextLabel>,
+    /// logo images composited on the render.
+    #[serde(default)]
+    pub logos: Vec<LogoPlacement>,
 }
 
 /// Persisted form fields for a USB-notecard render.
@@ -344,6 +387,9 @@ pub struct SavedUsbNotecardSettings {
     /// free-floating text labels drawn on the render.
     #[serde(default)]
     pub labels: Vec<TextLabel>,
+    /// logo images composited on the render.
+    #[serde(default)]
+    pub logos: Vec<LogoPlacement>,
 }
 
 /// `POST /api/render/grid-rectangle` — start a render from explicit corners.
@@ -376,6 +422,7 @@ pub async fn grid_rectangle(
     let destination = Destination::parse(req.save_to.as_deref().unwrap_or("personal"))?;
     library::assert_can_write(&state.db, user.user_id, destination).await?;
     assert_under_concurrent_limit(&state.db, user.user_id).await?;
+    let logo_ids = validate_logos(&state, user.user_id, destination, &req.logos).await?;
     let rect = GridRectangle::new(
         GridCoordinates::new(req.lower_left_x, req.lower_left_y),
         GridCoordinates::new(req.upper_right_x, req.upper_right_y),
@@ -395,6 +442,7 @@ pub async fn grid_rectangle(
         // (stable Regenerate).
         glw: req.glw.clone(),
         labels: req.labels.clone(),
+        logos: req.logos.clone(),
     });
     let render_id = Uuid::new_v4();
     insert_render_row(
@@ -408,13 +456,16 @@ pub async fn grid_rectangle(
         Some(&rect),
     )
     .await?;
+    link_render_logos(&state, render_id, &logo_ids).await?;
     let (job_id, job) = state.jobs.create_with_id(render_id).await;
     let glw_ctx = req.glw.clone().map(|opts| GlwJobCtx {
         options: opts,
         destination,
         created_by: user.user_id,
     });
-    spawn_grid_rectangle_job(state, job_id, job, rect, common, glw_ctx, req.labels);
+    spawn_grid_rectangle_job(
+        state, job_id, job, rect, common, glw_ctx, req.labels, req.logos,
+    );
     Ok(Json(StartedResponse {
         job_id,
         notecard: None,
@@ -436,6 +487,7 @@ pub async fn usb_notecard(
     let parsed = parse_render_form(multipart).await?;
     library::assert_can_write(&state.db, user.user_id, parsed.destination).await?;
     assert_under_concurrent_limit(&state.db, user.user_id).await?;
+    let logo_ids = validate_logos(&state, user.user_id, parsed.destination, &parsed.logos).await?;
 
     // Resolve the notecard: reuse an existing one (auto-copied into the
     // render's scope if needed) or persist a freshly uploaded one. The
@@ -460,6 +512,7 @@ pub async fn usb_notecard(
         // fresh-fetch so the carrier always lands as `SavedId` at rest.
         glw: parsed.glw.clone(),
         labels: parsed.labels.clone(),
+        logos: parsed.logos.clone(),
     });
 
     let render_id = Uuid::new_v4();
@@ -474,6 +527,7 @@ pub async fn usb_notecard(
         None,
     )
     .await?;
+    link_render_logos(&state, render_id, &logo_ids).await?;
 
     let (job_id, job) = state.jobs.create_with_id(render_id).await;
     let glw_ctx = parsed.glw.clone().map(|opts| GlwJobCtx {
@@ -493,6 +547,7 @@ pub async fn usb_notecard(
         parsed.with_without_route,
         glw_ctx,
         parsed.labels,
+        parsed.logos,
     );
     Ok(Json(StartedResponse {
         job_id,
@@ -774,6 +829,9 @@ struct ParsedRenderForm {
     /// free-floating text labels. Carried in the multipart form as the
     /// `labels_json` field — a JSON-stringified `Vec<TextLabel>`.
     labels: Vec<TextLabel>,
+    /// logo images. Carried in the multipart form as the `logos_json`
+    /// field — a JSON-stringified `Vec<LogoPlacement>`.
+    logos: Vec<LogoPlacement>,
 }
 
 /// Where the notecard for a render comes from.
@@ -811,6 +869,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
     let mut notecard_name: Option<String> = None;
     let mut glw: Option<GlwRenderOptions> = None;
     let mut labels: Vec<TextLabel> = Vec::new();
+    let mut logos: Vec<LogoPlacement> = Vec::new();
     let mut multipart = multipart;
     while let Some(field) = multipart.next_field().await? {
         let Some(name) = field.name().map(str::to_owned) else {
@@ -906,6 +965,13 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
                         .map_err(|e| Error::BadRequest(format!("invalid labels_json: {e}")))?;
                 }
             }
+            "logos_json" => {
+                let raw = field.text().await?;
+                if !raw.trim().is_empty() {
+                    logos = serde_json::from_str::<Vec<LogoPlacement>>(&raw)
+                        .map_err(|e| Error::BadRequest(format!("invalid logos_json: {e}")))?;
+                }
+            }
             _ => {}
         }
     }
@@ -947,6 +1013,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
         with_without_route,
         glw,
         labels,
+        logos,
     })
 }
 
@@ -1278,6 +1345,10 @@ async fn update_failed(
 }
 
 /// Spawn the background task that renders a grid rectangle.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "this is a one-shot helper that wires together every form field"
+)]
 fn spawn_grid_rectangle_job(
     state: AppState,
     job_id: JobId,
@@ -1286,6 +1357,7 @@ fn spawn_grid_rectangle_job(
     common: CommonParams,
     glw_ctx: Option<GlwJobCtx>,
     labels: Vec<TextLabel>,
+    logos: Vec<LogoPlacement>,
 ) {
     drop(tokio::spawn(async move {
         let result = run_grid_rectangle_job(
@@ -1295,6 +1367,7 @@ fn spawn_grid_rectangle_job(
             common,
             glw_ctx,
             labels,
+            logos,
         )
         .await;
         let outcome = finish_job(&job, result).await;
@@ -1320,6 +1393,7 @@ fn spawn_usb_notecard_job(
     with_without_route: bool,
     glw_ctx: Option<GlwJobCtx>,
     labels: Vec<TextLabel>,
+    logos: Vec<LogoPlacement>,
 ) {
     drop(tokio::spawn(async move {
         let result = run_usb_notecard_job(
@@ -1334,6 +1408,7 @@ fn spawn_usb_notecard_job(
             with_without_route,
             glw_ctx,
             labels,
+            logos,
         )
         .await;
         let outcome = finish_job(&job, result).await;
@@ -1350,6 +1425,7 @@ async fn run_grid_rectangle_job(
     common: CommonParams,
     glw_ctx: Option<GlwJobCtx>,
     labels: Vec<TextLabel>,
+    logos: Vec<LogoPlacement>,
 ) -> Result<JobOutcome, Error> {
     let metadata = build_metadata(&rect);
     let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
@@ -1374,12 +1450,9 @@ async fn run_grid_rectangle_job(
     // Layering: base map below, GLW overlay on top. No route for the
     // grid-rectangle path. Labels go last, above everything.
     let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
-    draw_labels_on_map(
-        &state.fonts,
-        &labels,
-        legend_slot_of(glw_ctx.as_ref()),
-        &mut map,
-    )?;
+    let legend_slot = legend_slot_of(glw_ctx.as_ref());
+    let label_slots = draw_labels_on_map(&state.fonts, &labels, legend_slot, &[], &mut map)?;
+    draw_logos_on_map(&state, &logos, legend_slot, &label_slots, &mut map).await?;
     let image = encode_map(&map, common.format)?;
     Ok(JobOutcome::Ok {
         image,
@@ -1407,6 +1480,7 @@ async fn run_usb_notecard_job(
     with_without_route: bool,
     glw_ctx: Option<GlwJobCtx>,
     labels: Vec<TextLabel>,
+    logos: Vec<LogoPlacement>,
 ) -> Result<JobOutcome, Error> {
     let (border_north, border_south, border_east, border_west) = borders;
     let bare_rect = {
@@ -1459,13 +1533,11 @@ async fn run_usb_notecard_job(
             map.draw_route_with_progress(&mut region, &notecard, route_color, Some(&tx))
                 .await?;
         }
-        // Labels go last, above the route.
-        draw_labels_on_map(
-            &state.fonts,
-            &labels,
-            legend_slot_of(glw_ctx.as_ref()),
-            &mut map,
-        )?;
+        // Labels and logos go last, above the route, sharing one
+        // mutually-exclusive pool of placement slots.
+        let legend_slot = legend_slot_of(glw_ctx.as_ref());
+        let label_slots = draw_labels_on_map(&state.fonts, &labels, legend_slot, &[], &mut map)?;
+        draw_logos_on_map(&state, &logos, legend_slot, &label_slots, &mut map).await?;
         (without_route, map, glw_data_id)
     };
     drop(tx);
@@ -1879,56 +1951,107 @@ fn parse_v_align(value: Option<&str>) -> Result<Option<sl_map_apis::coverage::VA
     }
 }
 
+/// Resolve a placement anchor to the slots it reserves and the pixel
+/// rectangle to fit content into. A non-spanning placement reserves just its
+/// own slot and uses that slot's free rectangle; a `span_fill` placement
+/// reserves the whole connected free region touching the anchor and uses the
+/// combined free rectangle. Shared by labels and logos.
+fn resolve_placement(
+    anchor: sl_map_apis::coverage::PlacementSlot,
+    span_fill: bool,
+    slots: &[sl_map_apis::coverage::PlacementSlotInfo],
+    grid: &sl_map_apis::coverage::OccupancyGrid,
+) -> Result<
+    (
+        Vec<sl_map_apis::coverage::PlacementSlot>,
+        sl_map_apis::coverage::PixelRect,
+    ),
+    Error,
+> {
+    if span_fill {
+        grid.spanned_region(anchor).ok_or_else(|| {
+            Error::BadRequest(format!(
+                "slot `{anchor}` is fully covered; no room for content"
+            ))
+        })
+    } else {
+        let info = slots
+            .iter()
+            .find(|info| info.slot == anchor)
+            .ok_or_else(|| Error::BadRequest(format!("slot `{anchor}` not found")))?;
+        let rect = info.free_rect.ok_or_else(|| {
+            Error::BadRequest(format!(
+                "slot `{anchor}` is fully covered; no room for content"
+            ))
+        })?;
+        Ok((vec![anchor], rect))
+    }
+}
+
+/// Reserve a placement's slots in the shared pool, rejecting any clash with
+/// the legend, with already-reserved slots from the *other* placement kind
+/// (`others`), or with slots reserved earlier in this pass (`used`). `what`
+/// names the placement kind for the error message.
+fn reserve(
+    reserved: &[sl_map_apis::coverage::PlacementSlot],
+    used: &mut Vec<sl_map_apis::coverage::PlacementSlot>,
+    others: &[sl_map_apis::coverage::PlacementSlot],
+    legend_slot: Option<sl_map_apis::coverage::PlacementSlot>,
+    what: &str,
+) -> Result<(), Error> {
+    for &slot in reserved {
+        if legend_slot == Some(slot) {
+            return Err(Error::BadRequest(format!(
+                "a {what} uses slot `{slot}` which is occupied by the legend"
+            )));
+        }
+        if used.contains(&slot) || others.contains(&slot) {
+            return Err(Error::BadRequest(format!(
+                "two placements target the same slot `{slot}`"
+            )));
+        }
+        used.push(slot);
+    }
+    Ok(())
+}
+
 /// Draw the free-floating text labels onto `map`, last (above the route and
 /// GLW overlay). Rejects (as a `BadRequest`) any label that overflows its
-/// slot's free space, two labels sharing a slot, or a label sharing the
-/// legend's slot — these mirror the client-side checks and are the
-/// authoritative fallback. Each label is aligned within its slot's free
-/// rectangle using its own alignment, defaulting to the slot's outward
-/// alignment.
+/// (single-slot or spanned) free space, or whose reserved slots clash with
+/// the legend, another label, or a slot already reserved by a logo
+/// (`reserved_by_others`). Each label is aligned within its free rectangle
+/// using its own alignment, defaulting to the slot's outward alignment.
+/// Returns the set of slots the labels reserved so logos can avoid them.
 fn draw_labels_on_map(
     fonts: &crate::fonts::FontDirectory,
     labels: &[TextLabel],
     legend_slot: Option<sl_map_apis::coverage::PlacementSlot>,
+    reserved_by_others: &[sl_map_apis::coverage::PlacementSlot],
     map: &mut Map,
-) -> Result<(), Error> {
+) -> Result<Vec<sl_map_apis::coverage::PlacementSlot>, Error> {
     use sl_map_apis::map_tiles::MapLike as _;
-    if labels.is_empty() {
-        return Ok(());
+    /// One accepted label, ready to draw in pass 2.
+    struct LabelDraw {
+        lines: Vec<String>,
+        font: ab_glyph::FontVec,
+        style: sl_map_apis::text::LabelStyle,
+        origin: (i32, i32),
     }
-    // Resolve every label's slot and reject collisions before drawing.
-    let resolved_slots: Vec<sl_map_apis::coverage::PlacementSlot> = labels
-        .iter()
-        .map(|label| {
-            label
-                .slot
-                .parse()
-                .map_err(|err: sl_map_apis::coverage::ParsePlacementSlotError| {
-                    Error::BadRequest(err.to_string())
-                })
-        })
-        .collect::<Result<_, _>>()?;
     let mut used: Vec<sl_map_apis::coverage::PlacementSlot> = Vec::new();
-    for anchor in &resolved_slots {
-        if legend_slot == Some(*anchor) {
-            return Err(Error::BadRequest(format!(
-                "a label uses slot `{anchor}` which is occupied by the legend"
-            )));
-        }
-        if used.contains(anchor) {
-            return Err(Error::BadRequest(format!(
-                "two labels target the same slot `{anchor}`"
-            )));
-        }
-        used.push(*anchor);
+    if labels.is_empty() {
+        return Ok(used);
     }
-    // Authoritative free space for each slot, measured on the current map.
-    let slots = sl_map_apis::coverage::OccupancyGrid::from_map(
+    // Authoritative free space, measured once on the current map (route + GLW
+    // already drawn).
+    let grid = sl_map_apis::coverage::OccupancyGrid::from_map(
         map,
         sl_map_apis::coverage::DEFAULT_COVERAGE_GRID,
-    )
-    .evaluate_slots();
-    for (label, anchor) in labels.iter().zip(resolved_slots.iter()) {
+    );
+    let slots = grid.evaluate_slots();
+    // Pass 1: validate + reserve + measure, collecting one draw item per
+    // visible label so nothing is drawn until every label has been accepted.
+    let mut draws: Vec<LabelDraw> = Vec::new();
+    for label in labels {
         let lines: Vec<String> = label.lines.clone();
         if lines.iter().all(|line| line.trim().is_empty()) {
             // a blank label draws nothing and reserves nothing
@@ -1940,6 +2063,21 @@ fn draw_labels_on_map(
                 label.font_px
             )));
         }
+        let anchor: sl_map_apis::coverage::PlacementSlot =
+            label
+                .slot
+                .parse()
+                .map_err(|err: sl_map_apis::coverage::ParsePlacementSlotError| {
+                    Error::BadRequest(err.to_string())
+                })?;
+        let (reserved, rect) = resolve_placement(anchor, label.span_fill, &slots, &grid)?;
+        reserve(
+            &reserved,
+            &mut used,
+            reserved_by_others,
+            legend_slot,
+            "label",
+        )?;
         let font_path = fonts
             .path_for(&label.font_id)
             .ok_or_else(|| Error::BadRequest(format!("unknown font_id `{}`", label.font_id)))?;
@@ -1947,18 +2085,9 @@ fn draw_labels_on_map(
         let color = parse_color(label.color.trim())?;
         let scale = ab_glyph::PxScale::from(label.font_px);
         let (text_w, text_h) = sl_map_apis::text::measure_text(scale, &font, &lines);
-        let slot = slots
-            .iter()
-            .find(|info| info.slot == *anchor)
-            .ok_or_else(|| Error::BadRequest(format!("slot `{anchor}` not found")))?;
-        let Some(rect) = slot.free_rect else {
-            return Err(Error::BadRequest(format!(
-                "slot `{anchor}` is fully covered; no room for a label"
-            )));
-        };
         if text_w > rect.width || text_h > rect.height {
             return Err(Error::BadRequest(format!(
-                "label text renders at {text_w}x{text_h} px but slot `{anchor}` only has {}x{} px free",
+                "label text renders at {text_w}x{text_h} px but the free area at slot `{anchor}` only has {}x{} px",
                 rect.width, rect.height
             )));
         }
@@ -1969,20 +2098,184 @@ fn draw_labels_on_map(
         let v = parse_v_align(label.v_align.as_deref())?.unwrap_or(default_v);
         let origin_x = rect.x.saturating_add(h.offset(text_w, rect.width));
         let origin_y = rect.y.saturating_add(v.offset(text_h, rect.height));
-        let style = sl_map_apis::text::LabelStyle {
-            scale,
-            fg: color,
-            shadow: Rgba([0, 0, 0, 180]),
-        };
-        map.draw_text_label(
-            (
+        draws.push(LabelDraw {
+            lines,
+            font,
+            style: sl_map_apis::text::LabelStyle {
+                scale,
+                fg: color,
+                shadow: Rgba([0, 0, 0, 180]),
+            },
+            origin: (
                 i32::try_from(origin_x).unwrap_or(0),
                 i32::try_from(origin_y).unwrap_or(0),
             ),
-            &lines,
-            &style,
-            &font,
-        );
+        });
+    }
+    // Pass 2: draw.
+    for d in draws {
+        map.draw_text_label(d.origin, &d.lines, &d.style, &d.font);
+    }
+    Ok(used)
+}
+
+/// Composite the logo images onto `map`, last (above the route, GLW overlay
+/// and labels). Each logo is drawn at its native pixel size (optionally
+/// integer-doubled with nearest-neighbour sampling), alpha-blended, and
+/// aligned within its (single-slot or spanned) free rectangle. Rejects (as a
+/// `BadRequest`) any logo that overflows its free space, has an invalid
+/// scale, or whose reserved slots clash with the legend, another logo, or a
+/// slot already reserved by a label (`reserved_by_others`). Returns the set
+/// of slots the logos reserved.
+async fn draw_logos_on_map(
+    state: &AppState,
+    logos: &[LogoPlacement],
+    legend_slot: Option<sl_map_apis::coverage::PlacementSlot>,
+    reserved_by_others: &[sl_map_apis::coverage::PlacementSlot],
+    map: &mut Map,
+) -> Result<Vec<sl_map_apis::coverage::PlacementSlot>, Error> {
+    use sl_map_apis::map_tiles::MapLike as _;
+    /// One accepted logo (already scaled), ready to composite in pass 2.
+    struct LogoDraw {
+        img: image::RgbaImage,
+        x: i64,
+        y: i64,
+    }
+    let mut used: Vec<sl_map_apis::coverage::PlacementSlot> = Vec::new();
+    if logos.is_empty() {
+        return Ok(used);
+    }
+    let grid = sl_map_apis::coverage::OccupancyGrid::from_map(
+        map,
+        sl_map_apis::coverage::DEFAULT_COVERAGE_GRID,
+    );
+    let slots = grid.evaluate_slots();
+    // Pass 1: validate + reserve + load + decode + scale + fit, so nothing is
+    // drawn until every logo has been accepted.
+    let mut draws: Vec<LogoDraw> = Vec::new();
+    for logo in logos {
+        if logo.scale != 1 && logo.scale != 2 {
+            return Err(Error::BadRequest(format!(
+                "logo scale must be 1 or 2, got {}",
+                logo.scale
+            )));
+        }
+        let anchor: sl_map_apis::coverage::PlacementSlot =
+            logo.slot
+                .parse()
+                .map_err(|err: sl_map_apis::coverage::ParsePlacementSlotError| {
+                    Error::BadRequest(err.to_string())
+                })?;
+        let (reserved, rect) = resolve_placement(anchor, logo.span_fill, &slots, &grid)?;
+        reserve(
+            &reserved,
+            &mut used,
+            reserved_by_others,
+            legend_slot,
+            "logo",
+        )?;
+        // Look up the stored file (read permission was checked at submit
+        // time; the saved_render_logos link prevents deletion meanwhile).
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT image_filename FROM saved_logos WHERE logo_id = ?1")
+                .bind(logo.logo_id.as_bytes().to_vec())
+                .fetch_optional(&state.db)
+                .await
+                .map_err(|err| {
+                    tracing::error!("logo file lookup failed: {err}");
+                    Error::Database
+                })?;
+        let (image_filename,) = row
+            .ok_or_else(|| Error::BadRequest(format!("logo {} no longer exists", logo.logo_id)))?;
+        let bytes = storage::read_logo_file(&state.config.storage_dir, &image_filename).await?;
+        let decoded = image::load_from_memory(&bytes).map_err(|e| {
+            Error::BadRequest(format!("could not decode logo {}: {e}", logo.logo_id))
+        })?;
+        let mut rgba = decoded.to_rgba8();
+        if logo.scale == 2 {
+            let (w, h) = (rgba.width(), rgba.height());
+            rgba = image::imageops::resize(
+                &rgba,
+                w.saturating_mul(2),
+                h.saturating_mul(2),
+                image::imageops::FilterType::Nearest,
+            );
+        }
+        let (w, h) = (rgba.width(), rgba.height());
+        if w > rect.width || h > rect.height {
+            return Err(Error::BadRequest(format!(
+                "logo renders at {w}x{h} px but the free area at slot `{anchor}` only has {}x{} px",
+                rect.width, rect.height
+            )));
+        }
+        let (default_h, default_v) = anchor.default_alignment();
+        let hh = parse_h_align(logo.h_align.as_deref())?.unwrap_or(default_h);
+        let vv = parse_v_align(logo.v_align.as_deref())?.unwrap_or(default_v);
+        let origin_x = rect.x.saturating_add(hh.offset(w, rect.width));
+        let origin_y = rect.y.saturating_add(vv.offset(h, rect.height));
+        draws.push(LogoDraw {
+            img: rgba,
+            x: i64::from(origin_x),
+            y: i64::from(origin_y),
+        });
+    }
+    // Pass 2: composite with alpha blending.
+    for d in draws {
+        image::imageops::overlay(map.image_mut(), &d.img, d.x, d.y);
+    }
+    Ok(used)
+}
+
+/// Validate that every logo placement references a logo the user may read
+/// and that lives in the same library scope as the render (matching the
+/// notecard/GLW same-scope invariant). Returns the de-duplicated list of
+/// logo ids to link onto the render row.
+async fn validate_logos(
+    state: &AppState,
+    current_user: Uuid,
+    destination: Destination,
+    logos: &[LogoPlacement],
+) -> Result<Vec<Uuid>, Error> {
+    let mut ids: Vec<Uuid> = Vec::new();
+    for logo in logos {
+        let row = library::assert_can_read_logo(&state.db, current_user, logo.logo_id).await?;
+        let logo_dest = library::destination_from_columns(
+            row.owner_user_id.clone(),
+            row.owner_group_id.clone(),
+        )?;
+        if logo_dest != destination {
+            return Err(Error::BadRequest(format!(
+                "logo {} is not in the same library as this render; copy it into the render's \
+                 scope first",
+                logo.logo_id
+            )));
+        }
+        if !ids.contains(&logo.logo_id) {
+            ids.push(logo.logo_id);
+        }
+    }
+    Ok(ids)
+}
+
+/// Insert the `saved_render_logos` link rows for a render. Idempotent per
+/// (render, logo) pair.
+async fn link_render_logos(
+    state: &AppState,
+    render_id: Uuid,
+    logo_ids: &[Uuid],
+) -> Result<(), Error> {
+    for id in logo_ids {
+        sqlx::query(
+            "INSERT OR IGNORE INTO saved_render_logos (render_id, logo_id) VALUES (?1, ?2)",
+        )
+        .bind(render_id.as_bytes().to_vec())
+        .bind(id.as_bytes().to_vec())
+        .execute(&state.db)
+        .await
+        .map_err(|err| {
+            tracing::error!("link render logo failed: {err}");
+            Error::Database
+        })?;
     }
     Ok(())
 }
@@ -2118,6 +2411,7 @@ mod label_tests {
             color: "#ffffff".to_owned(),
             h_align: None,
             v_align: None,
+            span_fill: false,
         }
     }
 
@@ -2168,7 +2462,13 @@ mod label_tests {
         let fonts = test_fonts()?;
 
         let mut map = blank_map()?;
-        draw_labels_on_map(&fonts, &[label("top_left", 18f32, &["Hi"])], None, &mut map)?;
+        draw_labels_on_map(
+            &fonts,
+            &[label("top_left", 18f32, &["Hi"])],
+            None,
+            &[],
+            &mut map,
+        )?;
         assert!(any_pixel_drawn(&map), "a fitting label should draw pixels");
 
         // a font far too large to fit the 352px map is rejected
@@ -2177,6 +2477,7 @@ mod label_tests {
             &fonts,
             &[label("center", 4000f32, &["BIG"])],
             None,
+            &[],
             &mut map2,
         );
         assert_matches!(
@@ -2200,6 +2501,7 @@ mod label_tests {
                 label("top_right", 16f32, &["b"]),
             ],
             None,
+            &[],
             &mut map,
         );
         assert_matches!(
@@ -2214,6 +2516,7 @@ mod label_tests {
             &fonts,
             &[label("top_left", 16f32, &["x"])],
             Some(PlacementSlot::TopLeft),
+            &[],
             &mut map2,
         );
         assert_matches!(
@@ -2232,9 +2535,69 @@ mod label_tests {
             &fonts,
             &[label("center", 16f32, &["", "   "])],
             None,
+            &[],
             &mut map,
         )?;
         assert!(!any_pixel_drawn(&map), "an all-blank label draws nothing");
+        Ok(())
+    }
+
+    #[test]
+    fn reserve_rejects_legend_duplicate_and_other_pool() -> Result<(), Box<dyn std::error::Error>> {
+        // a slot occupied by the legend is rejected
+        let mut used = Vec::new();
+        assert_matches!(
+            reserve(
+                &[PlacementSlot::TopLeft],
+                &mut used,
+                &[],
+                Some(PlacementSlot::TopLeft),
+                "label",
+            ),
+            Err(Error::BadRequest(_))
+        );
+
+        // a slot reserved earlier in the same pool is rejected
+        let mut used = Vec::new();
+        reserve(&[PlacementSlot::TopRight], &mut used, &[], None, "label")?;
+        assert_matches!(
+            reserve(&[PlacementSlot::TopRight], &mut used, &[], None, "logo"),
+            Err(Error::BadRequest(_))
+        );
+
+        // a slot reserved by the other pool (e.g. a label) is rejected for a logo
+        let mut used = Vec::new();
+        assert_matches!(
+            reserve(
+                &[PlacementSlot::Center],
+                &mut used,
+                &[PlacementSlot::Center],
+                None,
+                "logo",
+            ),
+            Err(Error::BadRequest(_))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_placement_single_vs_span() -> Result<(), Box<dyn std::error::Error>> {
+        let map = blank_map()?;
+        let grid = sl_map_apis::coverage::OccupancyGrid::from_map(
+            &map,
+            sl_map_apis::coverage::DEFAULT_COVERAGE_GRID,
+        );
+        let slots = grid.evaluate_slots();
+
+        // non-spanning reserves just the anchor and yields a positive rect
+        let (reserved, rect) = resolve_placement(PlacementSlot::TopLeft, false, &slots, &grid)?;
+        assert_eq!(reserved, vec![PlacementSlot::TopLeft]);
+        assert!(rect.width > 0 && rect.height > 0);
+
+        // on a fully-free map the whole grid is one connected region, so a
+        // spanning placement reserves all nine slots
+        let (all, _) = resolve_placement(PlacementSlot::TopLeft, true, &slots, &grid)?;
+        assert_eq!(all.len(), 9);
         Ok(())
     }
 }

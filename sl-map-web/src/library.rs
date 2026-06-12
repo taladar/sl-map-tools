@@ -811,9 +811,17 @@ pub async fn run_orphan_sweeper(
     }
 }
 
-/// One pass of the sweeper: list files, query live render ids, unlink the
-/// difference. Returns the number of files unlinked.
+/// One pass of the sweeper: list files, query live ids, unlink the
+/// difference for both the `renders/` and `logos/` subdirectories. Returns
+/// the total number of files unlinked.
 async fn sweep_once(db: &SqlitePool, storage_dir: &Path) -> Result<usize, Error> {
+    let renders = sweep_renders(db, storage_dir).await?;
+    let logos = sweep_logos(db, storage_dir).await?;
+    Ok(renders.saturating_add(logos))
+}
+
+/// Remove orphaned files under `renders/` (no matching `saved_renders` row).
+async fn sweep_renders(db: &SqlitePool, storage_dir: &Path) -> Result<usize, Error> {
     let files = storage::list_render_files(storage_dir)?;
     let live: Vec<Vec<u8>> = sqlx::query_scalar("SELECT render_id FROM saved_renders")
         .fetch_all(db)
@@ -835,6 +843,37 @@ async fn sweep_once(db: &SqlitePool, storage_dir: &Path) -> Result<usize, Error>
             continue;
         }
         if let Err(err) = storage::try_delete_render_file(storage_dir, &filename) {
+            tracing::warn!("sweeper failed to unlink {filename}: {err}");
+            continue;
+        }
+        removed = removed.saturating_add(1);
+    }
+    Ok(removed)
+}
+
+/// Remove orphaned files under `logos/` (no matching `saved_logos` row).
+async fn sweep_logos(db: &SqlitePool, storage_dir: &Path) -> Result<usize, Error> {
+    let files = storage::list_logo_files(storage_dir)?;
+    let live: Vec<Vec<u8>> = sqlx::query_scalar("SELECT logo_id FROM saved_logos")
+        .fetch_all(db)
+        .await
+        .map_err(|err| {
+            tracing::error!("sweeper logo id query failed: {err}");
+            Error::Database
+        })?;
+    let live_set: HashSet<Uuid> = live
+        .into_iter()
+        .filter_map(|b| uuid_from_bytes(&b))
+        .collect();
+    let mut removed = 0_usize;
+    for filename in files {
+        let Some(id) = storage::parse_logo_id_from_filename(&filename) else {
+            continue;
+        };
+        if live_set.contains(&id) {
+            continue;
+        }
+        if let Err(err) = storage::try_delete_logo_file(storage_dir, &filename) {
             tracing::warn!("sweeper failed to unlink {filename}: {err}");
             continue;
         }
@@ -1109,6 +1148,210 @@ pub async fn assert_can_delete_glw_data(
             } else {
                 Err(Error::Forbidden(
                     "must be a group owner to delete group glw data".to_owned(),
+                ))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// Saved logos (saved_logos).
+//
+// Uploaded logo images stored as files under `<storage_dir>/logos/`; the
+// DB row carries only the filename, MIME type and intrinsic dimensions.
+// Ownership uses the same dual owner_user_id/owner_group_id XOR pattern as
+// the other library item types. Renders that composite a logo carry a
+// `saved_render_logos` link row back to it.
+// ---------------------------------------------------------------------
+
+/// Raw row fields for a saved logo as fetched from the DB.
+#[derive(Debug, Clone)]
+pub struct LogoRow {
+    /// the logo id.
+    pub logo_id: Uuid,
+    /// raw bytes of the personal owner column, if any.
+    pub owner_user_id: Option<Vec<u8>>,
+    /// raw bytes of the group owner column, if any.
+    pub owner_group_id: Option<Vec<u8>>,
+    /// the uploading avatar id, or `None` if the uploader has since
+    /// deleted their account (FK is `ON DELETE SET NULL`).
+    pub uploaded_by: Option<Uuid>,
+    /// the human-supplied display name.
+    pub name: String,
+    /// MIME type of the stored bytes (`image/png` / `image/jpeg` / `image/webp`).
+    pub content_type: String,
+    /// relative filename under `<storage_dir>/logos/`.
+    pub image_filename: String,
+    /// intrinsic image width in pixels.
+    pub width: u32,
+    /// intrinsic image height in pixels.
+    pub height: u32,
+    /// size of the stored bytes.
+    pub byte_size: u64,
+    /// when the row was created.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Public, serializable record of a saved logo. Excludes the raw bytes
+/// (downloaded separately via `GET /api/logos/{id}/image`).
+#[derive(Debug, Clone, Serialize)]
+pub struct LogoView {
+    /// the logo id.
+    pub logo_id: Uuid,
+    /// the destination the logo belongs to.
+    pub destination: Destination,
+    /// the avatar that uploaded the logo, or `None` if the account is
+    /// since deleted.
+    pub uploaded_by: Option<Uuid>,
+    /// the uploader's username, if the account still exists.
+    pub uploaded_by_username: Option<String>,
+    /// the uploader's legacy name, if the account still exists.
+    pub uploaded_by_legacy_name: Option<String>,
+    /// the human-supplied display name.
+    pub name: String,
+    /// MIME type of the stored bytes.
+    pub content_type: String,
+    /// intrinsic image width in pixels.
+    pub width: u32,
+    /// intrinsic image height in pixels.
+    pub height: u32,
+    /// size of the stored bytes.
+    pub byte_size: u64,
+    /// when the logo was uploaded.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Tuple shape returned by the `saved_logos` lookup query.
+type LogoRowTuple = (
+    Option<Vec<u8>>, // owner_user_id
+    Option<Vec<u8>>, // owner_group_id
+    Option<Vec<u8>>, // uploaded_by
+    String,          // name
+    String,          // content_type
+    String,          // image_filename
+    i64,             // width
+    i64,             // height
+    i64,             // byte_size
+    DateTime<Utc>,   // created_at
+);
+
+/// Fetch a logo row by id; returns [`Error::NotFound`] if missing.
+async fn fetch_logo_row(db: &SqlitePool, logo_id: Uuid) -> Result<LogoRow, Error> {
+    let row: Option<LogoRowTuple> = sqlx::query_as(
+        "SELECT owner_user_id, owner_group_id, uploaded_by, name, content_type, \
+                image_filename, width, height, byte_size, created_at \
+         FROM saved_logos WHERE logo_id = ?1",
+    )
+    .bind(logo_id.as_bytes().to_vec())
+    .fetch_optional(db)
+    .await
+    .map_err(|err| {
+        tracing::error!("logo fetch failed: {err}");
+        Error::Database
+    })?;
+    let (
+        owner_user_id,
+        owner_group_id,
+        uploaded_by_bytes,
+        name,
+        content_type,
+        image_filename,
+        width,
+        height,
+        byte_size,
+        created_at,
+    ) = row.ok_or_else(|| Error::NotFound(format!("logo {logo_id}")))?;
+    let uploaded_by = uploaded_by_bytes
+        .as_deref()
+        .map(uuid_from_bytes)
+        .map(|opt| {
+            opt.ok_or_else(|| {
+                tracing::error!("bad uploaded_by uuid in saved_logos");
+                Error::Database
+            })
+        })
+        .transpose()?;
+    Ok(LogoRow {
+        logo_id,
+        owner_user_id,
+        owner_group_id,
+        uploaded_by,
+        name,
+        content_type,
+        image_filename,
+        width: u32::try_from(width).unwrap_or(0),
+        height: u32::try_from(height).unwrap_or(0),
+        byte_size: u64::try_from(byte_size).unwrap_or(0),
+        created_at,
+    })
+}
+
+/// Permission gate for reading a logo. Personal: must be the owner.
+/// Group: must be a member of the owning group.
+///
+/// # Errors
+///
+/// Returns [`Error::NotFound`] when the row is missing or invisible — the
+/// two cases are collapsed so an attacker cannot confirm existence by id.
+pub async fn assert_can_read_logo(
+    db: &SqlitePool,
+    current_user: Uuid,
+    logo_id: Uuid,
+) -> Result<LogoRow, Error> {
+    let row = fetch_logo_row(db, logo_id).await?;
+    let destination =
+        destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
+    let visible = match destination {
+        Destination::Personal => {
+            row.owner_user_id.as_deref().and_then(uuid_from_bytes) == Some(current_user)
+        }
+        Destination::Group { group_id } => groups::lookup_role(db, group_id, current_user)
+            .await?
+            .is_some(),
+    };
+    if visible {
+        Ok(row)
+    } else {
+        Err(Error::NotFound(format!("logo {logo_id}")))
+    }
+}
+
+/// Permission gate for deleting a logo. Personal: must be the owner.
+/// Group: must be an owner of the group.
+///
+/// The FK `saved_render_logos.logo_id` is `ON DELETE RESTRICT`, so a logo
+/// referenced by any render fails the DELETE with a SQLite constraint
+/// violation; the route handler maps that to a human-readable error.
+///
+/// # Errors
+///
+/// Returns [`Error::Forbidden`] if the user lacks delete permission;
+/// [`Error::NotFound`] if the row does not exist.
+pub async fn assert_can_delete_logo(
+    db: &SqlitePool,
+    current_user: Uuid,
+    logo_id: Uuid,
+) -> Result<LogoRow, Error> {
+    let row = fetch_logo_row(db, logo_id).await?;
+    let destination =
+        destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
+    match destination {
+        Destination::Personal => {
+            let owner = row.owner_user_id.as_deref().and_then(uuid_from_bytes);
+            if owner == Some(current_user) {
+                Ok(row)
+            } else {
+                Err(Error::Forbidden(format!(
+                    "not allowed to delete logo {logo_id}"
+                )))
+            }
+        }
+        Destination::Group { group_id } => {
+            if groups::lookup_role(db, group_id, current_user).await? == Some(GroupRole::Owner) {
+                Ok(row)
+            } else {
+                Err(Error::Forbidden(
+                    "must be a group owner to delete a group logo".to_owned(),
                 ))
             }
         }

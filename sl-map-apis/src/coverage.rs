@@ -645,6 +645,30 @@ impl OccupancyGrid {
             })
             .collect()
     }
+
+    /// The slots and pixel rectangle a *spanning* element anchored at
+    /// `anchor` would occupy.
+    ///
+    /// Returns every [`PlacementSlot`] whose anchor cell lies in the same
+    /// connected free region as `anchor` (so all three bottom slots are
+    /// returned when the whole bottom edge is free), paired with the largest
+    /// all-free rectangle anchored at `anchor` — which extends across that
+    /// region. Returns `None` if the anchor's own cell is covered.
+    ///
+    /// Unlike [`Self::evaluate_slots`], which reports each slot independently,
+    /// this is the basis for *reserving* a contiguous block of slots for one
+    /// element so neighbouring placements cannot overlap it.
+    #[must_use]
+    pub fn spanned_region(&self, anchor: PlacementSlot) -> Option<(Vec<PlacementSlot>, PixelRect)> {
+        let components = self.free_components();
+        let my = self.anchor_component(anchor, &components)?;
+        let slots: Vec<PlacementSlot> = PlacementSlot::ALL
+            .into_iter()
+            .filter(|&slot| self.anchor_component(slot, &components) == Some(my))
+            .collect();
+        let (r0, r1, c0, c1) = self.largest_free_rect(anchor.horizontal(), anchor.vertical())?;
+        Some((slots, self.cell_rect_to_pixels(r0, r1, c0, c1)))
+    }
 }
 
 #[cfg(test)]
@@ -860,6 +884,55 @@ mod test {
             PlacementSlot::BottomRight.anchored_origin(400, 200, 200, 100, 8),
             (0, 0)
         );
+    }
+
+    #[test]
+    fn spanned_region_covers_whole_free_bottom_edge() -> Result<(), Box<dyn std::error::Error>> {
+        // free the entire bottom row (row 2), occupy everything above it
+        let occupied: Vec<bool> = (0..27u32).map(|i| i / 9 != 2).collect();
+        let grid = grid_from_cells(9, 3, 10, occupied);
+        let (mut slots, rect) = grid
+            .spanned_region(PlacementSlot::BottomCenter)
+            .ok_or("bottom_center anchor is free, must span")?;
+        slots.sort_by_key(|a| format!("{a:?}"));
+        let mut expected = vec![
+            PlacementSlot::BottomLeft,
+            PlacementSlot::BottomCenter,
+            PlacementSlot::BottomRight,
+        ];
+        expected.sort_by_key(|a| format!("{a:?}"));
+        assert_eq!(slots, expected, "all three bottom slots are reserved");
+        // the combined rectangle spans the full 9-cell width
+        assert_eq!(rect.width, 90);
+        assert_eq!(rect.height, 10);
+        Ok(())
+    }
+
+    #[test]
+    fn spanned_region_none_when_anchor_covered() {
+        // occupy the entire bottom row so the bottom_center anchor is covered
+        let occupied: Vec<bool> = (0..27u32).map(|i| i / 9 == 2).collect();
+        let grid = grid_from_cells(9, 3, 10, occupied);
+        assert_eq!(grid.spanned_region(PlacementSlot::BottomCenter), None);
+    }
+
+    #[test]
+    fn spanned_region_stops_at_occupied_band() -> Result<(), Box<dyn std::error::Error>> {
+        // free only the left two columns of the bottom row; occupy the rest.
+        // bottom_left's component must exclude bottom_right.
+        let occupied: Vec<bool> = (0..27u32)
+            .map(|i| {
+                let (row, col) = (i / 9, i % 9);
+                !(row == 2 && col < 2)
+            })
+            .collect();
+        let grid = grid_from_cells(9, 3, 10, occupied);
+        let (slots, _rect) = grid
+            .spanned_region(PlacementSlot::BottomLeft)
+            .ok_or("bottom_left anchor is free")?;
+        assert!(slots.contains(&PlacementSlot::BottomLeft));
+        assert!(!slots.contains(&PlacementSlot::BottomRight));
+        Ok(())
     }
 
     mod with_map {

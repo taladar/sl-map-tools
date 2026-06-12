@@ -8,6 +8,7 @@ pub mod groups;
 pub mod index;
 pub mod invitations;
 pub mod library_pages;
+pub mod logos;
 pub mod notecard;
 pub mod notecards;
 pub mod pages;
@@ -31,6 +32,12 @@ use tower_http::trace::TraceLayer;
 /// generous headroom while preventing memory exhaustion from a malicious
 /// multipart upload or JSON body.
 const REQUEST_BODY_LIMIT: usize = 1024 * 1024;
+
+/// Body-size limit for the logo upload route. Logo images are capped at
+/// 5 MiB (enforced precisely in the handler); this adds headroom for the
+/// multipart envelope and the `name` / `scope` fields. Applied as a
+/// per-route override of [`REQUEST_BODY_LIMIT`].
+const LOGO_REQUEST_BODY_LIMIT: usize = 6 * 1024 * 1024;
 
 /// Content-Security-Policy applied to every response.
 ///
@@ -194,6 +201,20 @@ pub fn build(state: AppState) -> Router {
             get(glw::get).patch(glw::rename).delete(glw::delete),
         )
         .route("/api/glw/{id}/payload", get(glw::payload))
+        // saved logos. The upload route raises the body limit above the
+        // global default so a 5 MiB image fits; the GET shares the limit
+        // harmlessly.
+        .route(
+            "/api/logos",
+            get(logos::list)
+                .post(logos::create)
+                .layer(DefaultBodyLimit::max(LOGO_REQUEST_BODY_LIMIT)),
+        )
+        .route(
+            "/api/logos/{id}",
+            get(logos::get).patch(logos::rename).delete(logos::delete),
+        )
+        .route("/api/logos/{id}/image", get(logos::image))
         // profile + account
         .route("/profile", get(library_pages::profile))
         .route("/profile/{id}", get(library_pages::profile))

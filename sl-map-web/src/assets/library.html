@@ -97,6 +97,40 @@
       </table>
     </section>
 
+    <section>
+      <h2>Saved logos</h2>
+      <p id="logos-status" class="status"></p>
+      <form id="logo-upload-form" class="row">
+        <label>
+          Name
+          <input type="text" id="logo-upload-name" maxlength="128" />
+        </label>
+        <label>
+          Image (PNG, JPEG or WebP, max 5&nbsp;MiB / 2048&nbsp;px)
+          <input
+            type="file"
+            id="logo-upload-file"
+            accept="image/png,image/jpeg,image/webp"
+          />
+        </label>
+        <button type="submit" id="logo-upload-button">Upload logo</button>
+      </form>
+      <table id="logos-table" class="library-table">
+        <thead>
+          <tr>
+            <th>Preview</th>
+            <th>Name</th>
+            <th>Dimensions</th>
+            <th>Size</th>
+            <th>Uploaded by</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="logos-tbody"></tbody>
+      </table>
+    </section>
+
     <script src="/static/app.js"></script>
     <script src="/static/modal.js"></script>
     <script src="/static/library.js"></script>

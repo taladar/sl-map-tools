@@ -16,6 +16,9 @@ use crate::error::Error;
 /// Subdirectory under `storage_dir` where render image files live.
 const RENDERS_SUBDIR: &str = "renders";
 
+/// Subdirectory under `storage_dir` where uploaded logo image files live.
+const LOGOS_SUBDIR: &str = "logos";
+
 /// Suffix used for the primary rendered image file.
 pub const IMAGE_SUFFIX: &str = "image";
 
@@ -30,6 +33,7 @@ pub fn ext_for_content_type(content_type: &str) -> &'static str {
     match content_type {
         "image/png" => "png",
         "image/jpeg" => "jpg",
+        "image/webp" => "webp",
         _ => "bin",
     }
 }
@@ -54,6 +58,7 @@ pub fn render_path(storage_dir: &Path, filename: &str) -> PathBuf {
 /// Returns an [`Error::Io`] if the directories cannot be created.
 pub fn ensure_layout(storage_dir: &Path) -> Result<(), Error> {
     fs_err::create_dir_all(storage_dir.join(RENDERS_SUBDIR))?;
+    fs_err::create_dir_all(storage_dir.join(LOGOS_SUBDIR))?;
     Ok(())
 }
 
@@ -146,6 +151,119 @@ pub fn list_render_files(storage_dir: &Path) -> Result<Vec<String>, Error> {
 #[must_use]
 pub fn parse_render_id_from_filename(filename: &str) -> Option<Uuid> {
     // 36 = length of a hyphenated UUID, e.g. `00000000-0000-0000-0000-000000000000`.
+    const UUID_LEN: usize = 36;
+    let prefix: String = filename.chars().take(UUID_LEN).collect();
+    if prefix.chars().count() != UUID_LEN {
+        return None;
+    }
+    Uuid::parse_str(&prefix).ok()
+}
+
+// ---------------------------------------------------------------------
+// Uploaded logo images (saved_logos).
+//
+// Mirrors the render-file helpers above but lives under `logos/`. A logo
+// file is named `{logo_id}.{ext}` — there is only ever one variant per
+// logo, so (unlike renders) there is no suffix segment.
+// ---------------------------------------------------------------------
+
+/// Compute the relative filename (relative to `<storage_dir>/logos/`) for a
+/// logo's image file given the logo id and extension.
+#[must_use]
+pub fn logo_filename(logo_id: Uuid, ext: &str) -> String {
+    format!("{logo_id}.{ext}")
+}
+
+/// Compute the absolute path to a logo file.
+#[must_use]
+pub fn logo_path(storage_dir: &Path, filename: &str) -> PathBuf {
+    storage_dir.join(LOGOS_SUBDIR).join(filename)
+}
+
+/// Write a logo's image bytes to disk, returning the filename that should
+/// be stored in the DB.
+///
+/// # Errors
+///
+/// Returns an [`Error::Io`] if the file cannot be written.
+pub async fn write_logo_file(
+    storage_dir: &Path,
+    logo_id: Uuid,
+    ext: &str,
+    bytes: Bytes,
+) -> Result<String, Error> {
+    let filename = logo_filename(logo_id, ext);
+    let path = logo_path(storage_dir, &filename);
+    tokio::task::spawn_blocking(move || fs_err::write(&path, &bytes))
+        .await
+        .map_err(|err| Error::Io(std::io::Error::other(err)))??;
+    Ok(filename)
+}
+
+/// Read a logo's image bytes back from disk.
+///
+/// # Errors
+///
+/// Returns [`Error::NotFound`] if the file does not exist, or [`Error::Io`]
+/// for any other I/O failure.
+pub async fn read_logo_file(storage_dir: &Path, filename: &str) -> Result<Bytes, Error> {
+    let path = logo_path(storage_dir, filename);
+    let filename_for_err = filename.to_owned();
+    let bytes = tokio::task::spawn_blocking(move || fs_err::read(&path))
+        .await
+        .map_err(|err| Error::Io(std::io::Error::other(err)))?;
+    match bytes {
+        Ok(b) => Ok(Bytes::from(b)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            Err(Error::NotFound(format!("logo file `{filename_for_err}`")))
+        }
+        Err(err) => Err(Error::Io(err)),
+    }
+}
+
+/// Best-effort delete of a single logo file. A missing file is treated as
+/// success. See [`try_delete_render_file`] for the rationale.
+///
+/// # Errors
+///
+/// Returns [`Error::Io`] for I/O failures other than `NotFound`.
+pub fn try_delete_logo_file(storage_dir: &Path, filename: &str) -> Result<(), Error> {
+    let path = logo_path(storage_dir, filename);
+    match fs_err::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(Error::Io(err)),
+    }
+}
+
+/// List the filenames currently present under the `logos/` subdirectory.
+/// Used by the orphan sweeper.
+///
+/// # Errors
+///
+/// Returns [`Error::Io`] if the directory cannot be read.
+pub fn list_logo_files(storage_dir: &Path) -> Result<Vec<String>, Error> {
+    let dir = storage_dir.join(LOGOS_SUBDIR);
+    let mut out = Vec::new();
+    let entries = fs_err::read_dir(&dir)?;
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        if let Some(name) = entry.file_name().to_str() {
+            out.push(name.to_owned());
+        }
+    }
+    Ok(out)
+}
+
+/// Extract the logo UUID prefix from a filename produced by
+/// [`logo_filename`]. Returns `None` if the filename does not start with a
+/// valid 36-character hyphenated UUID.
+#[must_use]
+pub fn parse_logo_id_from_filename(filename: &str) -> Option<Uuid> {
+    // 36 = length of a hyphenated UUID.
     const UUID_LEN: usize = 36;
     let prefix: String = filename.chars().take(UUID_LEN).collect();
     if prefix.chars().count() != UUID_LEN {

@@ -451,9 +451,74 @@
                 <option value="bottom">Bottom</option>
               </select>
             </label>
+            <label class="checkbox-inline" title="Grow across all free slots connected to the chosen one and reserve them">
+              <input type="checkbox" class="label-span" />
+              Fill connected free area
+            </label>
             <button type="button" class="label-remove">Remove</button>
           </div>
           <p class="note label-measure"></p>
+        </div>
+      </template>
+
+      <h3>Logos</h3>
+      <p class="note">
+        Composite a logo image (from your library or a group's) into a free
+        slot. Logos are drawn at their stored pixel size; if too big for the
+        chosen slot, enable "Fill connected free area" or pick a larger free
+        area. Run "Find free slots" first so the slot list reflects the
+        current settings.
+      </p>
+      <div id="logos-list"></div>
+      <div class="row buttons">
+        <button type="button" id="add_logo">Add logo</button>
+      </div>
+
+      <template id="logo-row-template">
+        <div class="logo-row">
+          <div class="row">
+            <label class="grow"
+              >Logo
+              <select class="logo-pick"></select>
+            </label>
+            <img class="logo-thumb logo-preview hidden" alt="logo preview" />
+          </div>
+          <div class="row">
+            <label
+              >Slot
+              <select class="logo-slot"></select>
+            </label>
+            <span class="field-error logo-slot-error"></span>
+            <label
+              >Scale
+              <select class="logo-scale">
+                <option value="1">1× (native)</option>
+                <option value="2">2× (nearest)</option>
+              </select>
+            </label>
+            <label
+              >Horizontal
+              <select class="logo-halign">
+                <option value="left">Left</option>
+                <option value="center">Centre</option>
+                <option value="right">Right</option>
+              </select>
+            </label>
+            <label
+              >Vertical
+              <select class="logo-valign">
+                <option value="top">Top</option>
+                <option value="center">Centre</option>
+                <option value="bottom">Bottom</option>
+              </select>
+            </label>
+            <label class="checkbox-inline" title="Grow across all free slots connected to the chosen one and reserve them">
+              <input type="checkbox" class="logo-span" />
+              Fill connected free area
+            </label>
+            <button type="button" class="logo-remove">Remove</button>
+          </div>
+          <p class="note logo-measure"></p>
         </div>
       </template>
     </section>

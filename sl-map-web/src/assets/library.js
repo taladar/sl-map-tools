@@ -17,6 +17,13 @@ function fmtCoord(x, y) {
   return `${x}, ${y}`;
 }
 
+function fmtBytes(n) {
+  if (n === null || n === undefined) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
 // Build a `<td>` containing a link to a user's profile, or a `(deleted user)`
 // placeholder when the underlying account has been removed (uploader /
 // creator FKs are `ON DELETE SET NULL`, so both the id and the display
@@ -491,6 +498,22 @@ async function refresh() {
   } catch (err) {
     $("glw-status").textContent = `Failed to load GLW data: ${err.message}`;
   }
+
+  try {
+    const logos = await fetchJSON(
+      `/api/logos?scope=${encodeURIComponent(scope)}`,
+    );
+    const logosBody = $("logos-tbody");
+    logosBody.replaceChildren();
+    if ((logos.logos || []).length === 0) {
+      $("logos-status").textContent = "No logos in this scope.";
+    } else {
+      $("logos-status").textContent = "";
+      for (const l of logos.logos) logosBody.appendChild(logoRow(l));
+    }
+  } catch (err) {
+    $("logos-status").textContent = `Failed to load logos: ${err.message}`;
+  }
 }
 
 function glwRow(g) {
@@ -563,6 +586,105 @@ function glwRow(g) {
   return tr;
 }
 
+function logoRow(l) {
+  const tr = document.createElement("tr");
+  tr.dataset.logoId = l.logo_id;
+  const previewTd = document.createElement("td");
+  const img = document.createElement("img");
+  img.src = `/api/logos/${l.logo_id}/image`;
+  img.alt = l.name || "logo";
+  img.className = "logo-thumb";
+  previewTd.appendChild(img);
+  tr.appendChild(previewTd);
+  tr.appendChild(td(l.name || ""));
+  tr.appendChild(td(`${l.width}×${l.height}`));
+  tr.appendChild(td(fmtBytes(l.byte_size)));
+  tr.appendChild(profileLinkCell(l.uploaded_by, l.uploaded_by_legacy_name));
+  tr.appendChild(td(fmtDate(l.created_at)));
+  const actions = document.createElement("td");
+  const dl = document.createElement("a");
+  dl.href = `/api/logos/${l.logo_id}/image`;
+  dl.textContent = "Download";
+  dl.className = "row-action";
+  dl.setAttribute("download", "");
+  actions.appendChild(dl);
+  const rename = document.createElement("button");
+  rename.type = "button";
+  rename.textContent = "Rename";
+  rename.className = "row-action";
+  rename.addEventListener("click", async () => {
+    const next = window.prompt("New name for this logo:", l.name || "");
+    if (!next || !next.trim()) return;
+    const resp = await fetch(`/api/logos/${l.logo_id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: next.trim() }),
+    });
+    if (!resp.ok) {
+      await showError(resp);
+      return;
+    }
+    refresh();
+  });
+  actions.appendChild(rename);
+  const del = document.createElement("button");
+  del.type = "button";
+  del.textContent = "Delete";
+  del.className = "row-action danger";
+  del.addEventListener("click", async () => {
+    const ok = await confirmModal({
+      title: "Delete logo",
+      message:
+        "Delete this logo? Any render that still references it must be deleted first.",
+      danger: true,
+      okText: "Delete",
+    });
+    if (!ok) return;
+    const resp = await fetch(`/api/logos/${l.logo_id}`, {
+      method: "DELETE",
+    });
+    if (!resp.ok) {
+      await showError(resp);
+      return;
+    }
+    refresh();
+  });
+  actions.appendChild(del);
+  tr.appendChild(actions);
+  return tr;
+}
+
+async function uploadLogo(ev) {
+  ev.preventDefault();
+  const scope = $("scope-select").value;
+  const name = $("logo-upload-name").value.trim();
+  const fileInput = $("logo-upload-file");
+  const file = fileInput.files && fileInput.files[0];
+  if (!name) {
+    await alertModal({ title: "Upload logo", message: "Please enter a name." });
+    return;
+  }
+  if (!file) {
+    await alertModal({
+      title: "Upload logo",
+      message: "Please choose an image file.",
+    });
+    return;
+  }
+  const fd = new FormData();
+  fd.append("scope", scope);
+  fd.append("name", name);
+  fd.append("file", file);
+  const resp = await fetch("/api/logos", { method: "POST", body: fd });
+  if (!resp.ok) {
+    await showError(resp);
+    return;
+  }
+  $("logo-upload-name").value = "";
+  fileInput.value = "";
+  refresh();
+}
+
 function prettySource(kind) {
   switch (kind) {
     case "event_id":
@@ -584,5 +706,6 @@ function eventIdOrKey(g) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   await populateScopes();
+  $("logo-upload-form").addEventListener("submit", uploadLogo);
   refresh();
 });

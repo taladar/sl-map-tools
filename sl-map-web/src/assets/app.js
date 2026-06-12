@@ -2247,8 +2247,21 @@ function redrawSlotsOverlay() {
   if (vp) drawSlotsOverlay(vp);
 }
 
+// Whether two pixel rectangles actually touch along an edge (share more than a
+// single corner point), within a 1px tolerance. Rectangles separated by a gap
+// — even if their slots are conceptually adjacent — do not touch.
+function rectsTouch(a, b) {
+  const T = 1;
+  const xGap = Math.max(a.x, b.x) - Math.min(a.x + a.width, b.x + b.width);
+  const yGap = Math.max(a.y, b.y) - Math.min(a.y + a.height, b.y + b.height);
+  if (xGap > T || yGap > T) return false; // a real gap on either axis
+  // share an edge segment (overlap on at least one axis), not just a corner
+  return -xGap > T || -yGap > T;
+}
+
 // Combine buttons on the shared edges of adjacent free slots that belong to
-// different groups, placed at the midpoint of the two slots' cell centres.
+// different groups, but only where the two groups' free rectangles actually
+// touch. Placed at the midpoint of the two slots' cell centres.
 function drawCombineButtons(layer, bx, by, bw, bh) {
   for (let i = 0; i < SLOT_ANCHORS.length; i++) {
     for (let j = i + 1; j < SLOT_ANCHORS.length; j++) {
@@ -2256,13 +2269,16 @@ function drawCombineButtons(layer, bx, by, bw, bh) {
       const b = SLOT_ANCHORS[j];
       const [ca, ra] = SLOT_CELL[a];
       const [cb, rb] = SLOT_CELL[b];
-      if (Math.abs(ca - cb) + Math.abs(ra - rb) !== 1) continue; // not touching
+      if (Math.abs(ca - cb) + Math.abs(ra - rb) !== 1) continue; // not adjacent
       const ga = groupOf(a);
       const gb = groupOf(b);
       if (!ga || !gb || ga === gb) continue; // already combined
-      const sa = lastPlacementSlots[a];
-      const sb = lastPlacementSlots[b];
-      if (!sa || !sa.available || !sb || !sb.available) continue;
+      const ra2 = rectForGroup(ga);
+      const rb2 = rectForGroup(gb);
+      if (!ra2 || !ra2.available || !ra2.free_rect) continue;
+      if (!rb2 || !rb2.available || !rb2.free_rect) continue;
+      // Only combinable when the rectangles really touch (no gap between them).
+      if (!rectsTouch(ra2.free_rect, rb2.free_rect)) continue;
       const cx = bx + ((ca + cb) / 2 + 0.5) * (bw / 3);
       const cy = by + ((ra + rb) / 2 + 0.5) * (bh / 3);
       const btn = iconButton(

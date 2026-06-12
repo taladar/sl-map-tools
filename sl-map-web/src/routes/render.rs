@@ -175,11 +175,12 @@ pub struct TextLabel {
     /// (`top` | `center` | `bottom`); absent → the slot's outward default.
     #[serde(default)]
     pub v_align: Option<String>,
-    /// when `true`, the label grows across the whole connected free region
-    /// touching its anchor slot (e.g. all three bottom slots → a full-width
-    /// bottom label) and reserves every slot it covers.
+    /// the slots this label spans, as combined by the user (each a slot-anchor
+    /// name, including [`Self::slot`]). Empty → just [`Self::slot`]. When more
+    /// than one, the label grows to the largest free rectangle within exactly
+    /// those slots' thirds and reserves every slot listed.
     #[serde(default)]
-    pub span_fill: bool,
+    pub slots: Vec<String>,
 }
 
 /// Default integer scale factor for a [`LogoPlacement`].
@@ -200,10 +201,12 @@ pub struct LogoPlacement {
     /// blur). Must be `1` or `2`.
     #[serde(default = "default_logo_scale")]
     pub scale: u8,
-    /// when `true`, the logo grows across the whole connected free region
-    /// touching its anchor slot and reserves every slot it covers.
+    /// the slots this logo spans, as combined by the user (each a slot-anchor
+    /// name, including [`Self::slot`]). Empty → just [`Self::slot`]. When more
+    /// than one, the logo's free rectangle is the largest fitting exactly those
+    /// slots' thirds and reserves every slot listed.
     #[serde(default)]
-    pub span_fill: bool,
+    pub slots: Vec<String>,
     /// horizontal alignment within the (single-slot or spanned) free
     /// rectangle; absent → the slot's outward default.
     #[serde(default)]
@@ -277,6 +280,12 @@ pub struct GridRectangleRequest {
     /// zero or more logo images to composite in placement slots.
     #[serde(default)]
     pub logos: Vec<LogoPlacement>,
+    /// user-defined combined slot groups (each a list of slot-anchor names),
+    /// used only by the placement-slots endpoint to report each group's
+    /// combined free rectangle. Ignored by the render itself (which takes the
+    /// group from each label/logo's `slots`).
+    #[serde(default)]
+    pub groups: Vec<Vec<String>>,
 }
 
 /// Response shape for both render endpoints.
@@ -606,6 +615,25 @@ pub struct SlotDto {
     pub connected_neighbours: Vec<&'static str>,
 }
 
+/// The combined free rectangle for one user-defined slot group (two or more
+/// slots joined together), so the client can draw and fit-check it.
+#[derive(Debug, Clone, Serialize)]
+pub struct GroupDto {
+    /// the slot-anchor names making up this group (the first is the primary
+    /// anchor used for alignment).
+    pub slots: Vec<&'static str>,
+    /// whether the group has any free rectangle.
+    pub available: bool,
+    /// the largest free rectangle within exactly these slots' thirds, or `null`
+    /// when the group is fully covered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub free_rect: Option<PixelRectDto>,
+    /// width of [`Self::free_rect`] in pixels (`0` when covered).
+    pub free_width: u32,
+    /// height of [`Self::free_rect`] in pixels (`0` when covered).
+    pub free_height: u32,
+}
+
 /// Response shape for the `placement-slots` endpoints.
 #[derive(Debug, Clone, Serialize)]
 pub struct PlacementSlotsResponse {
@@ -615,43 +643,96 @@ pub struct PlacementSlotsResponse {
     pub image_height: u32,
     /// the nine candidate anchors, in reading order.
     pub slots: Vec<SlotDto>,
+    /// combined rectangles for the requested multi-slot groups, in request
+    /// order (empty when none were requested).
+    pub groups: Vec<GroupDto>,
 }
 
-/// Reduce a drawn-on blank map to the nine-slot placement report.
-fn compute_placement_slots(map: &Map) -> PlacementSlotsResponse {
+/// Reduce a drawn-on blank map to the nine-slot placement report, plus a
+/// combined rectangle for each requested multi-slot `group`.
+fn compute_placement_slots(
+    map: &Map,
+    groups: &[Vec<sl_map_apis::coverage::PlacementSlot>],
+) -> PlacementSlotsResponse {
     use sl_map_apis::coverage::PlacementSlot;
     let image = sl_map_apis::map_tiles::MapLike::image(map);
     let (image_width, image_height) = image.dimensions();
-    let slots = sl_map_apis::coverage::OccupancyGrid::from_map(
+    let grid = sl_map_apis::coverage::OccupancyGrid::from_map(
         map,
         sl_map_apis::coverage::DEFAULT_COVERAGE_GRID,
-    )
-    .evaluate_slots()
-    .into_iter()
-    .map(|info| SlotDto {
-        slot: info.slot.as_str(),
-        available: info.available,
-        free_rect: info.free_rect.map(|r| PixelRectDto {
-            x: r.x,
-            y: r.y,
-            width: r.width,
-            height: r.height,
-        }),
-        free_width: info.free_size.0,
-        free_height: info.free_size.1,
-        occupied_fraction: info.occupied_fraction,
-        connected_neighbours: info
-            .connected_neighbours
-            .into_iter()
-            .map(PlacementSlot::as_str)
-            .collect(),
-    })
-    .collect();
+    );
+    let slots = grid
+        .evaluate_slots()
+        .into_iter()
+        .map(|info| SlotDto {
+            slot: info.slot.as_str(),
+            available: info.available,
+            free_rect: info.free_rect.map(|r| PixelRectDto {
+                x: r.x,
+                y: r.y,
+                width: r.width,
+                height: r.height,
+            }),
+            free_width: info.free_size.0,
+            free_height: info.free_size.1,
+            occupied_fraction: info.occupied_fraction,
+            connected_neighbours: info
+                .connected_neighbours
+                .into_iter()
+                .map(PlacementSlot::as_str)
+                .collect(),
+        })
+        .collect();
+    let group_dtos = groups
+        .iter()
+        .filter(|g| g.len() > 1)
+        .filter_map(|g| {
+            let anchor = *g.first()?;
+            let rect = grid.subset_rect(g, anchor);
+            Some(GroupDto {
+                slots: g.iter().map(|s| s.as_str()).collect(),
+                available: rect.is_some(),
+                free_rect: rect.map(|r| PixelRectDto {
+                    x: r.x,
+                    y: r.y,
+                    width: r.width,
+                    height: r.height,
+                }),
+                free_width: rect.map_or(0, |r| r.width),
+                free_height: rect.map_or(0, |r| r.height),
+            })
+        })
+        .collect();
     PlacementSlotsResponse {
         image_width,
         image_height,
         slots,
+        groups: group_dtos,
     }
+}
+
+/// Parse client-supplied slot groups (lists of slot-anchor names) into
+/// [`PlacementSlot`] vectors, rejecting unknown names and empty groups.
+fn parse_groups(
+    raw: &[Vec<String>],
+) -> Result<Vec<Vec<sl_map_apis::coverage::PlacementSlot>>, Error> {
+    raw.iter()
+        .map(|g| {
+            if g.is_empty() {
+                return Err(Error::BadRequest(
+                    "a placement group must not be empty".to_owned(),
+                ));
+            }
+            g.iter()
+                .map(|name| {
+                    name.parse::<sl_map_apis::coverage::PlacementSlot>()
+                        .map_err(|err: sl_map_apis::coverage::ParsePlacementSlotError| {
+                            Error::BadRequest(err.to_string())
+                        })
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// Resolve a GLW source to an event WITHOUT any persistence (unlike
@@ -729,11 +810,12 @@ pub async fn free_placement_slots_grid_rectangle(
         GridCoordinates::new(req.lower_left_x, req.lower_left_y),
         GridCoordinates::new(req.upper_right_x, req.upper_right_y),
     );
+    let groups = parse_groups(&req.groups)?;
     let mut map = Map::blank_fit(rect, req.max_width, req.max_height)?;
     if let Some(glw) = req.glw.as_ref() {
         apply_glw_overlay_readonly(&state, user.user_id, glw, &mut map).await?;
     }
-    Ok(Json(compute_placement_slots(&map)))
+    Ok(Json(compute_placement_slots(&map, &groups)))
 }
 
 /// `POST /api/render/placement-slots/usb-notecard` — report the free
@@ -780,7 +862,8 @@ pub async fn free_placement_slots_usb_notecard(
         map.draw_route_with_progress(&mut region, &notecard, parsed.color, None)
             .await?;
     }
-    Ok(Json(compute_placement_slots(&map)))
+    let groups = parse_groups(&parsed.groups)?;
+    Ok(Json(compute_placement_slots(&map, &groups)))
 }
 
 /// Body of `POST /api/render/glw-preview` (JSON).
@@ -1109,6 +1192,10 @@ struct ParsedRenderForm {
     /// logo images. Carried in the multipart form as the `logos_json`
     /// field — a JSON-stringified `Vec<LogoPlacement>`.
     logos: Vec<LogoPlacement>,
+    /// user-defined combined slot groups (each a list of slot-anchor names),
+    /// carried as the `groups_json` field. Only the placement-slots endpoint
+    /// uses them (to report each group's combined free rectangle).
+    groups: Vec<Vec<String>>,
 }
 
 /// Where the notecard for a render comes from.
@@ -1147,6 +1234,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
     let mut glw: Option<GlwRenderOptions> = None;
     let mut labels: Vec<TextLabel> = Vec::new();
     let mut logos: Vec<LogoPlacement> = Vec::new();
+    let mut groups: Vec<Vec<String>> = Vec::new();
     let mut multipart = multipart;
     while let Some(field) = multipart.next_field().await? {
         let Some(name) = field.name().map(str::to_owned) else {
@@ -1249,6 +1337,13 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
                         .map_err(|e| Error::BadRequest(format!("invalid logos_json: {e}")))?;
                 }
             }
+            "groups_json" => {
+                let raw = field.text().await?;
+                if !raw.trim().is_empty() {
+                    groups = serde_json::from_str::<Vec<Vec<String>>>(&raw)
+                        .map_err(|e| Error::BadRequest(format!("invalid groups_json: {e}")))?;
+                }
+            }
             _ => {}
         }
     }
@@ -1291,6 +1386,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
         glw,
         labels,
         logos,
+        groups,
     })
 }
 
@@ -2262,14 +2358,42 @@ fn parse_v_align(value: Option<&str>) -> Result<Option<sl_map_apis::coverage::VA
     }
 }
 
-/// Resolve a placement anchor to the slots it reserves and the pixel
-/// rectangle to fit content into. A non-spanning placement reserves just its
-/// own slot and uses that slot's free rectangle; a `span_fill` placement
-/// reserves the whole connected free region touching the anchor and uses the
-/// combined free rectangle. Shared by labels and logos.
+/// Parse a placement's combined slot group from the request: each name in
+/// `names` parsed to a [`PlacementSlot`], always including `anchor`. An empty
+/// `names` (the common single-slot case, and old saved settings) yields just
+/// `[anchor]`.
+fn parse_slot_group(
+    anchor: sl_map_apis::coverage::PlacementSlot,
+    names: &[String],
+) -> Result<Vec<sl_map_apis::coverage::PlacementSlot>, Error> {
+    if names.is_empty() {
+        return Ok(vec![anchor]);
+    }
+    let mut group: Vec<sl_map_apis::coverage::PlacementSlot> = Vec::with_capacity(names.len());
+    for name in names {
+        let slot = name
+            .parse::<sl_map_apis::coverage::PlacementSlot>()
+            .map_err(|err: sl_map_apis::coverage::ParsePlacementSlotError| {
+                Error::BadRequest(err.to_string())
+            })?;
+        if !group.contains(&slot) {
+            group.push(slot);
+        }
+    }
+    if !group.contains(&anchor) {
+        group.push(anchor);
+    }
+    Ok(group)
+}
+
+/// Resolve a placement to the slots it reserves and the pixel rectangle to fit
+/// content into. A single-slot placement uses that slot's own free rectangle;
+/// a combined placement (more than one slot in `group`) uses the largest free
+/// rectangle within exactly those slots' thirds ([`OccupancyGrid::subset_rect`])
+/// and reserves the whole group. Shared by labels and logos.
 fn resolve_placement(
     anchor: sl_map_apis::coverage::PlacementSlot,
-    span_fill: bool,
+    group: &[sl_map_apis::coverage::PlacementSlot],
     slots: &[sl_map_apis::coverage::PlacementSlotInfo],
     grid: &sl_map_apis::coverage::OccupancyGrid,
 ) -> Result<
@@ -2279,12 +2403,13 @@ fn resolve_placement(
     ),
     Error,
 > {
-    if span_fill {
-        grid.spanned_region(anchor).ok_or_else(|| {
+    if group.len() > 1 {
+        let rect = grid.subset_rect(group, anchor).ok_or_else(|| {
             Error::BadRequest(format!(
-                "slot `{anchor}` is fully covered; no room for content"
+                "the combined slot at `{anchor}` is fully covered; no room for content"
             ))
-        })
+        })?;
+        Ok((group.to_vec(), rect))
     } else {
         let info = slots
             .iter()
@@ -2397,7 +2522,8 @@ fn plan_labels(
                 .map_err(|err: sl_map_apis::coverage::ParsePlacementSlotError| {
                     Error::BadRequest(err.to_string())
                 })?;
-        let (reserved, rect) = resolve_placement(anchor, label.span_fill, &slots, &grid)?;
+        let group = parse_slot_group(anchor, &label.slots)?;
+        let (reserved, rect) = resolve_placement(anchor, &group, &slots, &grid)?;
         reserve(
             &reserved,
             &mut used,
@@ -2516,7 +2642,8 @@ async fn plan_logos(
                 .map_err(|err: sl_map_apis::coverage::ParsePlacementSlotError| {
                     Error::BadRequest(err.to_string())
                 })?;
-        let (reserved, rect) = resolve_placement(anchor, logo.span_fill, &slots, &grid)?;
+        let group = parse_slot_group(anchor, &logo.slots)?;
+        let (reserved, rect) = resolve_placement(anchor, &group, &slots, &grid)?;
         reserve(
             &reserved,
             &mut used,
@@ -2691,7 +2818,7 @@ mod placement_slots_tests {
     #[test]
     fn empty_map_reports_nine_free_slots() -> Result<(), Box<dyn std::error::Error>> {
         let map = blank_map()?;
-        let resp = compute_placement_slots(&map);
+        let resp = compute_placement_slots(&map, &[]);
         assert_eq!(resp.slots.len(), 9);
         assert_eq!((resp.image_width, resp.image_height), (128, 128));
         // with no overlay drawn (and the legend excluded by design) every
@@ -2715,7 +2842,7 @@ mod placement_slots_tests {
             &[(10f32, 10f32), (64f32, 64f32), (118f32, 118f32)],
             Rgba([255, 0, 0, 255]),
         )?;
-        let resp = compute_placement_slots(&map);
+        let resp = compute_placement_slots(&map, &[]);
         let center = resp
             .slots
             .iter()
@@ -2728,6 +2855,25 @@ mod placement_slots_tests {
             .find(|s| s.slot == "top_right")
             .ok_or("missing top_right slot")?;
         assert!(top_right.available);
+        Ok(())
+    }
+
+    #[test]
+    fn requested_group_reports_combined_rect() -> Result<(), Box<dyn std::error::Error>> {
+        use sl_map_apis::coverage::PlacementSlot as P;
+        let map = blank_map()?;
+        let resp = compute_placement_slots(&map, &[vec![P::TopLeft, P::TopCenter]]);
+        assert_eq!(resp.groups.len(), 1);
+        let g = resp.groups.first().ok_or("missing group")?;
+        assert_eq!(g.slots, vec!["top_left", "top_center"]);
+        assert!(g.available && g.free_rect.is_some());
+        // the combined rect is wider than either single top slot
+        let tl = resp
+            .slots
+            .iter()
+            .find(|s| s.slot == "top_left")
+            .ok_or("missing top_left")?;
+        assert!(g.free_width > tl.free_width);
         Ok(())
     }
 }
@@ -3031,7 +3177,7 @@ mod label_tests {
             color: "#ffffff".to_owned(),
             h_align: None,
             v_align: None,
-            span_fill: false,
+            slots: Vec::new(),
         }
     }
 
@@ -3256,7 +3402,7 @@ mod label_tests {
     }
 
     #[test]
-    fn resolve_placement_single_vs_span() -> Result<(), Box<dyn std::error::Error>> {
+    fn resolve_placement_single_vs_combined() -> Result<(), Box<dyn std::error::Error>> {
         let map = blank_map()?;
         let grid = sl_map_apis::coverage::OccupancyGrid::from_map(
             &map,
@@ -3264,15 +3410,37 @@ mod label_tests {
         );
         let slots = grid.evaluate_slots();
 
-        // non-spanning reserves just the anchor and yields a positive rect
-        let (reserved, rect) = resolve_placement(PlacementSlot::TopLeft, false, &slots, &grid)?;
+        // a single slot reserves just the anchor and yields a positive rect
+        let (reserved, rect) = resolve_placement(
+            PlacementSlot::TopLeft,
+            &[PlacementSlot::TopLeft],
+            &slots,
+            &grid,
+        )?;
         assert_eq!(reserved, vec![PlacementSlot::TopLeft]);
         assert!(rect.width > 0 && rect.height > 0);
 
-        // on a fully-free map the whole grid is one connected region, so a
-        // spanning placement reserves all nine slots
-        let (all, _) = resolve_placement(PlacementSlot::TopLeft, true, &slots, &grid)?;
-        assert_eq!(all.len(), 9);
+        // a combined group reserves exactly the chosen slots and its rectangle
+        // spans them (wider than the single top-left slot)
+        let group = vec![PlacementSlot::TopLeft, PlacementSlot::TopCenter];
+        let (all, combined) = resolve_placement(PlacementSlot::TopLeft, &group, &slots, &grid)?;
+        assert_eq!(all, group);
+        assert!(combined.width > rect.width);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_slot_group_defaults_and_includes_anchor() -> Result<(), Box<dyn std::error::Error>> {
+        use sl_map_apis::coverage::PlacementSlot as P;
+        // empty -> just the anchor
+        assert_eq!(parse_slot_group(P::TopLeft, &[])?, vec![P::TopLeft]);
+        // explicit names, anchor appended if missing, de-duplicated
+        let g = parse_slot_group(
+            P::TopLeft,
+            &["top_center".to_owned(), "top_center".to_owned()],
+        )?;
+        assert_eq!(g, vec![P::TopCenter, P::TopLeft]);
+        assert_matches!(parse_slot_group(P::TopLeft, &["nope".to_owned()]), Err(_));
         Ok(())
     }
 }

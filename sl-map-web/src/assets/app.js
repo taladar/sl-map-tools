@@ -598,83 +598,105 @@ function renderPreview(rect, waypoints) {
       });
   }
 
-  // GLW base legend. Rendered server-side at the final-image resolution with
-  // only the legend drawn at its chosen slot, so it appears in the preview at
-  // the exact position and relative size the final render produces. Dropped
-  // into the bounds rectangle like the GLW overlay, but with a higher z-index
-  // (set in CSS) so it stays readable above the route and the slot overlay.
-  // Shown whenever GLW is enabled and a legend slot other than "none" is set.
-  if ($("glw_enabled") && $("glw_enabled").checked) {
-    const legendImg = document.createElement("img");
-    legendImg.className = "glw-legend";
-    legendImg.style.left = `${boundsX.toFixed(1)}px`;
-    legendImg.style.top = `${boundsY.toFixed(1)}px`;
-    legendImg.style.width = `${boundsW.toFixed(1)}px`;
-    legendImg.style.height = `${boundsH.toFixed(1)}px`;
-    viewport.appendChild(legendImg);
-    fetchGlwLegendOverlay(rect)
-      .then((url) => {
-        if (!url) {
-          legendImg.remove();
-          return;
-        }
-        legendImg.src = url;
-        legendImg.addEventListener("load", () => URL.revokeObjectURL(url), {
-          once: true,
-        });
-      })
-      .catch((err) => {
-        legendImg.remove();
-        $("preview-status").textContent = `GLW legend failed: ${err.message}`;
-      });
-  }
-
-  // Text labels + logos. Rendered server-side onto an overlay-only map exactly
-  // as the final render places them, then dropped into the bounds rectangle.
-  // Topmost (z-index in CSS) since the final render draws them above the route,
-  // GLW overlay and legend. The fetch is a no-op (returns null) when there are
-  // no labels or logos.
-  {
-    const placementImg = document.createElement("img");
-    placementImg.className = "placement-overlay";
-    placementImg.style.left = `${boundsX.toFixed(1)}px`;
-    placementImg.style.top = `${boundsY.toFixed(1)}px`;
-    placementImg.style.width = `${boundsW.toFixed(1)}px`;
-    placementImg.style.height = `${boundsH.toFixed(1)}px`;
-    viewport.appendChild(placementImg);
-    fetchPlacementOverlay(rect)
-      .then((url) => {
-        if (!url) {
-          placementImg.remove();
-          return;
-        }
-        placementImg.src = url;
-        placementImg.addEventListener("load", () => URL.revokeObjectURL(url), {
-          once: true,
-        });
-      })
-      .catch((err) => {
-        placementImg.remove();
-        $("preview-status").textContent =
-          `Placement preview failed: ${err.message}`;
-      });
-  }
-
-  // Record the bounds rectangle so the free-slot overlay can position its
-  // boxes inside it without re-deriving the geometry.
+  // Record the bounds rectangle so the overlays can position content inside it
+  // without re-deriving the geometry. Set before drawing the overlays because
+  // they (and later refreshes) read it back from the dataset.
   viewport.dataset.boundsX = String(boundsX);
   viewport.dataset.boundsY = String(boundsY);
   viewport.dataset.boundsW = String(boundsW);
   viewport.dataset.boundsH = String(boundsH);
 
+  // GLW legend and the text-labels/logos overlays, both rendered server-side at
+  // the final-image resolution and dropped into the bounds rectangle.
+  drawLegendOverlay(viewport, rect);
+  drawPlacementOverlay(viewport, rect);
+
   container.appendChild(viewport);
   fitViewport(container, viewport, widthPx, heightPx);
   drawSlotsOverlay(viewport);
+  lastPreviewRect = rect;
 
   $("preview-status").textContent =
     `Preview at zoom ${z} (${pixelsPerRegion(z)} px/region) — ` +
     `${tilesX * tilesY} tile${tilesX * tilesY === 1 ? "" : "s"}, ` +
     `${widthPx}×${heightPx} px.`;
+
+  // Auto-compute the free slots so the per-slot buttons appear with the tiles.
+  findFreeSlots();
+}
+
+// Draw (or refresh) the GLW base legend overlay on a preview viewport, reading
+// the bounds rectangle from the viewport dataset. Shown only when GLW is
+// enabled; the fetch returns null (and the image is dropped) when no legend
+// slot is set.
+function drawLegendOverlay(viewport, rect) {
+  if (!viewport) return;
+  const old = viewport.querySelector("img.glw-legend");
+  if (old) old.remove();
+  if (!($("glw_enabled") && $("glw_enabled").checked)) return;
+  const bx = parseFloat(viewport.dataset.boundsX);
+  const by = parseFloat(viewport.dataset.boundsY);
+  const bw = parseFloat(viewport.dataset.boundsW);
+  const bh = parseFloat(viewport.dataset.boundsH);
+  if (![bx, by, bw, bh].every(Number.isFinite)) return;
+  const img = document.createElement("img");
+  img.className = "glw-legend";
+  img.style.left = `${bx.toFixed(1)}px`;
+  img.style.top = `${by.toFixed(1)}px`;
+  img.style.width = `${bw.toFixed(1)}px`;
+  img.style.height = `${bh.toFixed(1)}px`;
+  viewport.appendChild(img);
+  fetchGlwLegendOverlay(rect)
+    .then((url) => {
+      if (!url) {
+        img.remove();
+        return;
+      }
+      img.src = url;
+      img.addEventListener("load", () => URL.revokeObjectURL(url), {
+        once: true,
+      });
+    })
+    .catch((err) => {
+      img.remove();
+      $("preview-status").textContent = `GLW legend failed: ${err.message}`;
+    });
+}
+
+// Draw (or refresh) the text-labels/logos overlay on a preview viewport. The
+// fetch returns null (image dropped) when there are no labels or logos.
+function drawPlacementOverlay(viewport, rect) {
+  if (!viewport) return;
+  const old = viewport.querySelector("img.placement-overlay");
+  if (old) old.remove();
+  const bx = parseFloat(viewport.dataset.boundsX);
+  const by = parseFloat(viewport.dataset.boundsY);
+  const bw = parseFloat(viewport.dataset.boundsW);
+  const bh = parseFloat(viewport.dataset.boundsH);
+  if (![bx, by, bw, bh].every(Number.isFinite)) return;
+  const img = document.createElement("img");
+  img.className = "placement-overlay";
+  img.style.left = `${bx.toFixed(1)}px`;
+  img.style.top = `${by.toFixed(1)}px`;
+  img.style.width = `${bw.toFixed(1)}px`;
+  img.style.height = `${bh.toFixed(1)}px`;
+  viewport.appendChild(img);
+  fetchPlacementOverlay(rect)
+    .then((url) => {
+      if (!url) {
+        img.remove();
+        return;
+      }
+      img.src = url;
+      img.addEventListener("load", () => URL.revokeObjectURL(url), {
+        once: true,
+      });
+    })
+    .catch((err) => {
+      img.remove();
+      $("preview-status").textContent =
+        `Placement preview failed: ${err.message}`;
+    });
 }
 
 // Scale the viewport so its native pixel size fits within the container's
@@ -1073,6 +1095,9 @@ async function applyPrefillFromQuery() {
 }
 
 function applySettings(s) {
+  // Rebuild placement state from scratch so restored labels/logos/legend
+  // replace whatever was configured before.
+  initSlotGroups();
   if (s.kind === "grid_rectangle") {
     $("ll_x").value = s.lower_left_x;
     $("ll_y").value = s.lower_left_y;
@@ -1371,8 +1396,8 @@ function readGlwOptions() {
       : null,
   };
   const opts = { source, font_id: fontId, style };
-  const legendSlot = $("glw_legend_slot");
-  if (legendSlot) opts.legend_slot = legendSlot.value;
+  // The legend's slot is chosen on the preview overlay (the legend button).
+  opts.legend_slot = legendSlotFromState();
   if (activeGlwSource() !== "saved") {
     const saveAs = $("glw_save_as").value.trim();
     if (saveAs) opts.save_as = saveAs;
@@ -1432,8 +1457,13 @@ function applyGlwSettings(glw) {
   $("glw_enabled").checked = true;
   refreshGlwPanelVisibility();
   if (glw.font_id) $("glw_font_id").value = glw.font_id;
-  if (glw.legend_slot && $("glw_legend_slot"))
-    $("glw_legend_slot").value = glw.legend_slot;
+  if (glw.legend_slot && glw.legend_slot !== "none") {
+    const g = groupOf(glw.legend_slot);
+    if (g) {
+      g.type = "legend";
+      g.config = null;
+    }
+  }
   if (glw.save_as) $("glw_save_as").value = glw.save_as;
   // settings_json carries the SavedId carrier exclusively (see the
   // backend rewrite step) so we only ever have to handle this case.
@@ -1531,12 +1561,18 @@ let loadedFonts = [];
 
 // The most recent placement-slots response, keyed by anchor, or null if it
 // has not been computed (or was invalidated by a tab switch). Used to check
-// label fit before submitting a render and to draw the preview overlay.
+// fit and to draw the preview overlay.
 let lastPlacementSlots = null;
+// Combined-rectangle info for the requested multi-slot groups, keyed by the
+// group's sorted slot-name list joined with ",". Filled by findFreeSlots().
+let lastGroupRects = {};
 // Pixel size of the final image the slot rectangles are measured in, so the
 // preview overlay can scale them into the bounds rectangle. Null until the
 // slots have been computed.
 let lastPlacementImageSize = null;
+// The rectangle the current preview was rendered for, so placement changes can
+// refresh the legend / labels / logos overlays without a full re-render.
+let lastPreviewRect = null;
 
 // Fill a per-label font <select> from loadedFonts, preserving the desired
 // selection across reloads via dataset.want.
@@ -1570,121 +1606,222 @@ function slotDefaultAlign(anchor) {
   return { h, v };
 }
 
-// Whether a label row has no text (all lines blank).
-function labelRowBlank(row) {
-  return row
-    .querySelector(".label-lines")
-    .value.split("\n")
-    .every((l) => l.trim() === "");
-}
-
-// The slot the legend occupies, or null when GLW is off or the legend is
-// hidden. Labels may not share this slot.
-function legendSlotValue() {
-  if (!$("glw_enabled").checked) return null;
-  const sel = $("glw_legend_slot");
-  if (!sel) return null;
-  return sel.value === "none" ? null : sel.value;
-}
-
 // Enable/disable the Generate button.
 function setGenerateEnabled(ok) {
   const btn = $("generate_btn");
   if (btn) btn.disabled = !ok;
 }
 
-// Preset a row's alignment dropdowns to its slot's outward default, unless
-// the user has already changed them (dataset.touched).
-function presetAligns(row) {
-  const anchor = row.querySelector(".label-slot").value;
-  const def = slotDefaultAlign(anchor);
-  const h = row.querySelector(".label-halign");
-  const v = row.querySelector(".label-valign");
-  if (!h.dataset.touched) h.value = def.h;
-  if (!v.dataset.touched) v.value = def.v;
+// --- per-slot placement state -------------------------------------------
+//
+// Every placement (text label, logo or GLW legend) is attached to a *group*
+// of one or more combined slot anchors. The nine slots start as singleton
+// groups with type "none". Combining merges two groups; splitting breaks a
+// group back into singletons. Each group holds at most one element.
+//   group = { id, slots:[anchor…], type:"none"|"label"|"logo"|"legend",
+//             config, error }
+let slotGroups = [];
+let slotToGroup = new Map();
+let nextGroupId = 1;
+
+// Reset to nine singleton "none" groups.
+function initSlotGroups() {
+  slotGroups = [];
+  slotToGroup = new Map();
+  nextGroupId = 1;
+  for (const a of SLOT_ANCHORS) addGroup([a], "none", null);
 }
 
-// Read the current label rows into the request shape. Blank labels are
-// dropped. h_align/v_align are always sent (preset to the slot default).
-function readLabels() {
-  const out = [];
-  for (const row of document.querySelectorAll("#labels-list .label-row")) {
-    if (labelRowBlank(row)) continue;
-    out.push({
-      slot: row.querySelector(".label-slot").value,
-      lines: row.querySelector(".label-lines").value.split("\n"),
-      font_id: row.querySelector(".label-font").value,
-      font_px: parseFloat(row.querySelector(".label-size").value),
-      color: row.querySelector(".label-color").value,
-      h_align: row.querySelector(".label-halign").value,
-      v_align: row.querySelector(".label-valign").value,
-    });
-  }
-  return out;
+// Slot anchors in canonical reading order, de-duplicated.
+function sortAnchors(slots) {
+  return [...new Set(slots)].sort(
+    (a, b) => SLOT_ANCHORS.indexOf(a) - SLOT_ANCHORS.indexOf(b),
+  );
 }
 
-// Measure one label row's rendered text size against the server, cache it on
-// the row, then re-run validation.
-async function measureLabelRow(row) {
-  const lines = row.querySelector(".label-lines").value.split("\n");
-  const fontId = row.querySelector(".label-font").value;
-  const fontPx = parseFloat(row.querySelector(".label-size").value);
-  row.dataset.measured = "";
-  const blank = lines.every((l) => l.trim() === "");
-  if (blank || !fontId || !Number.isFinite(fontPx) || fontPx <= 0) {
-    validateLabels();
-    return;
+function addGroup(slots, type, config) {
+  const g = {
+    id: nextGroupId++,
+    slots: sortAnchors(slots),
+    type,
+    config,
+    error: null,
+  };
+  slotGroups.push(g);
+  for (const a of g.slots) slotToGroup.set(a, g);
+  return g;
+}
+
+function removeGroupObj(g) {
+  slotGroups = slotGroups.filter((x) => x !== g);
+  for (const a of g.slots) if (slotToGroup.get(a) === g) slotToGroup.delete(a);
+}
+
+function groupOf(anchor) {
+  return slotToGroup.get(anchor) || null;
+}
+
+// The primary anchor (top-left-most slot) of a group, used for alignment
+// defaults and as the legend / label / logo `slot` sent to the server.
+function primaryAnchor(g) {
+  return g.slots[0];
+}
+
+// Human label for a group, e.g. "Top left" or "Top left + Top centre".
+function groupName(g) {
+  return g.slots.map((a) => SLOT_LABELS[a]).join(" + ");
+}
+
+// Short description of a group's element, for the combine choice modal.
+function describe(g) {
+  return g.type === "label"
+    ? "the text label"
+    : g.type === "logo"
+      ? "the logo"
+      : g.type === "legend"
+        ? "the GLW legend"
+        : "nothing";
+}
+
+// The slot the GLW legend occupies, or "none" when no group holds it. Sent as
+// readGlwOptions().legend_slot.
+function legendSlotFromState() {
+  const g = slotGroups.find((x) => x.type === "legend");
+  return g ? primaryAnchor(g) : "none";
+}
+
+// Assign an element to a group (clearing any existing legend elsewhere when
+// the new element is the legend), then re-validate and refresh the preview.
+function assignGroup(g, type, config) {
+  if (type === "legend") {
+    for (const o of slotGroups)
+      if (o !== g && o.type === "legend") {
+        o.type = "none";
+        o.config = null;
+      }
   }
-  try {
-    const resp = await fetch("/api/text/measure", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ font_id: fontId, font_px: fontPx, lines }),
-    });
-    if (!resp.ok) throw new Error(await resp.text());
-    const { width, height } = await resp.json();
-    row.dataset.mw = String(width);
-    row.dataset.mh = String(height);
-    row.dataset.measured = "1";
-  } catch (err) {
-    row.dataset.measured = "";
-    row.querySelector(".label-measure").textContent =
-      `Could not measure text: ${err.message}`;
+  g.type = type;
+  g.config = config;
+  refreshPlacement();
+}
+
+function setLegend(g) {
+  assignGroup(g, "legend", null);
+}
+
+async function clearGroup(g) {
+  if (g.type === "none") return;
+  g.type = "none";
+  g.config = null;
+  refreshPlacement();
+}
+
+// Merge whatever groups currently cover `slots` into one fresh group (used
+// when restoring saved combined placements).
+function ensureGroupForSlots(slots) {
+  const set = sortAnchors(slots);
+  for (const a of set) {
+    const g = groupOf(a);
+    if (g) removeGroupObj(g);
+  }
+  return addGroup(set, "none", null);
+}
+
+// Re-validate and refresh the preview overlays after a placement change.
+function refreshPlacement() {
+  validateLabels();
+  refreshPlacementPreview();
+}
+
+// Re-draw the legend and label/logo overlays on the current preview to match
+// the placement state, without a full re-render.
+function refreshPlacementPreview() {
+  const vp = $("preview-container").querySelector(".viewport");
+  if (!vp || !lastPreviewRect) return;
+  drawLegendOverlay(vp, lastPreviewRect);
+  drawPlacementOverlay(vp, lastPreviewRect);
+}
+
+// Measure rendered text size against the server. Returns {width, height}.
+async function measureText(fontId, fontPx, lines) {
+  const resp = await fetch("/api/text/measure", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ font_id: fontId, font_px: fontPx, lines }),
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  return resp.json();
+}
+
+// Re-measure every label group's text (size is independent of the slots, so
+// this only runs after a restore or a label edit), caching mw/mh on the
+// config, then validate.
+async function remeasureAllLabels() {
+  for (const g of slotGroups) {
+    if (g.type !== "label") continue;
+    try {
+      const m = await measureText(
+        g.config.font_id,
+        g.config.font_px,
+        g.config.lines,
+      );
+      g.config.mw = m.width;
+      g.config.mh = m.height;
+    } catch (_err) {
+      // leave mw/mh as-is; validation treats missing measure as "unknown"
+    }
   }
   validateLabels();
 }
 
-// The full connected free region touching `anchor`, computed by a BFS over
-// the per-slot `connected_neighbours` from the last placement-slots response.
-// Used to know which slots a `span_fill` placement reserves. Falls back to
-// just the anchor when slots have not been computed yet.
-function spannedSlots(anchor) {
-  if (!lastPlacementSlots) return [anchor];
-  const seen = new Set([anchor]);
-  const stack = [anchor];
-  while (stack.length) {
-    const info = lastPlacementSlots[stack.pop()];
-    for (const n of (info && info.connected_neighbours) || []) {
-      if (!seen.has(n)) {
-        seen.add(n);
-        stack.push(n);
-      }
-    }
+// Stable key for a group's slot set (matches the server's GroupDto.slots order).
+function groupKey(slots) {
+  return slots.join(",");
+}
+
+// The free rectangle + size available to a group, from the last placement-slots
+// response: a single slot uses its own free_rect, a combined group its reported
+// group rect. Returns {available, free_rect, free_width, free_height} or null.
+function rectForGroup(g) {
+  if (!lastPlacementSlots) return null;
+  if (g.slots.length === 1) {
+    const s = lastPlacementSlots[g.slots[0]];
+    if (!s) return null;
+    return {
+      available: s.available,
+      free_rect: s.free_rect || null,
+      free_width: s.free_width,
+      free_height: s.free_height,
+    };
   }
-  return [...seen];
+  const gr = lastGroupRects[groupKey(g.slots)];
+  if (!gr) return null;
+  return {
+    available: gr.available,
+    free_rect: gr.free_rect || null,
+    free_width: gr.free_width,
+    free_height: gr.free_height,
+  };
 }
 
-// The slots a label row reserves (its anchor, or the whole connected region
-// when "fill" is checked).
-function labelRowSlots(row) {
-  const slot = row.querySelector(".label-slot").value;
-  return row.querySelector(".label-span").checked ? spannedSlots(slot) : [slot];
-}
-
-// The slots a logo row reserves.
-function logoRowSlots(row) {
-  const slot = row.querySelector(".logo-slot").value;
-  return row.querySelector(".logo-span").checked ? spannedSlots(slot) : [slot];
+// Read the label groups into the render request shape.
+function readLabels() {
+  const out = [];
+  for (const g of slotGroups) {
+    if (g.type !== "label") continue;
+    const c = g.config;
+    out.push({
+      slot: primaryAnchor(g),
+      slots: g.slots.slice(),
+      lines: c.lines,
+      font_id: c.font_id,
+      font_px: c.font_px,
+      color: c.color,
+      h_align: c.h_align,
+      v_align: c.v_align,
+    });
+  }
+  return out;
 }
 
 // Validate every label and logo row against one shared pool of placement
@@ -1692,198 +1829,166 @@ function logoRowSlots(row) {
 // enable/disable the Generate buttons. Mirrors the server-side checks in
 // draw_labels_on_map / draw_logos_on_map (including the unified slot
 // reservation across labels and logos).
+// Validate every placement group against its (combined) free rectangle. Sets
+// each group's `error` (shown as a red overlay box), enables/disables Generate,
+// and redraws the slot overlay. The slot pool is conflict-free by construction
+// (each slot belongs to exactly one group), so only fit and coverage matter.
 function validateLabels() {
-  const labelRows = [...document.querySelectorAll("#labels-list .label-row")];
-  const logoRows = [...document.querySelectorAll("#logos-list .logo-row")];
-  const legendErr = $("glw_legend_slot_error");
-  if (legendErr) legendErr.textContent = "";
-  const legendSlot = legendSlotValue();
   let ok = true;
-
-  // Usage count over the shared slot pool from every active placement.
-  const slotUse = {};
-  for (const row of labelRows) {
-    if (labelRowBlank(row)) continue;
-    for (const s of labelRowSlots(row)) slotUse[s] = (slotUse[s] || 0) + 1;
-  }
-  for (const row of logoRows) {
-    if (!row.querySelector(".logo-pick").value) continue;
-    for (const s of logoRowSlots(row)) slotUse[s] = (slotUse[s] || 0) + 1;
-  }
-
-  // ---- text labels ----
-  for (const row of labelRows) {
-    const slotErr = row.querySelector(".label-slot-error");
-    const sizeErr = row.querySelector(".label-size-error");
-    const measureEl = row.querySelector(".label-measure");
-    slotErr.textContent = "";
-    sizeErr.textContent = "";
-    measureEl.textContent = "";
-    if (labelRowBlank(row)) continue;
-
-    const anchor = row.querySelector(".label-slot").value;
-    const slots = labelRowSlots(row);
-    if (legendSlot && slots.includes(legendSlot)) {
-      slotErr.textContent = "This slot is used by the legend.";
-      if (legendErr) legendErr.textContent = "A placement also uses this slot.";
-      ok = false;
-    }
-    if (slots.some((s) => slotUse[s] > 1)) {
-      slotErr.textContent = "Another placement already uses this slot.";
-      ok = false;
-    }
-
+  for (const g of slotGroups) {
+    g.error = null;
+    if (g.type === "none") continue;
+    const rect = rectForGroup(g);
     if (!lastPlacementSlots) {
-      measureEl.textContent = 'Run "Find free slots" to check this label fits.';
+      g.error = "Preview to check fit";
       ok = false;
       continue;
     }
-    const ps = lastPlacementSlots[anchor];
-    if (!ps || !ps.available) {
-      if (!slotErr.textContent)
-        slotErr.textContent = "This slot is covered by route / GLW content.";
+    if (!rect || !rect.available) {
+      g.error = "Covered by route / GLW";
       ok = false;
       continue;
     }
-    if (row.dataset.measured === "1") {
-      const mw = parseInt(row.dataset.mw, 10);
-      const mh = parseInt(row.dataset.mh, 10);
-      measureEl.textContent = `Text ${mw}×${mh}px — slot free ${ps.free_width}×${ps.free_height}px`;
-      if (mw > ps.free_width || mh > ps.free_height) {
-        sizeErr.textContent = `Too large for this slot (max ${ps.free_width}×${ps.free_height}px); reduce the font size or text.`;
+    if (g.type === "label") {
+      const c = g.config;
+      if (c.mw != null && c.mh != null) {
+        if (c.mw > rect.free_width || c.mh > rect.free_height) {
+          g.error = `Text ${c.mw}×${c.mh} too big for ${rect.free_width}×${rect.free_height}`;
+          ok = false;
+        }
+      }
+    } else if (g.type === "logo") {
+      const c = g.config;
+      const w = c.w * c.scale;
+      const h = c.h * c.scale;
+      if (w > rect.free_width || h > rect.free_height) {
+        g.error = `Logo ${w}×${h} too big for ${rect.free_width}×${rect.free_height}`;
         ok = false;
       }
     }
   }
-
-  // ---- logos ----
-  for (const row of logoRows) {
-    const slotErr = row.querySelector(".logo-slot-error");
-    const measureEl = row.querySelector(".logo-measure");
-    slotErr.textContent = "";
-    measureEl.textContent = "";
-    const pick = row.querySelector(".logo-pick");
-    if (!pick.value) {
-      measureEl.textContent = "Choose a logo.";
-      ok = false;
-      continue;
-    }
-
-    const anchor = row.querySelector(".logo-slot").value;
-    const slots = logoRowSlots(row);
-    if (legendSlot && slots.includes(legendSlot)) {
-      slotErr.textContent = "This slot is used by the legend.";
-      if (legendErr) legendErr.textContent = "A placement also uses this slot.";
-      ok = false;
-    }
-    if (slots.some((s) => slotUse[s] > 1)) {
-      slotErr.textContent = "Another placement already uses this slot.";
-      ok = false;
-    }
-
-    const scale = parseInt(row.querySelector(".logo-scale").value, 10) || 1;
-    const opt = pick.selectedOptions[0];
-    const w = (opt ? parseInt(opt.dataset.w, 10) || 0 : 0) * scale;
-    const h = (opt ? parseInt(opt.dataset.h, 10) || 0 : 0) * scale;
-
-    if (!lastPlacementSlots) {
-      measureEl.textContent = 'Run "Find free slots" to check this logo fits.';
-      ok = false;
-      continue;
-    }
-    const ps = lastPlacementSlots[anchor];
-    if (!ps || !ps.available) {
-      if (!slotErr.textContent)
-        slotErr.textContent = "This slot is covered by route / GLW content.";
-      ok = false;
-      continue;
-    }
-    measureEl.textContent = `Logo ${w}×${h}px — slot free ${ps.free_width}×${ps.free_height}px`;
-    if (w > ps.free_width || h > ps.free_height) {
-      measureEl.textContent +=
-        " — too large; enable Fill connected free area or choose a larger slot.";
-      ok = false;
-    }
-  }
-
   setGenerateEnabled(ok);
+  redrawSlotsOverlay();
 }
 
-// Restore a label row's controls from a saved TextLabel (regenerate).
-function applyLabelPreset(row, l) {
-  if (Array.isArray(l.lines))
-    row.querySelector(".label-lines").value = l.lines.join("\n");
-  if (l.font_id)
-    populateFontSelect(row.querySelector(".label-font"), l.font_id);
-  if (l.font_px != null) row.querySelector(".label-size").value = l.font_px;
-  if (l.color) row.querySelector(".label-color").value = l.color;
-  if (l.slot) row.querySelector(".label-slot").value = l.slot;
-  const h = row.querySelector(".label-halign");
-  const v = row.querySelector(".label-valign");
-  if (l.h_align) {
-    h.value = l.h_align;
-    h.dataset.touched = "1";
-  }
-  if (l.v_align) {
-    v.value = l.v_align;
-    v.dataset.touched = "1";
-  }
-}
-
-// Add a new label row (optionally pre-filled from a saved TextLabel) and
-// wire up its listeners.
-function addLabelRow(preset) {
-  const tpl = $("label-row-template");
-  if (!tpl) return null;
-  const row = tpl.content.firstElementChild.cloneNode(true);
-
-  const slotSel = row.querySelector(".label-slot");
-  for (const a of SLOT_ANCHORS) {
-    const opt = document.createElement("option");
-    opt.value = a;
-    opt.textContent = SLOT_LABELS[a];
-    slotSel.appendChild(opt);
-  }
-  populateFontSelect(row.querySelector(".label-font"));
-
-  const measure = debounce(() => measureLabelRow(row), 300);
-  row.querySelector(".label-lines").addEventListener("input", measure);
-  row.querySelector(".label-size").addEventListener("input", measure);
-  row.querySelector(".label-font").addEventListener("change", measure);
-  slotSel.addEventListener("change", () => {
-    presetAligns(row);
-    validateLabels();
-  });
-  const h = row.querySelector(".label-halign");
-  const v = row.querySelector(".label-valign");
-  h.addEventListener("change", () => {
-    h.dataset.touched = "1";
-    validateLabels();
-  });
-  v.addEventListener("change", () => {
-    v.dataset.touched = "1";
-    validateLabels();
-  });
-  row.querySelector(".label-remove").addEventListener("click", () => {
-    row.remove();
-    validateLabels();
-  });
-
-  $("labels-list").appendChild(row);
-  if (preset) applyLabelPreset(row, preset);
-  presetAligns(row);
-  measureLabelRow(row);
-  return row;
-}
-
-// Replace all label rows from saved settings (regenerate).
+// Rebuild label groups from saved settings (regenerate). Assumes the slot
+// state was reset by applySettings first; remeasures asynchronously.
 function applyLabels(labels) {
-  const list = $("labels-list");
-  if (list) list.replaceChildren();
   if (Array.isArray(labels)) {
-    for (const l of labels) addLabelRow(l);
+    for (const l of labels) {
+      const g = ensureGroupForSlots(
+        l.slots && l.slots.length ? l.slots : [l.slot],
+      );
+      g.type = "label";
+      g.config = {
+        lines: Array.isArray(l.lines) ? l.lines : [],
+        font_id: l.font_id,
+        font_px: l.font_px,
+        color: l.color || "#ffffff",
+        h_align: l.h_align || slotDefaultAlign(primaryAnchor(g)).h,
+        v_align: l.v_align || slotDefaultAlign(primaryAnchor(g)).v,
+        mw: null,
+        mh: null,
+      };
+    }
   }
-  validateLabels();
+  remeasureAllLabels().catch(() => {});
+}
+
+// Open the text-label editor modal for a group (prefilled when editing) and,
+// on save, attach the label to the group.
+async function editLabel(g) {
+  const anchor = primaryAnchor(g);
+  const existing = g.type === "label" ? g.config : null;
+  const def = slotDefaultAlign(anchor);
+  const value = await formModal({
+    title: existing ? "Edit text label" : "Add text label",
+    okText: existing ? "Save" : "Add",
+    build: (dialog) => {
+      const form = $(
+        "label-modal-template",
+      ).content.firstElementChild.cloneNode(true);
+      dialog.appendChild(form);
+      const lines = form.querySelector(".lm-lines");
+      const font = form.querySelector(".lm-font");
+      const size = form.querySelector(".lm-size");
+      const color = form.querySelector(".lm-color");
+      const ha = form.querySelector(".lm-halign");
+      const va = form.querySelector(".lm-valign");
+      const fit = form.querySelector(".lm-fit");
+      populateFontSelect(font, existing ? existing.font_id : undefined);
+      if (existing) {
+        lines.value = existing.lines.join("\n");
+        size.value = existing.font_px;
+        color.value = existing.color;
+        ha.value = existing.h_align;
+        va.value = existing.v_align;
+      } else {
+        ha.value = def.h;
+        va.value = def.v;
+      }
+      const rect = rectForGroup(g);
+      const refresh = debounce(async () => {
+        const txt = lines.value.split("\n");
+        const px = parseFloat(size.value);
+        if (txt.every((l) => l.trim() === "") || !font.value || !(px > 0)) {
+          fit.textContent = "";
+          return;
+        }
+        try {
+          const m = await measureText(font.value, px, txt);
+          let s = `Text ${m.width}×${m.height}px`;
+          if (rect && rect.available) {
+            s += ` — slot free ${rect.free_width}×${rect.free_height}px`;
+            if (m.width > rect.free_width || m.height > rect.free_height)
+              s += " (too large)";
+          }
+          fit.textContent = s;
+        } catch (err) {
+          fit.textContent = `Could not measure: ${err.message}`;
+        }
+      }, 250);
+      lines.addEventListener("input", refresh);
+      size.addEventListener("input", refresh);
+      font.addEventListener("change", refresh);
+      refresh();
+      return async () => {
+        const txt = lines.value.split("\n");
+        if (txt.every((l) => l.trim() === "")) {
+          fit.textContent = "Enter some text.";
+          return null;
+        }
+        const px = parseFloat(size.value);
+        if (!(px > 0)) {
+          fit.textContent = "Enter a positive size.";
+          return null;
+        }
+        if (!font.value) {
+          fit.textContent = "Pick a font.";
+          return null;
+        }
+        let m;
+        try {
+          m = await measureText(font.value, px, txt);
+        } catch (err) {
+          fit.textContent = `Could not measure: ${err.message}`;
+          return null;
+        }
+        return {
+          lines: txt,
+          font_id: font.value,
+          font_px: px,
+          color: color.value,
+          h_align: ha.value,
+          v_align: va.value,
+          mw: m.width,
+          mh: m.height,
+        };
+      };
+    },
+  });
+  if (value === null) return;
+  assignGroup(g, "label", value);
 }
 
 // Logos available in the current save_to scope, shared between the per-row
@@ -1915,9 +2020,9 @@ function populateLogoSelect(sel, selected) {
   if (want && loadedLogos.some((l) => l.logo_id === want)) sel.value = want;
 }
 
-// Load the logos for the active save_to scope and repopulate every row's
-// picker. Logos must live in the same library as the render (same-scope
-// rule), so this re-runs whenever save_to changes.
+// Load the logos for the active save_to scope, shared by the logo modal.
+// Logos must live in the same library as the render (same-scope rule), so this
+// re-runs whenever save_to changes.
 async function loadLogosForScope() {
   const scope = $("save_to") ? $("save_to").value || "personal" : "personal";
   try {
@@ -1926,137 +2031,260 @@ async function loadLogosForScope() {
   } catch (_err) {
     loadedLogos = [];
   }
-  document
-    .querySelectorAll("#logos-list .logo-row")
-    .forEach((row) => populateLogoSelect(row.querySelector(".logo-pick")));
   validateLabels();
 }
 
-// Read the current logo rows into the request shape. Rows with no logo
-// chosen are dropped.
+// Read the logo groups into the render request shape.
 function readLogos() {
   const out = [];
-  for (const row of document.querySelectorAll("#logos-list .logo-row")) {
-    const logoId = row.querySelector(".logo-pick").value;
-    if (!logoId) continue;
+  for (const g of slotGroups) {
+    if (g.type !== "logo") continue;
+    const c = g.config;
     out.push({
-      slot: row.querySelector(".logo-slot").value,
-      logo_id: logoId,
-      scale: parseInt(row.querySelector(".logo-scale").value, 10) || 1,
-      span_fill: row.querySelector(".logo-span").checked,
-      h_align: row.querySelector(".logo-halign").value,
-      v_align: row.querySelector(".logo-valign").value,
+      slot: primaryAnchor(g),
+      slots: g.slots.slice(),
+      logo_id: c.logo_id,
+      scale: c.scale,
+      h_align: c.h_align,
+      v_align: c.v_align,
     });
   }
   return out;
 }
 
-// Preset a logo row's alignment dropdowns to its slot's outward default,
-// unless the user has already changed them.
-function presetLogoAligns(row) {
-  const def = slotDefaultAlign(row.querySelector(".logo-slot").value);
-  const h = row.querySelector(".logo-halign");
-  const v = row.querySelector(".logo-valign");
-  if (!h.dataset.touched) h.value = def.h;
-  if (!v.dataset.touched) v.value = def.v;
+// Intrinsic pixel size of a loaded logo by id, or null when unknown.
+function logoSizeOf(logoId) {
+  const l = loadedLogos.find((x) => x.logo_id === logoId);
+  return l ? { w: l.width, h: l.height } : null;
 }
 
-// Update a logo row's preview thumbnail to the chosen logo.
-function updateLogoPreview(row) {
-  const pick = row.querySelector(".logo-pick");
-  const img = row.querySelector(".logo-preview");
-  if (pick.value) {
-    img.src = `/api/logos/${pick.value}/image`;
-    img.classList.remove("hidden");
-  } else {
-    img.removeAttribute("src");
-    img.classList.add("hidden");
-  }
-}
-
-// Restore a logo row's controls from a saved LogoPlacement (regenerate).
-function applyLogoPreset(row, l) {
-  if (l.logo_id) populateLogoSelect(row.querySelector(".logo-pick"), l.logo_id);
-  if (l.slot) row.querySelector(".logo-slot").value = l.slot;
-  if (l.scale != null) row.querySelector(".logo-scale").value = String(l.scale);
-  if (l.span_fill) row.querySelector(".logo-span").checked = true;
-  const h = row.querySelector(".logo-halign");
-  const v = row.querySelector(".logo-valign");
-  if (l.h_align) {
-    h.value = l.h_align;
-    h.dataset.touched = "1";
-  }
-  if (l.v_align) {
-    v.value = l.v_align;
-    v.dataset.touched = "1";
-  }
-}
-
-// Add a new logo row (optionally pre-filled) and wire up its listeners.
-function addLogoRow(preset) {
-  const tpl = $("logo-row-template");
-  if (!tpl) return null;
-  const row = tpl.content.firstElementChild.cloneNode(true);
-
-  const slotSel = row.querySelector(".logo-slot");
-  for (const a of SLOT_ANCHORS) {
-    const opt = document.createElement("option");
-    opt.value = a;
-    opt.textContent = SLOT_LABELS[a];
-    slotSel.appendChild(opt);
-  }
-  populateLogoSelect(row.querySelector(".logo-pick"));
-
-  const pick = row.querySelector(".logo-pick");
-  pick.addEventListener("change", () => {
-    updateLogoPreview(row);
-    validateLabels();
-  });
-  slotSel.addEventListener("change", () => {
-    presetLogoAligns(row);
-    validateLabels();
-  });
-  row.querySelector(".logo-scale").addEventListener("change", validateLabels);
-  row.querySelector(".logo-span").addEventListener("change", validateLabels);
-  const h = row.querySelector(".logo-halign");
-  const v = row.querySelector(".logo-valign");
-  h.addEventListener("change", () => {
-    h.dataset.touched = "1";
-    validateLabels();
-  });
-  v.addEventListener("change", () => {
-    v.dataset.touched = "1";
-    validateLabels();
-  });
-  row.querySelector(".logo-remove").addEventListener("click", () => {
-    row.remove();
-    validateLabels();
-  });
-
-  $("logos-list").appendChild(row);
-  if (preset) applyLogoPreset(row, preset);
-  presetLogoAligns(row);
-  updateLogoPreview(row);
-  return row;
-}
-
-// Replace all logo rows from saved settings (regenerate).
+// Rebuild logo groups from saved settings (regenerate). Assumes the slot state
+// was reset by applySettings first.
 function applyLogos(logos) {
-  const list = $("logos-list");
-  if (list) list.replaceChildren();
   if (Array.isArray(logos)) {
-    for (const l of logos) addLogoRow(l);
+    for (const l of logos) {
+      const g = ensureGroupForSlots(
+        l.slots && l.slots.length ? l.slots : [l.slot],
+      );
+      const size = logoSizeOf(l.logo_id) || { w: 0, h: 0 };
+      g.type = "logo";
+      g.config = {
+        logo_id: l.logo_id,
+        scale: l.scale || 1,
+        h_align: l.h_align || slotDefaultAlign(primaryAnchor(g)).h,
+        v_align: l.v_align || slotDefaultAlign(primaryAnchor(g)).v,
+        w: size.w,
+        h: size.h,
+      };
+    }
   }
   validateLabels();
 }
 
-// Draw (or clear) the free-slot overlay on a preview viewport. Each available
-// slot's largest free rectangle is drawn as a green box (sized from the
-// final-image pixel coordinates into the bounds rectangle), and each occupied
-// slot is marked with a red tag at its nominal cell centre. Needs both a
-// rendered preview (for the bounds geometry, stored on the viewport dataset)
-// and a computed `lastPlacementSlots` set. Gated on the "Show on preview"
-// toggle, so an unchecked toggle just clears the overlay.
+// Open the logo editor modal for a group (prefilled when editing) and, on
+// save, attach the logo to the group.
+async function editLogo(g) {
+  const anchor = primaryAnchor(g);
+  const existing = g.type === "logo" ? g.config : null;
+  const def = slotDefaultAlign(anchor);
+  const value = await formModal({
+    title: existing ? "Edit logo" : "Add logo",
+    okText: existing ? "Save" : "Add",
+    build: (dialog) => {
+      const form = $("logo-modal-template").content.firstElementChild.cloneNode(
+        true,
+      );
+      dialog.appendChild(form);
+      const pick = form.querySelector(".gm-pick");
+      const scale = form.querySelector(".gm-scale");
+      const ha = form.querySelector(".gm-halign");
+      const va = form.querySelector(".gm-valign");
+      const preview = form.querySelector(".gm-preview");
+      const fit = form.querySelector(".gm-fit");
+      populateLogoSelect(pick, existing ? existing.logo_id : undefined);
+      if (existing) {
+        scale.value = String(existing.scale);
+        ha.value = existing.h_align;
+        va.value = existing.v_align;
+      } else {
+        ha.value = def.h;
+        va.value = def.v;
+      }
+      const rect = rectForGroup(g);
+      const refresh = () => {
+        if (pick.value) {
+          preview.src = `/api/logos/${pick.value}/image`;
+          preview.classList.remove("hidden");
+        } else {
+          preview.removeAttribute("src");
+          preview.classList.add("hidden");
+        }
+        const opt = pick.selectedOptions[0];
+        const s = parseInt(scale.value, 10) || 1;
+        const w = (opt ? parseInt(opt.dataset.w, 10) || 0 : 0) * s;
+        const h = (opt ? parseInt(opt.dataset.h, 10) || 0 : 0) * s;
+        if (w && h) {
+          let t = `Logo ${w}×${h}px`;
+          if (rect && rect.available) {
+            t += ` — slot free ${rect.free_width}×${rect.free_height}px`;
+            if (w > rect.free_width || h > rect.free_height)
+              t += " (too large)";
+          }
+          fit.textContent = t;
+        } else {
+          fit.textContent = "";
+        }
+      };
+      pick.addEventListener("change", refresh);
+      scale.addEventListener("change", refresh);
+      refresh();
+      return () => {
+        if (!pick.value) {
+          fit.textContent = "Choose a logo.";
+          return null;
+        }
+        const opt = pick.selectedOptions[0];
+        return {
+          logo_id: pick.value,
+          scale: parseInt(scale.value, 10) || 1,
+          h_align: ha.value,
+          v_align: va.value,
+          w: opt ? parseInt(opt.dataset.w, 10) || 0 : 0,
+          h: opt ? parseInt(opt.dataset.h, 10) || 0 : 0,
+        };
+      };
+    },
+  });
+  if (value === null) return;
+  assignGroup(g, "logo", value);
+}
+
+// Build a small inline-SVG icon (stroke = currentColor) for a slot button.
+function svgIcon(name) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("width", "14");
+  svg.setAttribute("height", "14");
+  svg.setAttribute("aria-hidden", "true");
+  const add = (tag, attrs) => {
+    const el = document.createElementNS(NS, tag);
+    for (const k of Object.keys(attrs)) el.setAttribute(k, String(attrs[k]));
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", "currentColor");
+    el.setAttribute("stroke-width", "1.5");
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(el);
+  };
+  switch (name) {
+    case "none":
+      add("circle", { cx: 8, cy: 8, r: 6 });
+      add("line", { x1: 4, y1: 4, x2: 12, y2: 12 });
+      break;
+    case "label":
+      add("path", { d: "M4 4h8" });
+      add("path", { d: "M8 4v8" });
+      break;
+    case "logo":
+      add("rect", { x: 2.5, y: 3, width: 11, height: 10, rx: 1 });
+      add("path", { d: "M3 11l3-3 2 2 2.5-2.5L13 11" });
+      add("circle", { cx: 6, cy: 6, r: 1 });
+      break;
+    case "legend":
+      add("path", { d: "M3 4.5h10" });
+      add("path", { d: "M3 8h10" });
+      add("path", { d: "M3 11.5h7" });
+      break;
+    case "combine":
+      add("path", { d: "M3 8h6" });
+      add("path", { d: "M9 5l3 3-3 3" });
+      break;
+    case "split":
+      add("path", { d: "M13 8H7" });
+      add("path", { d: "M7 5L4 8l3 3" });
+      break;
+    case "copy":
+      add("rect", { x: 5.5, y: 5.5, width: 7.5, height: 7.5, rx: 1 });
+      add("path", { d: "M3 10.5V3h7.5" });
+      break;
+    case "swap":
+      add("path", { d: "M4 6h8l-2.5-2.5" });
+      add("path", { d: "M12 10H4l2.5 2.5" });
+      break;
+    default:
+      break;
+  }
+  return svg;
+}
+
+// An icon-only button with a hover tooltip and an optional active state.
+function iconButton(name, title, active, onClick) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "icon-btn" + (active ? " active" : "");
+  b.title = title;
+  b.setAttribute("aria-label", title);
+  b.appendChild(svgIcon(name));
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return b;
+}
+
+// Dispatch a slot radio-button click to the right editor / action.
+function onSlotButton(g, type) {
+  if (type === "none") clearGroup(g);
+  else if (type === "legend") setLegend(g);
+  else if (type === "label") editLabel(g);
+  else if (type === "logo") editLogo(g);
+}
+
+// Re-draw the slot overlay on the current preview viewport.
+function redrawSlotsOverlay() {
+  const vp = $("preview-container").querySelector(".viewport");
+  if (vp) drawSlotsOverlay(vp);
+}
+
+// Combine buttons on the shared edges of adjacent free slots that belong to
+// different groups, placed at the midpoint of the two slots' cell centres.
+function drawCombineButtons(layer, bx, by, bw, bh) {
+  for (let i = 0; i < SLOT_ANCHORS.length; i++) {
+    for (let j = i + 1; j < SLOT_ANCHORS.length; j++) {
+      const a = SLOT_ANCHORS[i];
+      const b = SLOT_ANCHORS[j];
+      const [ca, ra] = SLOT_CELL[a];
+      const [cb, rb] = SLOT_CELL[b];
+      if (Math.abs(ca - cb) + Math.abs(ra - rb) !== 1) continue; // not touching
+      const ga = groupOf(a);
+      const gb = groupOf(b);
+      if (!ga || !gb || ga === gb) continue; // already combined
+      const sa = lastPlacementSlots[a];
+      const sb = lastPlacementSlots[b];
+      if (!sa || !sa.available || !sb || !sb.available) continue;
+      const cx = bx + ((ca + cb) / 2 + 0.5) * (bw / 3);
+      const cy = by + ((ra + rb) / 2 + 0.5) * (bh / 3);
+      const btn = iconButton(
+        "combine",
+        `Combine ${SLOT_LABELS[a]} + ${SLOT_LABELS[b]}`,
+        false,
+        () => combineSlots(a, b),
+      );
+      btn.classList.add("slot-combine");
+      btn.style.left = `${cx.toFixed(1)}px`;
+      btn.style.top = `${cy.toFixed(1)}px`;
+      layer.appendChild(btn);
+    }
+  }
+}
+
+// Draw (or clear) the free-slot overlay on a preview viewport: one box per
+// placement group at its (combined) free rectangle, green normally and red when
+// the group's content does not fit; each box carries the None / Text / Logo /
+// Legend radio buttons (and a split button when combined), plus combine buttons
+// on the shared edges of adjacent free slots. Occupied single slots get a red
+// "occupied" marker. Gated on the "Show free slots" toggle.
 function drawSlotsOverlay(viewport) {
   if (!viewport) return;
   const existing = viewport.querySelector(".slots-overlay");
@@ -2078,32 +2306,187 @@ function drawSlotsOverlay(viewport) {
 
   const layer = document.createElement("div");
   layer.className = "slots-overlay";
-  for (const a of SLOT_ANCHORS) {
-    const s = lastPlacementSlots[a];
-    if (!s) continue;
-    if (s.available && s.free_rect) {
-      const box = document.createElement("div");
-      box.className = "slot-box";
-      box.style.left = `${(bx + s.free_rect.x * sx).toFixed(1)}px`;
-      box.style.top = `${(by + s.free_rect.y * sy).toFixed(1)}px`;
-      box.style.width = `${(s.free_rect.width * sx).toFixed(1)}px`;
-      box.style.height = `${(s.free_rect.height * sy).toFixed(1)}px`;
-      const label = document.createElement("span");
-      label.className = "slot-label";
-      label.textContent = `${SLOT_LABELS[a]} · ${s.free_width}×${s.free_height}`;
-      box.appendChild(label);
-      layer.appendChild(box);
-    } else {
-      const [col, row] = SLOT_CELL[a];
-      const marker = document.createElement("span");
-      marker.className = "slot-marker occupied";
-      marker.textContent = `${SLOT_LABELS[a]} occupied`;
-      marker.style.left = `${(bx + (col + 0.5) * (bw / 3)).toFixed(1)}px`;
-      marker.style.top = `${(by + (row + 0.5) * (bh / 3)).toFixed(1)}px`;
-      layer.appendChild(marker);
+
+  for (const g of slotGroups) {
+    const rect = rectForGroup(g);
+    if (!rect || !rect.available || !rect.free_rect) {
+      if (g.slots.length === 1) {
+        const [col, row] = SLOT_CELL[g.slots[0]];
+        const marker = document.createElement("span");
+        marker.className = "slot-marker occupied";
+        marker.textContent = `${SLOT_LABELS[g.slots[0]]} occupied`;
+        marker.style.left = `${(bx + (col + 0.5) * (bw / 3)).toFixed(1)}px`;
+        marker.style.top = `${(by + (row + 0.5) * (bh / 3)).toFixed(1)}px`;
+        layer.appendChild(marker);
+      }
+      continue;
     }
+    const fr = rect.free_rect;
+    const box = document.createElement("div");
+    box.className = "slot-box" + (g.error ? " error" : "");
+    box.style.left = `${(bx + fr.x * sx).toFixed(1)}px`;
+    box.style.top = `${(by + fr.y * sy).toFixed(1)}px`;
+    box.style.width = `${(fr.width * sx).toFixed(1)}px`;
+    box.style.height = `${(fr.height * sy).toFixed(1)}px`;
+
+    const label = document.createElement("span");
+    label.className = "slot-label";
+    label.textContent =
+      `${groupName(g)} · ${rect.free_width}×${rect.free_height}` +
+      (g.error ? ` — ${g.error}` : "");
+    box.appendChild(label);
+
+    const btns = document.createElement("div");
+    btns.className = "slot-buttons";
+    const radios = [
+      ["none", "None", "none"],
+      ["label", "Text label", "label"],
+      ["logo", "Logo", "logo"],
+      ["legend", "GLW legend", "legend"],
+    ];
+    for (const [type, title, icon] of radios) {
+      const b = iconButton(icon, title, g.type === type, () =>
+        onSlotButton(g, type),
+      );
+      b.classList.add("slot-radio");
+      btns.appendChild(b);
+    }
+    if (g.type !== "none") {
+      btns.appendChild(
+        iconButton("copy", "Copy these settings to another slot", false, () =>
+          startSlotAction("copy", g),
+        ),
+      );
+    }
+    btns.appendChild(
+      iconButton("swap", "Swap settings with another slot", false, () =>
+        startSlotAction("swap", g),
+      ),
+    );
+    if (g.slots.length > 1) {
+      const sp = iconButton("split", "Split combined slot", false, () =>
+        splitGroup(g),
+      );
+      sp.classList.add("slot-split");
+      btns.appendChild(sp);
+    }
+    box.appendChild(btns);
+    // While a copy/swap is pending, clicking a slot box (not its buttons) picks
+    // it as the target.
+    if (pendingSlotAction && pendingSlotAction.from !== g) {
+      box.classList.add("pick-target");
+      box.addEventListener("click", () => completeSlotAction(g));
+    }
+    layer.appendChild(box);
   }
+
+  drawCombineButtons(layer, bx, by, bw, bh);
+  if (pendingSlotAction) layer.classList.add("picking");
   viewport.appendChild(layer);
+}
+
+// A pending copy/swap action waiting for the user to click a target slot, or
+// null. { kind: "copy" | "swap", from: group }
+let pendingSlotAction = null;
+
+// Begin a copy or swap from group `g`; the next slot box click is the target.
+function startSlotAction(kind, g) {
+  pendingSlotAction = { kind, from: g };
+  const st = $("placement-status");
+  if (st)
+    st.textContent =
+      kind === "copy"
+        ? "Click another slot to copy these settings into (Esc to cancel)."
+        : "Click another slot to swap settings with (Esc to cancel).";
+  redrawSlotsOverlay();
+}
+
+// Cancel any pending copy/swap.
+function cancelSlotAction() {
+  if (!pendingSlotAction) return;
+  pendingSlotAction = null;
+  const st = $("placement-status");
+  if (st) st.textContent = "";
+  redrawSlotsOverlay();
+}
+
+// Apply the pending copy/swap onto the target group.
+function completeSlotAction(target) {
+  if (!pendingSlotAction) return;
+  const { kind, from } = pendingSlotAction;
+  pendingSlotAction = null;
+  const st = $("placement-status");
+  if (st) st.textContent = "";
+  if (target === from) {
+    redrawSlotsOverlay();
+    return;
+  }
+  if (kind === "copy") {
+    const config = from.config ? JSON.parse(JSON.stringify(from.config)) : null;
+    assignGroup(target, from.type, config);
+  } else {
+    const tType = target.type;
+    const tConfig = target.config;
+    target.type = from.type;
+    target.config = from.config;
+    from.type = tType;
+    from.config = tConfig;
+    refreshPlacement();
+  }
+}
+
+// Combine the groups containing slots `a` and `b` into one, keeping the
+// configured element (asking which when both are set), then refresh the slots.
+async function combineSlots(a, b) {
+  const ga = groupOf(a);
+  const gb = groupOf(b);
+  if (!ga || !gb || ga === gb) return;
+  let type = "none";
+  let config = null;
+  const aHas = ga.type !== "none";
+  const bHas = gb.type !== "none";
+  if (aHas && bHas) {
+    const keep = await choiceModal({
+      title: "Combine slots",
+      message: "Both slots have content. Which should the combined slot keep?",
+      choices: [
+        { label: `Keep ${describe(ga)}`, value: "a" },
+        { label: `Keep ${describe(gb)}`, value: "b" },
+      ],
+    });
+    if (keep === null) return;
+    [type, config] = keep === "a" ? [ga.type, ga.config] : [gb.type, gb.config];
+  } else if (aHas) {
+    [type, config] = [ga.type, ga.config];
+  } else if (bHas) {
+    [type, config] = [gb.type, gb.config];
+  }
+  const slots = sortAnchors([...ga.slots, ...gb.slots]);
+  removeGroupObj(ga);
+  removeGroupObj(gb);
+  addGroup(slots, type, config);
+  await findFreeSlots();
+  refreshPlacementPreview();
+}
+
+// Split a combined group back into singleton slots, keeping its element on the
+// primary anchor (validation flags it red if it no longer fits there).
+async function splitGroup(g) {
+  const { type, config } = g;
+  const primary = primaryAnchor(g);
+  const slots = g.slots.slice();
+  removeGroupObj(g);
+  let primaryGroup = null;
+  for (const slot of slots) {
+    const ng = addGroup([slot], "none", null);
+    if (slot === primary) primaryGroup = ng;
+  }
+  if (type !== "none" && primaryGroup) {
+    primaryGroup.type = type;
+    primaryGroup.config = config;
+  }
+  await findFreeSlots();
+  refreshPlacementPreview();
 }
 
 // Compute free placement slots for the active tab (grid or notecard),
@@ -2115,6 +2498,10 @@ async function findFreeSlots() {
   try {
     const activeTab = document.querySelector(".tab.active");
     const which = activeTab ? activeTab.dataset.tab : "grid";
+    // The combined slot groups whose rectangles we need reported back.
+    const groupSlots = slotGroups
+      .filter((g) => g.slots.length > 1)
+      .map((g) => g.slots);
     let resp;
     if (which === "grid") {
       const glw = readGlwOptions();
@@ -2126,6 +2513,7 @@ async function findFreeSlots() {
         ...readSharedParams(),
       };
       if (glw) body.glw = glw;
+      if (groupSlots.length) body.groups = groupSlots;
       resp = await fetch("/api/render/placement-slots/grid-rectangle", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -2146,6 +2534,8 @@ async function findFreeSlots() {
       fd.append("color", $("route_color").value);
       const glw = readGlwOptions();
       if (glw) fd.append("glw_json", JSON.stringify(glw));
+      if (groupSlots.length)
+        fd.append("groups_json", JSON.stringify(groupSlots));
       resp = await fetch("/api/render/placement-slots/usb-notecard", {
         method: "POST",
         body: fd,
@@ -2155,16 +2545,13 @@ async function findFreeSlots() {
     const data = await resp.json();
     lastPlacementSlots = {};
     for (const s of data.slots) lastPlacementSlots[s.slot] = s;
+    lastGroupRects = {};
+    for (const gr of data.groups || []) lastGroupRects[groupKey(gr.slots)] = gr;
     lastPlacementImageSize = {
       width: data.image_width,
       height: data.image_height,
     };
-    const vp = $("preview-container").querySelector(".viewport");
-    if (vp) drawSlotsOverlay(vp);
     statusEl.textContent = `Free slots for a ${data.image_width}×${data.image_height}px render.`;
-    document
-      .querySelectorAll("#labels-list .label-row")
-      .forEach((row) => measureLabelRow(row));
     validateLabels();
   } catch (err) {
     statusEl.textContent = `Could not compute slots: ${err.message}`;
@@ -2181,39 +2568,31 @@ function debounce(fn, ms) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  const addBtn = $("add_label");
-  if (addBtn)
-    addBtn.addEventListener("click", () => {
-      addLabelRow();
-      validateLabels();
-    });
-  const addLogoBtn = $("add_logo");
-  if (addLogoBtn)
-    addLogoBtn.addEventListener("click", () => {
-      addLogoRow();
-      validateLabels();
-    });
+  initSlotGroups();
   loadLogosForScope().catch(() => {});
-  const findBtn = $("find_slots");
-  if (findBtn) findBtn.addEventListener("click", () => findFreeSlots());
+  // Escape cancels a pending copy/swap (only when no modal is open — the modal
+  // handles its own Escape).
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && pendingSlotAction) cancelSlotAction();
+  });
   const showSlots = $("show_slots");
   if (showSlots)
-    showSlots.addEventListener("change", () => {
-      const vp = $("preview-container").querySelector(".viewport");
-      if (vp) drawSlotsOverlay(vp);
-    });
-  const legendSel = $("glw_legend_slot");
-  if (legendSel) legendSel.addEventListener("change", validateLabels);
+    showSlots.addEventListener("change", () => redrawSlotsOverlay());
+  // GLW on/off changes whether the legend draws and changes slot occupancy, so
+  // re-validate and refresh the preview overlays.
   const glwEnabled = $("glw_enabled");
-  if (glwEnabled) glwEnabled.addEventListener("change", validateLabels);
+  if (glwEnabled)
+    glwEnabled.addEventListener("change", () => {
+      validateLabels();
+      refreshPlacementPreview();
+    });
   // The slot occupancy differs between the grid and notecard tabs, so a tab
-  // switch invalidates the cached result.
+  // switch invalidates the cached result (the placements themselves persist).
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       lastPlacementSlots = null;
+      lastGroupRects = {};
       lastPlacementImageSize = null;
-      const vp = $("preview-container").querySelector(".viewport");
-      if (vp) drawSlotsOverlay(vp);
       const st = $("placement-status");
       if (st) st.textContent = "";
       validateLabels();

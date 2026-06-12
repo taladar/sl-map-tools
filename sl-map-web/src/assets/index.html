@@ -102,22 +102,10 @@
             >Font
             <select id="glw_font_id"></select>
           </label>
-          <label
-            >Legend position
-            <select id="glw_legend_slot">
-              <option value="top_left" selected>Top left</option>
-              <option value="top_center">Top centre</option>
-              <option value="top_right">Top right</option>
-              <option value="middle_left">Middle left</option>
-              <option value="center">Centre</option>
-              <option value="middle_right">Middle right</option>
-              <option value="bottom_left">Bottom left</option>
-              <option value="bottom_center">Bottom centre</option>
-              <option value="bottom_right">Bottom right</option>
-              <option value="none">Hidden</option>
-            </select>
-          </label>
-          <span class="field-error" id="glw_legend_slot_error"></span>
+          <p class="note grow">
+            Place the legend by clicking the legend button on a free slot in the
+            preview below.
+          </p>
         </div>
         <nav class="glw-tabs" role="tablist">
           <button type="button" class="glw-tab active" data-glw-tab="event_id">
@@ -368,165 +356,109 @@
       </fieldset>
     </section>
 
-    <section id="placement-fieldset">
-      <h2>Placement slots &amp; text labels</h2>
-      <p class="note">
-        Find which of the nine map positions are free of route / GLW content,
-        choose where the legend goes, and add text labels. With "Show on
-        preview" enabled each free slot is drawn as a green box on the preview
-        above. Label sizes are checked against the current settings, so re-run
-        "Find free slots" after changing the rectangle, notecard, borders or
-        overlay.
-      </p>
-      <div class="row buttons">
-        <button type="button" id="find_slots">Find free slots</button>
-        <label class="checkbox-inline">
-          <input type="checkbox" id="show_slots" checked />
-          Show on preview
+    <!-- Modal-form templates for the per-slot placement editors (cloned by
+         app.js into a formModal). Slot and span are chosen on the preview
+         overlay, so they are not part of these forms. -->
+    <template id="label-modal-template">
+      <div class="modal-form">
+        <label class="grow"
+          >Text (one line per row)
+          <textarea class="lm-lines" rows="3"></textarea>
         </label>
-        <span id="placement-status" class="status"></span>
-      </div>
-
-      <h3>Text labels</h3>
-      <div id="labels-list"></div>
-      <div class="row buttons">
-        <button type="button" id="add_label">Add text label</button>
-      </div>
-
-      <template id="label-row-template">
-        <div class="label-row">
-          <div class="row">
-            <label class="grow"
-              >Text (one line per row)
-              <textarea class="label-lines" rows="2"></textarea>
-            </label>
-          </div>
-          <div class="row">
-            <label
-              >Font
-              <select class="label-font"></select>
-            </label>
-            <label
-              >Size (px)
-              <input
-                type="number"
-                class="label-size"
-                value="24"
-                min="1"
-                max="512"
-              />
-            </label>
-            <span class="field-error label-size-error"></span>
-            <label
-              >Colour
-              <input type="color" class="label-color" value="#ffffff" />
-            </label>
-          </div>
-          <div class="row">
-            <label
-              >Slot
-              <select class="label-slot"></select>
-            </label>
-            <span class="field-error label-slot-error"></span>
-            <label
-              >Horizontal
-              <select class="label-halign">
-                <option value="left">Left</option>
-                <option value="center">Centre</option>
-                <option value="right">Right</option>
-              </select>
-            </label>
-            <label
-              >Vertical
-              <select class="label-valign">
-                <option value="top">Top</option>
-                <option value="center">Centre</option>
-                <option value="bottom">Bottom</option>
-              </select>
-            </label>
-            <label class="checkbox-inline" title="Grow across all free slots connected to the chosen one and reserve them">
-              <input type="checkbox" class="label-span" />
-              Fill connected free area
-            </label>
-            <button type="button" class="label-remove">Remove</button>
-          </div>
-          <p class="note label-measure"></p>
+        <div class="row">
+          <label
+            >Font
+            <select class="lm-font"></select>
+          </label>
+          <label
+            >Size (px)
+            <input type="number" class="lm-size" value="24" min="1" max="512" />
+          </label>
+          <label
+            >Colour
+            <input type="color" class="lm-color" value="#ffffff" />
+          </label>
         </div>
-      </template>
-
-      <h3>Logos</h3>
-      <p class="note">
-        Composite a logo image (from your library or a group's) into a free
-        slot. Logos are drawn at their stored pixel size; if too big for the
-        chosen slot, enable "Fill connected free area" or pick a larger free
-        area. Run "Find free slots" first so the slot list reflects the
-        current settings.
-      </p>
-      <div id="logos-list"></div>
-      <div class="row buttons">
-        <button type="button" id="add_logo">Add logo</button>
-      </div>
-
-      <template id="logo-row-template">
-        <div class="logo-row">
-          <div class="row">
-            <label class="grow"
-              >Logo
-              <select class="logo-pick"></select>
-            </label>
-            <img class="logo-thumb logo-preview hidden" alt="logo preview" />
-          </div>
-          <div class="row">
-            <label
-              >Slot
-              <select class="logo-slot"></select>
-            </label>
-            <span class="field-error logo-slot-error"></span>
-            <label
-              >Scale
-              <select class="logo-scale">
-                <option value="1">1× (native)</option>
-                <option value="2">2× (nearest)</option>
-              </select>
-            </label>
-            <label
-              >Horizontal
-              <select class="logo-halign">
-                <option value="left">Left</option>
-                <option value="center">Centre</option>
-                <option value="right">Right</option>
-              </select>
-            </label>
-            <label
-              >Vertical
-              <select class="logo-valign">
-                <option value="top">Top</option>
-                <option value="center">Centre</option>
-                <option value="bottom">Bottom</option>
-              </select>
-            </label>
-            <label class="checkbox-inline" title="Grow across all free slots connected to the chosen one and reserve them">
-              <input type="checkbox" class="logo-span" />
-              Fill connected free area
-            </label>
-            <button type="button" class="logo-remove">Remove</button>
-          </div>
-          <p class="note logo-measure"></p>
+        <div class="row">
+          <label
+            >Horizontal
+            <select class="lm-halign">
+              <option value="left">Left</option>
+              <option value="center">Centre</option>
+              <option value="right">Right</option>
+            </select>
+          </label>
+          <label
+            >Vertical
+            <select class="lm-valign">
+              <option value="top">Top</option>
+              <option value="center">Centre</option>
+              <option value="bottom">Bottom</option>
+            </select>
+          </label>
         </div>
-      </template>
-    </section>
+        <p class="note lm-fit"></p>
+      </div>
+    </template>
+
+    <template id="logo-modal-template">
+      <div class="modal-form">
+        <div class="row">
+          <label class="grow"
+            >Logo
+            <select class="gm-pick"></select>
+          </label>
+          <img class="logo-thumb gm-preview hidden" alt="logo preview" />
+        </div>
+        <div class="row">
+          <label
+            >Scale
+            <select class="gm-scale">
+              <option value="1">1× (native)</option>
+              <option value="2">2× (nearest)</option>
+            </select>
+          </label>
+          <label
+            >Horizontal
+            <select class="gm-halign">
+              <option value="left">Left</option>
+              <option value="center">Centre</option>
+              <option value="right">Right</option>
+            </select>
+          </label>
+          <label
+            >Vertical
+            <select class="gm-valign">
+              <option value="top">Top</option>
+              <option value="center">Centre</option>
+              <option value="bottom">Bottom</option>
+            </select>
+          </label>
+        </div>
+        <p class="note gm-fit"></p>
+      </div>
+    </template>
 
     <section class="preview-area">
       <h2>Preview</h2>
       <p class="note">
         Tiles are aligned to the SL map CDN's tile grid, so the preview can
         include regions outside the requested rectangle — those extra regions
-        will not appear in the final render.
+        will not appear in the final render. Each free slot is drawn as a green
+        box (red if its content does not fit); use the buttons in a slot to
+        place a text label, logo or the GLW legend, the button on a shared edge
+        to combine two slots, and the split button to break a combined slot
+        apart.
       </p>
       <div class="row buttons">
         <button type="button" id="preview_btn">Preview</button>
+        <label class="checkbox-inline">
+          <input type="checkbox" id="show_slots" checked />
+          Show free slots
+        </label>
       </div>
       <p id="preview-status" class="status"></p>
+      <p id="placement-status" class="status"></p>
       <div
         id="preview-container"
         class="map-container"
@@ -577,5 +509,6 @@
     </section>
 
     <script src="/static/app.js"></script>
+    <script src="/static/modal.js"></script>
   </body>
 </html>

@@ -292,20 +292,30 @@ button:disabled {
   z-index: 3;
 }
 
-/* Free-placement-slot overlay, drawn on top of the tiles/route. Each free slot
-   is a translucent green box (sized to its largest free rectangle); occupied
-   slots get a red tag at their cell centre. JS sets the explicit positions. */
+/* Free-placement-slot overlay, drawn ABOVE all preview content (GLW overlay,
+   legend, labels/logos) so its buttons stay usable. Each free slot is a
+   translucent green box (red when its content does not fit); occupied slots get
+   a red tag at their cell centre. The layer is click-through except for the
+   buttons, which re-enable pointer events. JS sets the explicit positions. */
 .map-container .slots-overlay {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 4;
 }
 
 .map-container .slot-box {
   position: absolute;
   box-sizing: border-box;
   border: 1.5px solid #2e8b57;
-  background: rgba(46, 139, 87, 0.22);
+  background: rgba(46, 139, 87, 0.18);
+}
+
+/* A slot whose configured content cannot be generated (e.g. too much text to
+   fit) turns red. */
+.map-container .slot-box.error {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.22);
 }
 
 .map-container .slot-label,
@@ -322,12 +332,84 @@ button:disabled {
   left: 0;
   top: 0;
   background: #2e8b57;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-container .slot-box.error .slot-label {
+  background: #c0392b;
 }
 
 .map-container .slot-marker.occupied {
   background: rgba(192, 57, 43, 0.9);
   border-radius: 2px;
   transform: translate(-50%, -50%);
+}
+
+/* Per-slot button cluster, just under the slot label. */
+.map-container .slot-buttons {
+  position: absolute;
+  left: 0;
+  top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+}
+
+/* Icon-only buttons used on the slot overlay (radios, split, combine). */
+.map-container .icon-btn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+}
+
+.map-container .icon-btn:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.map-container .icon-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* Combine button centred on the shared edge of two adjacent free slots. */
+.map-container .slot-combine {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: rgba(46, 139, 87, 0.9);
+  border-color: #fff;
+}
+
+/* While a copy/swap is pending, candidate target boxes accept clicks and are
+   highlighted. */
+.map-container .slots-overlay.picking .slot-box.pick-target {
+  pointer-events: auto;
+  cursor: pointer;
+  border-color: #f4c430;
+  background: rgba(244, 196, 48, 0.22);
+}
+
+/* Slot-editor modal form: stack the fields vertically. */
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modal-form .lm-lines {
+  width: 100%;
 }
 
 .tile-legend {

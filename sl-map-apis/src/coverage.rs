@@ -712,6 +712,78 @@ impl OccupancyGrid {
         let (r0, r1, c0, c1) = self.largest_free_rect(anchor.horizontal(), anchor.vertical())?;
         Some((slots, self.cell_rect_to_pixels(r0, r1, c0, c1)))
     }
+
+    /// The largest all-free pixel rectangle confined to the union of the thirds
+    /// of the given `slots`, anchored per `anchor`'s axis modes.
+    ///
+    /// Unlike [`Self::spanned_region`] (which grows across a whole connected
+    /// free region), this is restricted to *exactly* the slots the caller
+    /// joined: cells outside the chosen slots' thirds are treated as occupied,
+    /// so an L-shaped union yields the largest rectangle that fits inside it.
+    /// `anchor` should be one of `slots` (its primary anchor); it only biases
+    /// which equal-area rectangle wins. Returns `None` when the union is empty
+    /// or has no free rectangle.
+    #[must_use]
+    pub fn subset_rect(&self, slots: &[PlacementSlot], anchor: PlacementSlot) -> Option<PixelRect> {
+        if self.cols == 0 || self.rows == 0 || slots.is_empty() {
+            return None;
+        }
+        // Allowed-cell mask = union of the chosen slots' thirds, plus its
+        // bounding cell band.
+        let mut allowed = vec![false; (self.cols * self.rows) as usize];
+        let (mut c_lo, mut c_hi, mut r_lo, mut r_hi) = (self.cols, 0u32, self.rows, 0u32);
+        for &s in slots {
+            let (h3, v3) = s.cell_3x3();
+            let (cl, ch) = self.col_band(u32::from(h3));
+            let (rl, rh) = self.row_band(u32::from(v3));
+            c_lo = c_lo.min(cl);
+            c_hi = c_hi.max(ch);
+            r_lo = r_lo.min(rl);
+            r_hi = r_hi.max(rh);
+            for r in rl..rh {
+                for c in cl..ch {
+                    if let Some(cell) = allowed.get_mut((r * self.cols + c) as usize) {
+                        *cell = true;
+                    }
+                }
+            }
+        }
+        if c_lo >= c_hi || r_lo >= r_hi {
+            return None;
+        }
+        let free_allowed = |r: u32, c: u32| {
+            self.is_free(r, c)
+                && allowed
+                    .get((r * self.cols + c) as usize)
+                    .copied()
+                    .unwrap_or(false)
+        };
+        let (hmode, vmode) = (anchor.horizontal(), anchor.vertical());
+        let band_rows = r_hi - r_lo;
+        let mut best: Option<(u32, u32, u32, u32, u32)> = None;
+        for h in 1..=band_rows {
+            let (r0, r1) = match vmode {
+                AxisMode::Start => (r_lo, r_lo + h),
+                AxisMode::End => (r_hi - h, r_hi),
+                AxisMode::Center => {
+                    let r0 = r_lo + (band_rows - h) / 2;
+                    (r0, r0 + h)
+                }
+            };
+            let col_free: Vec<bool> = (c_lo..c_hi)
+                .map(|c| (r0..r1).all(|r| free_allowed(r, c)))
+                .collect();
+            let (off, w) = run_for_mode(&col_free, hmode);
+            if w == 0 {
+                continue;
+            }
+            let area = w * h;
+            if best.is_none_or(|b| area > b.0) {
+                best = Some((area, r0, r1, c_lo + off, c_lo + off + w));
+            }
+        }
+        best.map(|(_, r0, r1, c0, c1)| self.cell_rect_to_pixels(r0, r1, c0, c1))
+    }
 }
 
 #[cfg(test)]
@@ -1058,6 +1130,68 @@ mod test {
         assert_eq!(
             rect.height, 20,
             "the span is clipped to the shallower thirds"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn subset_rect_spans_two_adjacent_slots() -> Result<(), Box<dyn std::error::Error>> {
+        // 9x9 grid, 10 px cells -> thirds are 3 | 3 | 3 cells (30 px each).
+        let grid = grid_from_cells(9, 9, 10, vec![false; 81]);
+        // top_left + top_center -> the top-left two thirds: 6 cells wide, 3 tall.
+        let rect = grid
+            .subset_rect(
+                &[PlacementSlot::TopLeft, PlacementSlot::TopCenter],
+                PlacementSlot::TopLeft,
+            )
+            .ok_or("the two free top slots have a combined rect")?;
+        assert_eq!(
+            (rect.x, rect.y, rect.width, rect.height),
+            (0, 0, 60, 30),
+            "the combined rect fills both thirds"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn subset_rect_confined_to_chosen_slots_only() -> Result<(), Box<dyn std::error::Error>> {
+        // An L-shape (top_left + top_center + middle_left) must not bleed into the
+        // unselected centre third: the largest rectangle that fits the L is the
+        // 6x3-cell top strip (anchored top-left), not a 6x6 block.
+        let grid = grid_from_cells(9, 9, 10, vec![false; 81]);
+        let rect = grid
+            .subset_rect(
+                &[
+                    PlacementSlot::TopLeft,
+                    PlacementSlot::TopCenter,
+                    PlacementSlot::MiddleLeft,
+                ],
+                PlacementSlot::TopLeft,
+            )
+            .ok_or("the L-shaped union has a free rect")?;
+        // top strip: cols 0..6, rows 0..3 -> 60x30 px, never crossing into the
+        // unselected centre third (which would make it 60x60).
+        assert_eq!((rect.x, rect.y, rect.width, rect.height), (0, 0, 60, 30));
+        Ok(())
+    }
+
+    #[test]
+    fn subset_rect_none_when_union_fully_occupied() -> Result<(), Box<dyn std::error::Error>> {
+        // Occupy the whole top-left + top-center thirds; their union has no room.
+        let occupied: Vec<bool> = (0..81u32)
+            .map(|i| {
+                let (row, col) = (i / 9, i % 9);
+                row < 3 && col < 6
+            })
+            .collect();
+        let grid = grid_from_cells(9, 9, 10, occupied);
+        assert!(
+            grid.subset_rect(
+                &[PlacementSlot::TopLeft, PlacementSlot::TopCenter],
+                PlacementSlot::TopLeft,
+            )
+            .is_none(),
+            "a fully covered union has no combined rect"
         );
         Ok(())
     }

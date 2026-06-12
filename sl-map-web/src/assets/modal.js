@@ -228,6 +228,69 @@ function infoModal(opts) {
   });
 }
 
+// A modal with a custom form body and Cancel / Save buttons. `build(dialog)`
+// populates the body (after the title) and returns a `read()` function called
+// on Save: it returns the collected value to resolve with, or `null` to keep
+// the dialog open (invalid input — `build` shows its own inline error).
+// `read()` may be async. Resolves with the value, or `null` on Cancel/Escape.
+function formModal(opts) {
+  return new Promise((resolve) => {
+    activeOnCancel = () => resolve(null);
+    openModal((dialog) => {
+      setHeader(dialog, { title: opts.title });
+      const read = opts.build(dialog);
+      const finish = (value) => {
+        activeOnCancel = null;
+        closeModal(false);
+        resolve(value);
+      };
+      const footer = makeFooter([
+        {
+          text: "Cancel",
+          className: "modal-btn",
+          onClick: () => finish(null),
+        },
+        {
+          text: opts.okText || "Save",
+          className: "modal-btn primary",
+          onClick: async () => {
+            const value = await read();
+            if (value != null) finish(value);
+          },
+        },
+      ]);
+      dialog.appendChild(footer);
+    });
+  });
+}
+
+// A modal offering several choices as buttons (plus Cancel). Resolves with the
+// chosen `value`, or `null` on Cancel/Escape.
+function choiceModal(opts) {
+  return new Promise((resolve) => {
+    activeOnCancel = () => resolve(null);
+    openModal((dialog) => {
+      setHeader(dialog, { title: opts.title, message: opts.message });
+      const finish = (value) => {
+        activeOnCancel = null;
+        closeModal(false);
+        resolve(value);
+      };
+      const buttons = [
+        { text: "Cancel", className: "modal-btn", onClick: () => finish(null) },
+      ];
+      for (const c of opts.choices) {
+        buttons.push({
+          text: c.label,
+          className: "modal-btn primary",
+          onClick: () => finish(c.value),
+        });
+      }
+      dialog.appendChild(makeFooter(buttons));
+    });
+  });
+}
+
 // Helper for the common `alert(await resp.text())` pattern. The server's
 // JSON error envelope is `{"error": "..."}` (see error.rs); we surface
 // just the message field when present and fall back to the raw body so

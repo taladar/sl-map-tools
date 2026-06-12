@@ -2370,6 +2370,8 @@ function drawSlotsOverlay(viewport) {
     label.textContent =
       `${groupName(g)} · ${rect.free_width}×${rect.free_height}` +
       (g.error ? ` — ${g.error}` : "");
+    // Full text as a tooltip so it stays readable when a narrow slot clips it.
+    label.title = label.textContent;
     box.appendChild(label);
 
     const btns = document.createElement("div");

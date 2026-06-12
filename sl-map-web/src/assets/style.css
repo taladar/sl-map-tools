@@ -335,6 +335,8 @@ button:disabled {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* receive hover so the title tooltip shows the full text when clipped */
+  pointer-events: auto;
 }
 
 .map-container .slot-box.error .slot-label {

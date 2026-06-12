@@ -508,8 +508,16 @@ function renderPreview(rect, waypoints) {
       });
   }
 
+  // Record the bounds rectangle so the free-slot overlay can position its
+  // boxes inside it without re-deriving the geometry.
+  viewport.dataset.boundsX = String(boundsX);
+  viewport.dataset.boundsY = String(boundsY);
+  viewport.dataset.boundsW = String(boundsW);
+  viewport.dataset.boundsH = String(boundsH);
+
   container.appendChild(viewport);
   fitViewport(container, viewport, widthPx, heightPx);
+  drawSlotsOverlay(viewport);
 
   $("preview-status").textContent =
     `Preview at zoom ${z} (${pixelsPerRegion(z)} px/region) — ` +
@@ -1339,6 +1347,19 @@ const SLOT_LABELS = {
   bottom_center: "Bottom centre",
   bottom_right: "Bottom right",
 };
+// Each slot's [column, row] within the 3x3 division of the final-image bounds,
+// used to place the marker for an occupied slot at its nominal cell centre.
+const SLOT_CELL = {
+  top_left: [0, 0],
+  top_center: [1, 0],
+  top_right: [2, 0],
+  middle_left: [0, 1],
+  center: [1, 1],
+  middle_right: [2, 1],
+  bottom_left: [0, 2],
+  bottom_center: [1, 2],
+  bottom_right: [2, 2],
+};
 
 // Fonts from /api/fonts, shared between the GLW dropdown and the per-label
 // dropdowns. Filled by loadFonts().
@@ -1346,8 +1367,12 @@ let loadedFonts = [];
 
 // The most recent placement-slots response, keyed by anchor, or null if it
 // has not been computed (or was invalidated by a tab switch). Used to check
-// label fit before submitting a render.
+// label fit before submitting a render and to draw the preview overlay.
 let lastPlacementSlots = null;
+// Pixel size of the final image the slot rectangles are measured in, so the
+// preview overlay can scale them into the bounds rectangle. Null until the
+// slots have been computed.
+let lastPlacementImageSize = null;
 
 // Fill a per-label font <select> from loadedFonts, preserving the desired
 // selection across reloads via dataset.want.
@@ -1863,35 +1888,65 @@ function applyLogos(logos) {
   validateLabels();
 }
 
-// Render the 3x3 availability grid from a placement-slots response.
-function renderSlotGrid(data) {
-  const grid = $("placement-grid");
-  if (!grid) return;
-  grid.replaceChildren();
-  const byAnchor = {};
-  for (const s of data.slots) byAnchor[s.slot] = s;
-  for (const a of SLOT_ANCHORS) {
-    const s = byAnchor[a] || {
-      available: false,
-      free_width: 0,
-      free_height: 0,
-    };
-    const cell = document.createElement("div");
-    cell.className = `placement-cell ${s.available ? "free" : "occupied"}`;
-    const title = document.createElement("strong");
-    title.textContent = SLOT_LABELS[a];
-    const info = document.createElement("span");
-    info.textContent = s.available
-      ? `${s.free_width}×${s.free_height}px free`
-      : "occupied";
-    cell.append(title, info);
-    grid.appendChild(cell);
+// Draw (or clear) the free-slot overlay on a preview viewport. Each available
+// slot's largest free rectangle is drawn as a green box (sized from the
+// final-image pixel coordinates into the bounds rectangle), and each occupied
+// slot is marked with a red tag at its nominal cell centre. Needs both a
+// rendered preview (for the bounds geometry, stored on the viewport dataset)
+// and a computed `lastPlacementSlots` set. Gated on the "Show on preview"
+// toggle, so an unchecked toggle just clears the overlay.
+function drawSlotsOverlay(viewport) {
+  if (!viewport) return;
+  const existing = viewport.querySelector(".slots-overlay");
+  if (existing) existing.remove();
+  const toggle = $("show_slots");
+  if (!toggle || !toggle.checked) return;
+  if (!lastPlacementSlots || !lastPlacementImageSize) return;
+  const bx = parseFloat(viewport.dataset.boundsX);
+  const by = parseFloat(viewport.dataset.boundsY);
+  const bw = parseFloat(viewport.dataset.boundsW);
+  const bh = parseFloat(viewport.dataset.boundsH);
+  const imgW = lastPlacementImageSize.width;
+  const imgH = lastPlacementImageSize.height;
+  if (![bx, by, bw, bh].every(Number.isFinite) || !(imgW > 0) || !(imgH > 0)) {
+    return;
   }
+  const sx = bw / imgW;
+  const sy = bh / imgH;
+
+  const layer = document.createElement("div");
+  layer.className = "slots-overlay";
+  for (const a of SLOT_ANCHORS) {
+    const s = lastPlacementSlots[a];
+    if (!s) continue;
+    if (s.available && s.free_rect) {
+      const box = document.createElement("div");
+      box.className = "slot-box";
+      box.style.left = `${(bx + s.free_rect.x * sx).toFixed(1)}px`;
+      box.style.top = `${(by + s.free_rect.y * sy).toFixed(1)}px`;
+      box.style.width = `${(s.free_rect.width * sx).toFixed(1)}px`;
+      box.style.height = `${(s.free_rect.height * sy).toFixed(1)}px`;
+      const label = document.createElement("span");
+      label.className = "slot-label";
+      label.textContent = `${SLOT_LABELS[a]} · ${s.free_width}×${s.free_height}`;
+      box.appendChild(label);
+      layer.appendChild(box);
+    } else {
+      const [col, row] = SLOT_CELL[a];
+      const marker = document.createElement("span");
+      marker.className = "slot-marker occupied";
+      marker.textContent = `${SLOT_LABELS[a]} occupied`;
+      marker.style.left = `${(bx + (col + 0.5) * (bw / 3)).toFixed(1)}px`;
+      marker.style.top = `${(by + (row + 0.5) * (bh / 3)).toFixed(1)}px`;
+      layer.appendChild(marker);
+    }
+  }
+  viewport.appendChild(layer);
 }
 
 // Compute free placement slots for the active tab (grid or notecard),
-// mirroring the corresponding render request, then refresh the grid and
-// re-validate the labels.
+// mirroring the corresponding render request, then redraw the preview overlay
+// and re-validate the labels.
 async function findFreeSlots() {
   const statusEl = $("placement-status");
   statusEl.textContent = "Computing free slots…";
@@ -1938,7 +1993,12 @@ async function findFreeSlots() {
     const data = await resp.json();
     lastPlacementSlots = {};
     for (const s of data.slots) lastPlacementSlots[s.slot] = s;
-    renderSlotGrid(data);
+    lastPlacementImageSize = {
+      width: data.image_width,
+      height: data.image_height,
+    };
+    const vp = $("preview-container").querySelector(".viewport");
+    if (vp) drawSlotsOverlay(vp);
     statusEl.textContent = `Free slots for a ${data.image_width}×${data.image_height}px render.`;
     document
       .querySelectorAll("#labels-list .label-row")
@@ -1974,6 +2034,12 @@ document.addEventListener("DOMContentLoaded", () => {
   loadLogosForScope().catch(() => {});
   const findBtn = $("find_slots");
   if (findBtn) findBtn.addEventListener("click", () => findFreeSlots());
+  const showSlots = $("show_slots");
+  if (showSlots)
+    showSlots.addEventListener("change", () => {
+      const vp = $("preview-container").querySelector(".viewport");
+      if (vp) drawSlotsOverlay(vp);
+    });
   const legendSel = $("glw_legend_slot");
   if (legendSel) legendSel.addEventListener("change", validateLabels);
   const glwEnabled = $("glw_enabled");
@@ -1983,8 +2049,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       lastPlacementSlots = null;
-      const grid = $("placement-grid");
-      if (grid) grid.replaceChildren();
+      lastPlacementImageSize = null;
+      const vp = $("preview-container").querySelector(".viewport");
+      if (vp) drawSlotsOverlay(vp);
       const st = $("placement-status");
       if (st) st.textContent = "";
       validateLabels();

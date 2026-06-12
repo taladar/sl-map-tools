@@ -380,19 +380,20 @@
       <h2>Placement slots &amp; text labels</h2>
       <p class="note">
         Find which of the nine map positions are free of route / GLW content,
-        choose where the legend goes, and add text labels. Label sizes are
-        checked against the current settings, so re-run "Find free slots" after
-        changing the rectangle, notecard, borders or overlay.
+        choose where the legend goes, and add text labels. With "Show on
+        preview" enabled each free slot is drawn as a green box on the preview
+        above. Label sizes are checked against the current settings, so re-run
+        "Find free slots" after changing the rectangle, notecard, borders or
+        overlay.
       </p>
       <div class="row buttons">
         <button type="button" id="find_slots">Find free slots</button>
+        <label class="checkbox-inline">
+          <input type="checkbox" id="show_slots" checked />
+          Show on preview
+        </label>
         <span id="placement-status" class="status"></span>
       </div>
-      <div
-        id="placement-grid"
-        class="placement-grid"
-        aria-label="Placement slot availability"
-      ></div>
 
       <h3>Text labels</h3>
       <div id="labels-list"></div>

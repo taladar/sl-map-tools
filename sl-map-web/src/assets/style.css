@@ -274,6 +274,44 @@ button:disabled {
   pointer-events: none;
 }
 
+/* Free-placement-slot overlay, drawn on top of the tiles/route. Each free slot
+   is a translucent green box (sized to its largest free rectangle); occupied
+   slots get a red tag at their cell centre. JS sets the explicit positions. */
+.map-container .slots-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.map-container .slot-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid #2e8b57;
+  background: rgba(46, 139, 87, 0.22);
+}
+
+.map-container .slot-label,
+.map-container .slot-marker {
+  position: absolute;
+  font-size: 10px;
+  line-height: 1.3;
+  padding: 0 3px;
+  white-space: nowrap;
+  color: #fff;
+}
+
+.map-container .slot-label {
+  left: 0;
+  top: 0;
+  background: #2e8b57;
+}
+
+.map-container .slot-marker.occupied {
+  background: rgba(192, 57, 43, 0.9);
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+}
+
 .tile-legend {
   display: flex;
   flex-wrap: wrap;
@@ -662,36 +700,6 @@ body.auth-page {
   color: #c0392b;
   font-size: 0.85em;
   align-self: center;
-}
-
-.placement-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
-  max-width: 36rem;
-  margin: 0.5rem 0;
-}
-
-.placement-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.5rem;
-  border: 1px solid var(--border, #ccc);
-  border-radius: 4px;
-  text-align: center;
-  font-size: 0.85em;
-}
-
-.placement-cell.free {
-  border-color: #2e8b57;
-  background: rgba(46, 139, 87, 0.12);
-}
-
-.placement-cell.occupied {
-  border-color: #c0392b;
-  background: rgba(192, 57, 43, 0.1);
-  color: var(--muted, #888);
 }
 
 .label-row {

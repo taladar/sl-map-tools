@@ -35,8 +35,17 @@
       </div>
     </section>
 
-    <section>
-      <h2>Saved notecards</h2>
+    <nav class="tabs" role="tablist">
+      <button type="button" class="tab active" data-tab="notecards">
+        Notecards
+      </button>
+      <button type="button" class="tab" data-tab="renders">Renders</button>
+      <button type="button" class="tab" data-tab="glw">GLW data</button>
+      <button type="button" class="tab" data-tab="logos">Logos</button>
+    </nav>
+
+    <section id="tab-notecards" class="tab-panel active">
+      <h2>Notecards</h2>
       <p id="notecards-status" class="status"></p>
       <table id="notecards-table" class="library-table">
         <thead>
@@ -56,8 +65,8 @@
       </table>
     </section>
 
-    <section>
-      <h2>Saved renders</h2>
+    <section id="tab-renders" class="tab-panel">
+      <h2>Renders</h2>
       <p id="renders-status" class="status"></p>
       <table id="renders-table" class="library-table">
         <thead>
@@ -77,8 +86,8 @@
       </table>
     </section>
 
-    <section>
-      <h2>Saved GLW data</h2>
+    <section id="tab-glw" class="tab-panel">
+      <h2>GLW data</h2>
       <p id="glw-status" class="status"></p>
       <table id="glw-table" class="library-table">
         <thead>
@@ -97,8 +106,8 @@
       </table>
     </section>
 
-    <section>
-      <h2>Saved logos</h2>
+    <section id="tab-logos" class="tab-panel">
+      <h2>Logos</h2>
       <p id="logos-status" class="status"></p>
       <form id="logo-upload-form" class="row">
         <label>

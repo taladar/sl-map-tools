@@ -578,6 +578,38 @@ body.auth-page {
   background: rgba(0, 0, 0, 0.02);
 }
 
+/* A button rendered as an in-page link, used for cross-references between
+   library tabs (e.g. a render's notecard / GLW data cell). */
+.linklike {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+}
+
+.linklike:hover {
+  text-decoration: underline;
+}
+
+/* Brief flash applied to a row jumped to from another tab so the eye can find
+   it after the tab switch. */
+.library-table tbody tr.row-highlight {
+  animation: row-highlight-flash 2s ease-out;
+}
+
+@keyframes row-highlight-flash {
+  from {
+    background: var(--accent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
 /* Logo preview thumbnail in the library table, kept small and on a
    checkerboard so transparent logo images are legible. */
 .logo-thumb {

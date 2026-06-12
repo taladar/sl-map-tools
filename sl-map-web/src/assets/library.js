@@ -88,6 +88,7 @@ async function populateScopes() {
 
 function notecardRow(n) {
   const tr = document.createElement("tr");
+  tr.dataset.notecardId = n.notecard_id;
   tr.appendChild(td(n.name));
   tr.appendChild(
     td(
@@ -146,8 +147,26 @@ function renderRow(r) {
   statusTd.appendChild(statusBadge(r.status, r.error_message));
   tr.appendChild(statusTd);
   tr.appendChild(td(r.kind === "usb_notecard" ? "USB notecard" : "Grid"));
-  tr.appendChild(td(r.notecard_name || ""));
-  tr.appendChild(td(r.glw_data_name || ""));
+  tr.appendChild(
+    r.notecard_id
+      ? refCell(r.notecard_name || "(notecard)", () =>
+          jumpToRow(
+            "notecards",
+            `#notecards-tbody tr[data-notecard-id="${r.notecard_id}"]`,
+          ),
+        )
+      : td(r.notecard_name || ""),
+  );
+  tr.appendChild(
+    r.glw_data_id
+      ? refCell(r.glw_data_name || "(GLW data)", () =>
+          jumpToRow(
+            "glw",
+            `#glw-tbody tr[data-glw-data-id="${r.glw_data_id}"]`,
+          ),
+        )
+      : td(r.glw_data_name || ""),
+  );
   tr.appendChild(td(fmtCoord(r.lower_left_x, r.lower_left_y)));
   tr.appendChild(td(fmtCoord(r.upper_right_x, r.upper_right_y)));
   tr.appendChild(profileLinkCell(r.created_by, r.created_by_legacy_name));
@@ -216,6 +235,47 @@ function td(text) {
   const el = document.createElement("td");
   el.textContent = text;
   return el;
+}
+
+// Switch the library to one of its tabs (notecards | renders | glw | logos).
+// Mirrors the tab toggling app.js does on click, but lets us drive it
+// programmatically for cross-references between tabs.
+function activateLibraryTab(name) {
+  document.querySelectorAll(".tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.tab === name);
+  });
+  document.querySelectorAll(".tab-panel").forEach((p) => {
+    p.classList.toggle("active", p.id === `tab-${name}`);
+  });
+}
+
+// Switch to `tab` and, if a matching row exists there, scroll to it and flash a
+// highlight. Used by the render rows to point at the notecard / GLW data they
+// reference, which now live behind a different tab. The target row is loaded
+// for the same scope (refresh() fills every tab), so it is normally present;
+// if not we still open the tab.
+function jumpToRow(tab, rowSelector) {
+  activateLibraryTab(tab);
+  const row = rowSelector && document.querySelector(rowSelector);
+  if (!row) return;
+  row.scrollIntoView({ behavior: "smooth", block: "center" });
+  row.classList.remove("row-highlight");
+  // Re-trigger the highlight animation even if the row was just highlighted.
+  void row.offsetWidth;
+  row.classList.add("row-highlight");
+}
+
+// A `<td>` whose text is a button styled as an in-page link, used for the
+// render → notecard / render → GLW cross-references.
+function refCell(text, onClick) {
+  const cell = document.createElement("td");
+  const link = document.createElement("button");
+  link.type = "button";
+  link.className = "linklike";
+  link.textContent = text;
+  link.addEventListener("click", onClick);
+  cell.appendChild(link);
+  return cell;
 }
 
 // Open the image-viewer modal for a saved render. When `hasWithoutRoute`

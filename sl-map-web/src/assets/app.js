@@ -1318,7 +1318,7 @@ const GLW_COLOR_FIELDS = [
   { key: "wind_color", id: "glw_wind_color" },
   { key: "current_color", id: "glw_current_color" },
   { key: "wave_color", id: "glw_wave_color" },
-  { key: "area_fill_color", id: "glw_area_fill_color" },
+  { key: "label_color", id: "glw_label_color" },
 ];
 
 // The renderer's actual style defaults (#rrggbb per field, plus the
@@ -1349,32 +1349,10 @@ function applyGlwStyleDefaults() {
   const mb = $("glw_margin_band");
   if (mb) mb.checked = !!glwStyleDefaults.margin_band;
   for (const { key, id } of GLW_COLOR_FIELDS) {
-    if (key === "area_fill_color") continue;
     const el = $(id);
     const def = glwStyleDefaults[key];
     if (el && def) el.value = def;
   }
-  // Area fill has no colour default (the renderer draws no interior
-  // fill), so the toggle starts off; seed the picker with the area
-  // outline colour for when the user enables it.
-  applyGlwAreaFill(glwStyleDefaults.area_fill_color);
-}
-
-// Set the area-fill toggle + picker. `color` is a #rrggbb string to
-// enable fill with that colour, or null/undefined for "no fill".
-function applyGlwAreaFill(color) {
-  const toggle = $("glw_area_fill_enabled");
-  const picker = $("glw_area_fill_color");
-  if (!toggle || !picker) return;
-  if (color) {
-    toggle.checked = true;
-    picker.value = color;
-  } else {
-    toggle.checked = false;
-    if (glwStyleDefaults && glwStyleDefaults.area_outline_color)
-      picker.value = glwStyleDefaults.area_outline_color;
-  }
-  picker.disabled = !toggle.checked;
 }
 
 // Serialise the GLW panel into the request shape the server expects.
@@ -1405,11 +1383,7 @@ function readGlwOptions() {
     wind_color: optionalColor("wind_color", "glw_wind_color"),
     current_color: optionalColor("current_color", "glw_current_color"),
     wave_color: optionalColor("wave_color", "glw_wave_color"),
-    // Area fill is a distinct on/off state (no #rrggbb can mean "none"),
-    // so the explicit toggle decides whether a fill colour is sent.
-    area_fill_color: $("glw_area_fill_enabled").checked
-      ? $("glw_area_fill_color").value
-      : null,
+    label_color: optionalColor("label_color", "glw_label_color"),
   };
   const opts = { source, font_id: fontId, style };
   // The legend's slot is chosen on the preview overlay (the legend button).
@@ -1494,7 +1468,6 @@ function applyGlwSettings(glw) {
     if ("margin_band" in glw.style)
       $("glw_margin_band").checked = !!glw.style.margin_band;
     for (const { key, id } of GLW_COLOR_FIELDS) {
-      if (key === "area_fill_color") continue;
       const el = $(id);
       if (!el) continue;
       // Saved override wins; otherwise fall back to the rendering
@@ -1504,7 +1477,6 @@ function applyGlwSettings(glw) {
       else if (glwStyleDefaults && glwStyleDefaults[key])
         el.value = glwStyleDefaults[key];
     }
-    applyGlwAreaFill(glw.style.area_fill_color);
   }
 }
 
@@ -1519,12 +1491,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (activeGlwSource() === "saved") loadSavedGlw().catch(() => {});
     loadLogosForScope().catch(() => {});
   });
-  const fillToggle = $("glw_area_fill_enabled");
-  if (fillToggle) {
-    fillToggle.addEventListener("change", (e) => {
-      $("glw_area_fill_color").disabled = !e.target.checked;
-    });
-  }
   refreshGlwPanelVisibility();
   loadFonts().catch(() => {});
   loadGlwStyleDefaults().catch(() => {});

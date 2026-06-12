@@ -146,10 +146,9 @@ pub struct GlwStyleOverrides {
     /// optional hex colour for wave glyph strokes.
     #[serde(default)]
     pub wave_color: Option<String>,
-    /// optional hex colour to fill area interiors with; when `None`
-    /// interiors are transparent.
+    /// optional hex colour for the per-shape label text.
     #[serde(default)]
-    pub area_fill_color: Option<String>,
+    pub label_color: Option<String>,
 }
 
 /// A free-floating text label to draw in one of the nine placement slots.
@@ -2295,8 +2294,8 @@ fn build_glw_style(
     if let Some(c) = overrides.wave_color.as_deref() {
         style.palette.wave_glyph = parse_color(c.trim())?;
     }
-    if let Some(c) = overrides.area_fill_color.as_deref() {
-        style.palette.area_fill = Some(parse_color(c.trim())?);
+    if let Some(c) = overrides.label_color.as_deref() {
+        style.palette.label_fg = parse_color(c.trim())?;
     }
     Ok(style)
 }

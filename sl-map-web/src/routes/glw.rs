@@ -252,9 +252,8 @@ pub struct GlwStyleDefaults {
     pub current_color: String,
     /// default wave-glyph colour as `#rrggbb`.
     pub wave_color: String,
-    /// default area-fill colour; `None` because the renderer draws no
-    /// interior fill by default (no `#rrggbb` value can express "none").
-    pub area_fill_color: Option<String>,
+    /// default per-shape label text colour as `#rrggbb`.
+    pub label_color: String,
 }
 
 /// Format the RGB channels of an [`image::Rgba<u8>`] as a `#rrggbb`
@@ -281,7 +280,7 @@ pub async fn style_defaults() -> Json<GlwStyleDefaults> {
         wind_color: rgb_hex(p.wind_arrow),
         current_color: rgb_hex(p.current_arrow),
         wave_color: rgb_hex(p.wave_glyph),
-        area_fill_color: p.area_fill.map(rgb_hex),
+        label_color: rgb_hex(p.label_fg),
     })
 }
 
@@ -582,13 +581,13 @@ mod tests {
         assert_eq!(got.wind_color, rgb_hex(p.wind_arrow));
         assert_eq!(got.current_color, rgb_hex(p.current_arrow));
         assert_eq!(got.wave_color, rgb_hex(p.wave_glyph));
-        assert_eq!(got.area_fill_color, p.area_fill.map(rgb_hex));
+        assert_eq!(got.label_color, rgb_hex(p.label_fg));
 
         // Guard the user-visible expectations explicitly: arrows white,
-        // outlines green, no fill, margin band off.
+        // outlines green, label text white, margin band off.
         assert_eq!(got.wind_color, "#ffffff");
         assert_eq!(got.area_outline_color, "#28dc28");
-        assert_eq!(got.area_fill_color, None);
+        assert_eq!(got.label_color, "#ffffff");
         assert!(!got.margin_band);
     }
 }

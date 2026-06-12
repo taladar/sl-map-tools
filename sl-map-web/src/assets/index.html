@@ -89,136 +89,6 @@
       </p>
     </section>
 
-    <section id="glw-fieldset">
-      <h2>
-        <label>
-          <input type="checkbox" id="glw_enabled" />
-          Add GLW wind/current/wave overlay
-        </label>
-      </h2>
-      <div id="glw-body" hidden>
-        <div class="row">
-          <label
-            >Font
-            <select id="glw_font_id"></select>
-          </label>
-          <p class="note grow">
-            Place the legend by clicking the legend button on a free slot in the
-            preview below.
-          </p>
-        </div>
-        <nav class="glw-tabs" role="tablist">
-          <button type="button" class="glw-tab active" data-glw-tab="event_id">
-            Event id
-          </button>
-          <button type="button" class="glw-tab" data-glw-tab="event_key">
-            Event key
-          </button>
-          <button type="button" class="glw-tab" data-glw-tab="saved">
-            Saved GLW data
-          </button>
-          <button type="button" class="glw-tab" data-glw-tab="pasted">
-            Paste JSON (advanced)
-          </button>
-        </nav>
-        <div
-          id="glw-source-event_id"
-          class="glw-tab-panel active"
-          data-glw-source="event_id"
-        >
-          <label
-            >Event id
-            <input type="number" id="glw_event_id" min="0" />
-          </label>
-        </div>
-        <div
-          id="glw-source-event_key"
-          class="glw-tab-panel"
-          data-glw-source="event_key"
-        >
-          <label
-            >Event key
-            <input type="text" id="glw_event_key" />
-          </label>
-        </div>
-        <div
-          id="glw-source-saved"
-          class="glw-tab-panel"
-          data-glw-source="saved"
-        >
-          <label
-            >Saved GLW data
-            <select id="glw_saved_id"></select>
-          </label>
-        </div>
-        <div
-          id="glw-source-pasted"
-          class="glw-tab-panel"
-          data-glw-source="pasted"
-        >
-          <label
-            >JSON
-            <textarea id="glw_pasted" rows="6"></textarea>
-          </label>
-        </div>
-        <div class="row" data-glw-source-not="saved">
-          <label
-            >Save as
-            <input
-              type="text"
-              id="glw_save_as"
-              placeholder="optional, defaults to Event &lt;id&gt; fetched &lt;UTC&gt;"
-            />
-          </label>
-        </div>
-        <p class="note" data-glw-source-not="saved">
-          The auto-saved GLW data row inherits the destination chosen for the
-          render itself.
-        </p>
-        <details>
-          <summary>Style overrides</summary>
-          <div class="row">
-            <label>
-              <input type="checkbox" id="glw_margin_band" />
-              Draw margin band
-            </label>
-          </div>
-          <div class="row">
-            <label
-              >Wind colour <input type="color" id="glw_wind_color"
-            /></label>
-            <label
-              >Current colour <input type="color" id="glw_current_color"
-            /></label>
-            <label
-              >Wave colour <input type="color" id="glw_wave_color"
-            /></label>
-          </div>
-          <div class="row">
-            <label
-              >Area outline <input type="color" id="glw_area_outline_color"
-            /></label>
-            <label
-              >Circle outline <input type="color" id="glw_circle_outline_color"
-            /></label>
-            <label
-              >Margin outline <input type="color" id="glw_margin_outline_color"
-            /></label>
-          </div>
-          <div class="row">
-            <label>
-              <input type="checkbox" id="glw_area_fill_enabled" />
-              Fill area
-            </label>
-            <label
-              >Area fill colour
-              <input type="color" id="glw_area_fill_color" disabled
-            /></label>
-          </div>
-        </details>
-      </div>
-    </section>
-
     <nav class="tabs" role="tablist">
       <button type="button" class="tab active" data-tab="grid">
         From grid rectangle
@@ -354,6 +224,127 @@
         </div>
         <p class="note">Setting "All sides" overrides the per-side fields.</p>
       </fieldset>
+    </section>
+
+    <section id="glw-fieldset">
+      <h2>
+        <label class="checkbox-inline">
+          <input type="checkbox" id="glw_enabled" />
+          Add GLW wind/current/wave overlay
+        </label>
+      </h2>
+      <div id="glw-body" hidden>
+        <div class="row">
+          <label
+            >Font
+            <select id="glw_font_id"></select>
+          </label>
+          <p class="note grow">
+            Place the legend by clicking the legend button on a free slot in the
+            preview below.
+          </p>
+        </div>
+        <nav class="glw-tabs" role="tablist">
+          <button type="button" class="glw-tab active" data-glw-tab="event_id">
+            Event id
+          </button>
+          <button type="button" class="glw-tab" data-glw-tab="event_key">
+            Event key
+          </button>
+          <button type="button" class="glw-tab" data-glw-tab="saved">
+            Saved GLW data
+          </button>
+          <button type="button" class="glw-tab" data-glw-tab="pasted">
+            Paste JSON (advanced)
+          </button>
+        </nav>
+        <div
+          id="glw-source-event_id"
+          class="glw-tab-panel active"
+          data-glw-source="event_id"
+        >
+          <label
+            >Event id
+            <input type="number" id="glw_event_id" min="0" />
+          </label>
+        </div>
+        <div
+          id="glw-source-event_key"
+          class="glw-tab-panel"
+          data-glw-source="event_key"
+        >
+          <label
+            >Event key
+            <input type="text" id="glw_event_key" />
+          </label>
+        </div>
+        <div
+          id="glw-source-saved"
+          class="glw-tab-panel"
+          data-glw-source="saved"
+        >
+          <label
+            >Saved GLW data
+            <select id="glw_saved_id"></select>
+          </label>
+        </div>
+        <div
+          id="glw-source-pasted"
+          class="glw-tab-panel"
+          data-glw-source="pasted"
+        >
+          <label
+            >JSON
+            <textarea id="glw_pasted" rows="6"></textarea>
+          </label>
+        </div>
+        <div class="row" data-glw-source-not="saved">
+          <label
+            >Save as
+            <input
+              type="text"
+              id="glw_save_as"
+              placeholder="optional, defaults to Event &lt;id&gt; fetched &lt;UTC&gt;"
+            />
+          </label>
+        </div>
+        <p class="note" data-glw-source-not="saved">
+          The auto-saved GLW data row inherits the destination chosen for the
+          render itself.
+        </p>
+        <details>
+          <summary>Style overrides</summary>
+          <div class="row">
+            <label
+              >Wind colour <input type="color" id="glw_wind_color"
+            /></label>
+            <label
+              >Current colour <input type="color" id="glw_current_color"
+            /></label>
+            <label
+              >Wave colour <input type="color" id="glw_wave_color"
+            /></label>
+            <label
+              >Label text colour <input type="color" id="glw_label_color"
+            /></label>
+          </div>
+          <div class="row">
+            <label
+              >Area outline <input type="color" id="glw_area_outline_color"
+            /></label>
+            <label
+              >Circle outline <input type="color" id="glw_circle_outline_color"
+            /></label>
+            <label
+              >Margin outline <input type="color" id="glw_margin_outline_color"
+            /></label>
+            <label class="checkbox-inline">
+              <input type="checkbox" id="glw_margin_band" />
+              Draw margin band
+            </label>
+          </div>
+        </details>
+      </div>
     </section>
 
     <!-- Modal-form templates for the per-slot placement editors (cloned by

@@ -919,6 +919,144 @@ pub async fn glw_legend_preview(
     Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], image).into_response())
 }
 
+/// Plan the labels + logos against `occupancy` (an overlay-only map carrying
+/// the route + GLW shapes) and draw them onto a fresh transparent map of the
+/// same final-image dimensions, returning the PNG. Used by the placement
+/// preview endpoints: it runs the very same planning the real render does, so
+/// the preview shows each label/logo exactly where the final image places it.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a one-shot helper shared by the two placement-preview endpoints"
+)]
+async fn render_placement_elements_png(
+    state: &AppState,
+    occupancy: &Map,
+    target_rect: GridRectangle,
+    max_width: u32,
+    max_height: u32,
+    legend_slot: Option<sl_map_apis::coverage::PlacementSlot>,
+    labels: &[TextLabel],
+    logos: &[LogoPlacement],
+) -> Result<Bytes, Error> {
+    let (label_draws, label_slots) =
+        plan_labels(&state.fonts, labels, legend_slot, &[], occupancy)?;
+    let (logo_draws, _) = plan_logos(state, logos, legend_slot, &label_slots, occupancy).await?;
+    let mut target = Map::blank_fit(target_rect, max_width, max_height)?;
+    execute_labels(&label_draws, &mut target);
+    execute_logos(&logo_draws, &mut target);
+    encode_map(&target, OutputFormat::Png)
+}
+
+/// `POST /api/render/placement-preview/grid-rectangle` — rasterise the text
+/// labels and logos of an explicit-corner render onto a transparent PNG at the
+/// final-image resolution, so the client preview can composite them into the
+/// bounds rectangle exactly where the final render will place them. Free space
+/// is measured on an overlay-only map (GLW shapes; no route on this path), as
+/// the real render does. Read-only: nothing is persisted.
+///
+/// # Errors
+///
+/// Returns an error if the dimensions are invalid, a placement overflows or
+/// clashes, a font/logo is unknown, or the GLW overlay fails to resolve.
+pub async fn placement_preview_grid_rectangle(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Json(req): Json<GridRectangleRequest>,
+) -> Result<axum::response::Response, Error> {
+    use axum::response::IntoResponse as _;
+    validate_dimensions(req.max_width, req.max_height)?;
+    let rect = GridRectangle::new(
+        GridCoordinates::new(req.lower_left_x, req.lower_left_y),
+        GridCoordinates::new(req.upper_right_x, req.upper_right_y),
+    );
+    let mut occ = Map::blank_fit(rect.clone(), req.max_width, req.max_height)?;
+    let legend_slot = if let Some(glw) = req.glw.as_ref() {
+        apply_glw_overlay_readonly(&state, user.user_id, glw, &mut occ).await?;
+        legend_position_from_slot(glw.legend_slot.as_deref())?
+    } else {
+        None
+    };
+    let png = render_placement_elements_png(
+        &state,
+        &occ,
+        rect,
+        req.max_width,
+        req.max_height,
+        legend_slot,
+        &req.labels,
+        &req.logos,
+    )
+    .await?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], png).into_response())
+}
+
+/// `POST /api/render/placement-preview/usb-notecard` — same as
+/// [`placement_preview_grid_rectangle`] but for a notecard render: free space
+/// is measured on an overlay-only map carrying the route plus the GLW shapes.
+/// Read-only: the notecard is parsed/loaded but never copied or persisted.
+///
+/// # Errors
+///
+/// Returns an error if the form is malformed, the notecard cannot be parsed or
+/// read, a region cannot be resolved, a placement overflows or clashes, or the
+/// GLW overlay fails to resolve.
+pub async fn placement_preview_usb_notecard(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    multipart: Multipart,
+) -> Result<axum::response::Response, Error> {
+    use axum::response::IntoResponse as _;
+    let parsed = parse_render_form(multipart).await?;
+    let notecard: USBNotecard = match &parsed.notecard_source {
+        NotecardSource::Fresh { text, .. } => text.parse()?,
+        NotecardSource::Existing { notecard_id } => {
+            let row =
+                crate::library::assert_can_read_notecard(&state.db, user.user_id, *notecard_id)
+                    .await?;
+            row.body.parse()?
+        }
+    };
+    let (border_north, border_south, border_east, border_west) = parsed.borders;
+    let rect = {
+        let mut region = state.region_cache.lock().await;
+        usb_notecard_to_grid_rectangle(&mut region, &notecard).await?
+    }
+    .expanded_west(border_west)
+    .expanded_east(border_east)
+    .expanded_south(border_south)
+    .expanded_north(border_north);
+    // Same overlay-only occupancy as the real notecard render: GLW shapes
+    // (legend excluded) then the route.
+    let mut occ = Map::blank_fit(
+        rect.clone(),
+        parsed.common.max_width,
+        parsed.common.max_height,
+    )?;
+    let legend_slot = if let Some(glw) = parsed.glw.as_ref() {
+        apply_glw_overlay_readonly(&state, user.user_id, glw, &mut occ).await?;
+        legend_position_from_slot(glw.legend_slot.as_deref())?
+    } else {
+        None
+    };
+    {
+        let mut region = state.region_cache.lock().await;
+        occ.draw_route_with_progress(&mut region, &notecard, parsed.color, None)
+            .await?;
+    }
+    let png = render_placement_elements_png(
+        &state,
+        &occ,
+        rect,
+        parsed.common.max_width,
+        parsed.common.max_height,
+        legend_slot,
+        &parsed.labels,
+        &parsed.logos,
+    )
+    .await?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], png).into_response())
+}
+
 /// Map a [`OutputFormat`] to its lowercase name used in the persisted
 /// settings JSON.
 const fn format_name(format: OutputFormat) -> &'static str {
@@ -1567,6 +1705,9 @@ async fn run_grid_rectangle_job(
     logos: Vec<LogoPlacement>,
 ) -> Result<JobOutcome, Error> {
     let metadata = build_metadata(&rect);
+    // Kept for the overlay-only occupancy map below; `new_with_progress` moves
+    // `rect` into the tiled map.
+    let occ_rect = rect.clone();
     let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
     let forwarder = tokio::spawn(forward_events(Arc::clone(&job), rx));
     let mut map = {
@@ -1590,8 +1731,21 @@ async fn run_grid_rectangle_job(
     // grid-rectangle path. Labels go last, above everything.
     let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
     let legend_slot = legend_slot_of(glw_ctx.as_ref());
-    let label_slots = draw_labels_on_map(&state.fonts, &labels, legend_slot, &[], &mut map)?;
-    draw_logos_on_map(&state, &logos, legend_slot, &label_slots, &mut map).await?;
+    // Free space for labels/logos is measured on an overlay-only map — the base
+    // tiles are opaque and would otherwise count as fully covered. This mirrors
+    // the free-slot detection (GLW shapes only, legend excluded); there is no
+    // route on the grid-rectangle path.
+    let occ = {
+        let mut occ = Map::blank_fit(occ_rect, common.max_width, common.max_height)?;
+        if let Some(ctx) = glw_ctx.as_ref() {
+            apply_glw_overlay_readonly(&state, ctx.created_by, &ctx.options, &mut occ).await?;
+        }
+        occ
+    };
+    let (label_draws, label_slots) = plan_labels(&state.fonts, &labels, legend_slot, &[], &occ)?;
+    execute_labels(&label_draws, &mut map);
+    let (logo_draws, _) = plan_logos(&state, &logos, legend_slot, &label_slots, &occ).await?;
+    execute_logos(&logo_draws, &mut map);
     let image = encode_map(&map, common.format)?;
     Ok(JobOutcome::Ok {
         image,
@@ -1640,6 +1794,9 @@ async fn run_usb_notecard_job(
     // rectangle; the library UI shows them even for `in_progress` rows.
     update_render_bounds(&state.db, render_id, &rect).await?;
     let metadata = build_metadata(&rect);
+    // Kept for the overlay-only occupancy map below; `new_with_progress` moves
+    // `rect` into the tiled map.
+    let occ_rect = rect.clone();
     let (tx, rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
     let forwarder = tokio::spawn(forward_events(Arc::clone(&job), rx));
     let (image_without_route, map, glw_data_id) = {
@@ -1673,10 +1830,25 @@ async fn run_usb_notecard_job(
                 .await?;
         }
         // Labels and logos go last, above the route, sharing one
-        // mutually-exclusive pool of placement slots.
+        // mutually-exclusive pool of placement slots. Their free space is
+        // measured on an overlay-only map (route + GLW shapes, legend excluded)
+        // rather than the opaque tiled map, matching the free-slot detection.
         let legend_slot = legend_slot_of(glw_ctx.as_ref());
-        let label_slots = draw_labels_on_map(&state.fonts, &labels, legend_slot, &[], &mut map)?;
-        draw_logos_on_map(&state, &logos, legend_slot, &label_slots, &mut map).await?;
+        let occ = {
+            let mut occ = Map::blank_fit(occ_rect, common.max_width, common.max_height)?;
+            if let Some(ctx) = glw_ctx.as_ref() {
+                apply_glw_overlay_readonly(&state, ctx.created_by, &ctx.options, &mut occ).await?;
+            }
+            let mut region = state.region_cache.lock().await;
+            occ.draw_route_with_progress(&mut region, &notecard, route_color, None)
+                .await?;
+            occ
+        };
+        let (label_draws, label_slots) =
+            plan_labels(&state.fonts, &labels, legend_slot, &[], &occ)?;
+        execute_labels(&label_draws, &mut map);
+        let (logo_draws, _) = plan_logos(&state, &logos, legend_slot, &label_slots, &occ).await?;
+        execute_logos(&logo_draws, &mut map);
         (without_route, map, glw_data_id)
     };
     drop(tx);
@@ -2154,42 +2326,58 @@ fn reserve(
     Ok(())
 }
 
-/// Draw the free-floating text labels onto `map`, last (above the route and
-/// GLW overlay). Rejects (as a `BadRequest`) any label that overflows its
-/// (single-slot or spanned) free space, or whose reserved slots clash with
-/// the legend, another label, or a slot already reserved by a logo
-/// (`reserved_by_others`). Each label is aligned within its free rectangle
-/// using its own alignment, defaulting to the slot's outward alignment.
-/// Returns the set of slots the labels reserved so logos can avoid them.
-fn draw_labels_on_map(
+/// One accepted label, ready to draw by [`execute_labels`].
+struct LabelDraw {
+    /// the text, one entry per line.
+    lines: Vec<String>,
+    /// the resolved font to render with.
+    font: ab_glyph::FontVec,
+    /// colour, scale and shadow for the text.
+    style: sl_map_apis::text::LabelStyle,
+    /// top-left pixel origin within the image.
+    origin: (i32, i32),
+}
+
+/// One accepted logo (already scaled), ready to composite by
+/// [`execute_logos`].
+struct LogoDraw {
+    /// the decoded (and optionally doubled) logo bitmap.
+    img: image::RgbaImage,
+    /// x pixel coordinate of the logo's top-left corner.
+    x: i64,
+    /// y pixel coordinate of the logo's top-left corner.
+    y: i64,
+}
+
+/// Plan the free-floating text labels against the free space measured on
+/// `occupancy` (an overlay-only map carrying just the route + GLW shapes, so
+/// the opaque base tiles do not count as covered). Rejects (as a `BadRequest`)
+/// any label that overflows its (single-slot or spanned) free space, or whose
+/// reserved slots clash with the legend, another label, or a slot already
+/// reserved by a logo (`reserved_by_others`). Each label is aligned within its
+/// free rectangle using its own alignment, defaulting to the slot's outward
+/// alignment. Returns the draw list (to hand to [`execute_labels`]) and the
+/// set of slots the labels reserved so logos can avoid them.
+fn plan_labels(
     fonts: &crate::fonts::FontDirectory,
     labels: &[TextLabel],
     legend_slot: Option<sl_map_apis::coverage::PlacementSlot>,
     reserved_by_others: &[sl_map_apis::coverage::PlacementSlot],
-    map: &mut Map,
-) -> Result<Vec<sl_map_apis::coverage::PlacementSlot>, Error> {
-    use sl_map_apis::map_tiles::MapLike as _;
-    /// One accepted label, ready to draw in pass 2.
-    struct LabelDraw {
-        lines: Vec<String>,
-        font: ab_glyph::FontVec,
-        style: sl_map_apis::text::LabelStyle,
-        origin: (i32, i32),
-    }
+    occupancy: &Map,
+) -> Result<(Vec<LabelDraw>, Vec<sl_map_apis::coverage::PlacementSlot>), Error> {
     let mut used: Vec<sl_map_apis::coverage::PlacementSlot> = Vec::new();
+    let mut draws: Vec<LabelDraw> = Vec::new();
     if labels.is_empty() {
-        return Ok(used);
+        return Ok((draws, used));
     }
-    // Authoritative free space, measured once on the current map (route + GLW
-    // already drawn).
+    // Authoritative free space, measured once on the overlay-only map.
     let grid = sl_map_apis::coverage::OccupancyGrid::from_map(
-        map,
+        occupancy,
         sl_map_apis::coverage::DEFAULT_COVERAGE_GRID,
     );
     let slots = grid.evaluate_slots();
-    // Pass 1: validate + reserve + measure, collecting one draw item per
-    // visible label so nothing is drawn until every label has been accepted.
-    let mut draws: Vec<LabelDraw> = Vec::new();
+    // Validate + reserve + measure, collecting one draw item per visible label
+    // so nothing is drawn until every label has been accepted.
     for label in labels {
         let lines: Vec<String> = label.lines.clone();
         if lines.iter().all(|line| line.trim().is_empty()) {
@@ -2251,10 +2439,32 @@ fn draw_labels_on_map(
             ),
         });
     }
-    // Pass 2: draw.
+    Ok((draws, used))
+}
+
+/// Draw a planned label list onto `map` (above the route and GLW overlay).
+fn execute_labels(draws: &[LabelDraw], map: &mut Map) {
+    use sl_map_apis::map_tiles::MapLike as _;
     for d in draws {
         map.draw_text_label(d.origin, &d.lines, &d.style, &d.font);
     }
+}
+
+/// Plan and draw labels onto `map` in one step, measuring free space on `map`
+/// itself. Used by tests where the draw target is also a faithful occupancy
+/// source (a transparent overlay map); the real render measures occupancy on a
+/// separate overlay-only map via [`plan_labels`] + [`execute_labels`] because
+/// its base tiles are opaque.
+#[cfg(test)]
+fn draw_labels_on_map(
+    fonts: &crate::fonts::FontDirectory,
+    labels: &[TextLabel],
+    legend_slot: Option<sl_map_apis::coverage::PlacementSlot>,
+    reserved_by_others: &[sl_map_apis::coverage::PlacementSlot],
+    map: &mut Map,
+) -> Result<Vec<sl_map_apis::coverage::PlacementSlot>, Error> {
+    let (draws, used) = plan_labels(fonts, labels, legend_slot, reserved_by_others, map)?;
+    execute_labels(&draws, map);
     Ok(used)
 }
 
@@ -2266,32 +2476,33 @@ fn draw_labels_on_map(
 /// scale, or whose reserved slots clash with the legend, another logo, or a
 /// slot already reserved by a label (`reserved_by_others`). Returns the set
 /// of slots the logos reserved.
-async fn draw_logos_on_map(
+/// Plan the logo placements against the free space measured on `occupancy`
+/// (an overlay-only map). Each logo is loaded, decoded, optionally
+/// integer-doubled (nearest-neighbour), and aligned within its (single-slot or
+/// spanned) free rectangle. Rejects (as a `BadRequest`) any logo that overflows
+/// its free space, has an invalid scale, or whose reserved slots clash with the
+/// legend, another logo, or a slot already reserved by a label
+/// (`reserved_by_others`). Returns the draw list (for [`execute_logos`]) and
+/// the set of slots the logos reserved.
+async fn plan_logos(
     state: &AppState,
     logos: &[LogoPlacement],
     legend_slot: Option<sl_map_apis::coverage::PlacementSlot>,
     reserved_by_others: &[sl_map_apis::coverage::PlacementSlot],
-    map: &mut Map,
-) -> Result<Vec<sl_map_apis::coverage::PlacementSlot>, Error> {
-    use sl_map_apis::map_tiles::MapLike as _;
-    /// One accepted logo (already scaled), ready to composite in pass 2.
-    struct LogoDraw {
-        img: image::RgbaImage,
-        x: i64,
-        y: i64,
-    }
+    occupancy: &Map,
+) -> Result<(Vec<LogoDraw>, Vec<sl_map_apis::coverage::PlacementSlot>), Error> {
     let mut used: Vec<sl_map_apis::coverage::PlacementSlot> = Vec::new();
+    let mut draws: Vec<LogoDraw> = Vec::new();
     if logos.is_empty() {
-        return Ok(used);
+        return Ok((draws, used));
     }
     let grid = sl_map_apis::coverage::OccupancyGrid::from_map(
-        map,
+        occupancy,
         sl_map_apis::coverage::DEFAULT_COVERAGE_GRID,
     );
     let slots = grid.evaluate_slots();
-    // Pass 1: validate + reserve + load + decode + scale + fit, so nothing is
-    // drawn until every logo has been accepted.
-    let mut draws: Vec<LogoDraw> = Vec::new();
+    // Validate + reserve + load + decode + scale + fit, so nothing is drawn
+    // until every logo has been accepted.
     for logo in logos {
         if logo.scale != 1 && logo.scale != 2 {
             return Err(Error::BadRequest(format!(
@@ -2358,11 +2569,16 @@ async fn draw_logos_on_map(
             y: i64::from(origin_y),
         });
     }
-    // Pass 2: composite with alpha blending.
+    Ok((draws, used))
+}
+
+/// Composite a planned logo list onto `map` with alpha blending (above the
+/// route, GLW overlay and labels).
+fn execute_logos(draws: &[LogoDraw], map: &mut Map) {
+    use sl_map_apis::map_tiles::MapLike as _;
     for d in draws {
         image::imageops::overlay(map.image_mut(), &d.img, d.x, d.y);
     }
-    Ok(used)
 }
 
 /// Validate that every logo placement references a logo the user may read
@@ -2830,6 +3046,61 @@ mod label_tests {
             }
         }
         false
+    }
+
+    /// A copy of `blank_map` filled fully opaque, modelling the real render's
+    /// base tiles (`new_with_progress` builds an opaque RGB image).
+    fn opaque_map() -> Result<Map, Box<dyn std::error::Error>> {
+        use image::GenericImage as _;
+        use sl_map_apis::map_tiles::MapLike as _;
+        let mut map = blank_map()?;
+        let (w, h) = image::GenericImageView::dimensions(&map);
+        for y in 0..h {
+            for x in 0..w {
+                map.image_mut().put_pixel(x, y, image::Rgba([5, 5, 5, 255]));
+            }
+        }
+        Ok(map)
+    }
+
+    /// The split between planning (occupancy) and drawing (target) is what lets
+    /// the real render place labels: planning against an overlay-only map finds
+    /// free space and the result draws onto an opaque target, whereas planning
+    /// against the opaque map itself finds no room (the bug the split fixes).
+    #[test]
+    fn labels_plan_on_overlay_then_draw_onto_opaque_target()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fonts = test_fonts()?;
+        let lbls = [label("top_left", 18f32, &["Hi"])];
+
+        // Overlay-only occupancy (a transparent map) → the slot is free, the
+        // label is planned, and it draws onto an opaque target.
+        let occ = blank_map()?;
+        let (draws, used) = plan_labels(&fonts, &lbls, None, &[], &occ)?;
+        assert!(!draws.is_empty(), "the label should be planned");
+        assert!(used.contains(&PlacementSlot::TopLeft));
+        let mut target = opaque_map()?;
+        execute_labels(&draws, &mut target);
+        let (w, h) = image::GenericImageView::dimensions(&target);
+        let mut changed = false;
+        'outer: for y in 0..h {
+            for x in 0..w {
+                let image::Rgba([r, g, b, _]) = image::GenericImageView::get_pixel(&target, x, y);
+                if (r, g, b) != (5, 5, 5) {
+                    changed = true;
+                    break 'outer;
+                }
+            }
+        }
+        assert!(changed, "the label must draw onto the opaque target");
+
+        // Planning against the opaque map directly finds no free space.
+        let opaque_occ = opaque_map()?;
+        assert!(
+            plan_labels(&fonts, &lbls, None, &[], &opaque_occ).is_err(),
+            "an opaque occupancy map leaves no room — the regression the split fixes"
+        );
+        Ok(())
     }
 
     #[test]

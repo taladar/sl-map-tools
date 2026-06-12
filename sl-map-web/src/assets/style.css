@@ -283,6 +283,15 @@ button:disabled {
   z-index: 2;
 }
 
+/* Text labels + logos PNG, rendered at the final-image resolution and dropped
+   into the bounds rectangle. Topmost: the final render draws labels/logos
+   above the route, GLW overlay and legend. */
+.map-container img.placement-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+}
+
 /* Free-placement-slot overlay, drawn on top of the tiles/route. Each free slot
    is a translucent green box (sized to its largest free rectangle); occupied
    slots get a red tag at their cell centre. JS sets the explicit positions. */

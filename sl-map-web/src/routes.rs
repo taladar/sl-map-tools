@@ -143,6 +143,17 @@ pub fn build(state: AppState) -> Router {
             "/api/render/glw-legend-preview",
             post(render::glw_legend_preview),
         )
+        // read-only: rasterise the text labels + logos as a transparent PNG at
+        // the final-image resolution, for the preview to composite into the
+        // bounds rectangle at each placement's chosen slot
+        .route(
+            "/api/render/placement-preview/grid-rectangle",
+            post(render::placement_preview_grid_rectangle),
+        )
+        .route(
+            "/api/render/placement-preview/usb-notecard",
+            post(render::placement_preview_usb_notecard),
+        )
         .route("/api/render/{id}/events", get(events::events))
         .route("/api/render/{id}/image", get(result::image))
         .route(

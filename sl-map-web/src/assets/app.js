@@ -372,6 +372,62 @@ async function fetchGlwLegendOverlay(rect) {
   return URL.createObjectURL(await resp.blob());
 }
 
+// Fetch the text labels + logos rendered at the final-image resolution as a
+// blob URL, or null when there are none. The server places them on an
+// overlay-only map exactly as the final render does, so they line up with the
+// preview once dropped into the bounds rectangle. Mirrors the render submit:
+// the grid tab posts JSON, the notecard tab posts the multipart form (the
+// server re-derives the rectangle from the notecard). Throws on server error.
+async function fetchPlacementOverlay(rect) {
+  const labels = readLabels();
+  const logos = readLogos();
+  if (!labels.length && !logos.length) return null;
+  const activeTab = document.querySelector(".tab.active");
+  const which = activeTab ? activeTab.dataset.tab : "grid";
+  let resp;
+  if (which === "grid") {
+    const glw = readGlwOptions();
+    const body = {
+      lower_left_x: rect.lower_left_x,
+      lower_left_y: rect.lower_left_y,
+      upper_right_x: rect.upper_right_x,
+      upper_right_y: rect.upper_right_y,
+      ...readSharedParams(),
+      labels,
+      logos,
+    };
+    if (glw) body.glw = glw;
+    resp = await fetch("/api/render/placement-preview/grid-rectangle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } else {
+    const fd = new FormData();
+    appendNotecardSourceToForm(fd);
+    appendBordersToForm(fd);
+    const shared = readSharedParams();
+    fd.append("max_width", String(shared.max_width));
+    fd.append("max_height", String(shared.max_height));
+    fd.append("format", shared.format);
+    if (shared.missing_map_tile_color)
+      fd.append("missing_map_tile_color", shared.missing_map_tile_color);
+    if (shared.missing_region_color)
+      fd.append("missing_region_color", shared.missing_region_color);
+    fd.append("color", $("route_color").value);
+    const glw = readGlwOptions();
+    if (glw) fd.append("glw_json", JSON.stringify(glw));
+    fd.append("labels_json", JSON.stringify(labels));
+    fd.append("logos_json", JSON.stringify(logos));
+    resp = await fetch("/api/render/placement-preview/usb-notecard", {
+      method: "POST",
+      body: fd,
+    });
+  }
+  if (!resp.ok) throw new Error(await resp.text());
+  return URL.createObjectURL(await resp.blob());
+}
+
 function renderPreview(rect, waypoints) {
   const container = $("preview-container");
   container.replaceChildren();
@@ -563,6 +619,37 @@ function renderPreview(rect, waypoints) {
       .catch((err) => {
         legendImg.remove();
         $("preview-status").textContent = `GLW legend failed: ${err.message}`;
+      });
+  }
+
+  // Text labels + logos. Rendered server-side onto an overlay-only map exactly
+  // as the final render places them, then dropped into the bounds rectangle.
+  // Topmost (z-index in CSS) since the final render draws them above the route,
+  // GLW overlay and legend. The fetch is a no-op (returns null) when there are
+  // no labels or logos.
+  {
+    const placementImg = document.createElement("img");
+    placementImg.className = "placement-overlay";
+    placementImg.style.left = `${boundsX.toFixed(1)}px`;
+    placementImg.style.top = `${boundsY.toFixed(1)}px`;
+    placementImg.style.width = `${boundsW.toFixed(1)}px`;
+    placementImg.style.height = `${boundsH.toFixed(1)}px`;
+    viewport.appendChild(placementImg);
+    fetchPlacementOverlay(rect)
+      .then((url) => {
+        if (!url) {
+          placementImg.remove();
+          return;
+        }
+        placementImg.src = url;
+        placementImg.addEventListener("load", () => URL.revokeObjectURL(url), {
+          once: true,
+        });
+      })
+      .catch((err) => {
+        placementImg.remove();
+        $("preview-status").textContent =
+          `Placement preview failed: ${err.message}`;
       });
   }
 

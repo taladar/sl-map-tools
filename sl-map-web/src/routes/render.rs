@@ -2630,9 +2630,9 @@ async fn plan_logos(
     // Validate + reserve + load + decode + scale + fit, so nothing is drawn
     // until every logo has been accepted.
     for logo in logos {
-        if logo.scale != 1 && logo.scale != 2 {
+        if logo.scale != 1 && logo.scale != 2 && logo.scale != 4 {
             return Err(Error::BadRequest(format!(
-                "logo scale must be 1 or 2, got {}",
+                "logo scale must be 1, 2 or 4, got {}",
                 logo.scale
             )));
         }
@@ -2669,12 +2669,13 @@ async fn plan_logos(
             Error::BadRequest(format!("could not decode logo {}: {e}", logo.logo_id))
         })?;
         let mut rgba = decoded.to_rgba8();
-        if logo.scale == 2 {
+        if logo.scale != 1 {
+            let factor = u32::from(logo.scale);
             let (w, h) = (rgba.width(), rgba.height());
             rgba = image::imageops::resize(
                 &rgba,
-                w.saturating_mul(2),
-                h.saturating_mul(2),
+                w.saturating_mul(factor),
+                h.saturating_mul(factor),
                 image::imageops::FilterType::Nearest,
             );
         }

@@ -17,7 +17,9 @@ use image::{ImageFormat, Rgba};
 use serde::{Deserialize, Serialize};
 use sl_map_apis::map_tiles::{Map, MapProgressEvent};
 use sl_map_apis::region::usb_notecard_to_grid_rectangle;
-use sl_types::map::{GridCoordinates, GridRectangle, GridRectangleLike as _, USBNotecard};
+use sl_types::map::{
+    GridCoordinates, GridRectangle, GridRectangleLike as _, USBNotecard, ZoomLevel,
+};
 use uuid::Uuid;
 
 use crate::auth::CurrentUser;
@@ -779,6 +781,77 @@ pub async fn free_placement_slots_usb_notecard(
             .await?;
     }
     Ok(Json(compute_placement_slots(&map)))
+}
+
+/// Body of `POST /api/render/glw-preview` (JSON).
+#[derive(Debug, Clone, Deserialize)]
+pub struct GlwPreviewRequest {
+    /// lower-left x grid coordinate of the final-image rectangle.
+    pub lower_left_x: u16,
+    /// lower-left y grid coordinate of the final-image rectangle.
+    pub lower_left_y: u16,
+    /// upper-right x grid coordinate of the final-image rectangle.
+    pub upper_right_x: u16,
+    /// upper-right y grid coordinate of the final-image rectangle.
+    pub upper_right_y: u16,
+    /// zoom level (1–8) the client is compositing the preview tiles at. The
+    /// overlay is rasterised at this same zoom so its shapes line up 1:1 with
+    /// the displayed tiles once the PNG is dropped into the final-image
+    /// bounds, and so the returned image stays small.
+    pub zoom: u8,
+    /// the GLW overlay to draw.
+    pub glw: GlwRenderOptions,
+}
+
+/// `POST /api/render/glw-preview` — rasterise just the GLW overlay onto a
+/// transparent image matching the final-image bounds, so the client-side
+/// preview can composite it over the map tiles. Read-only: nothing is
+/// persisted (no `saved_glw_data` row is inserted).
+///
+/// The overlay is drawn exactly as the final render draws it — shapes,
+/// per-shape labels, and the base legend in the chosen slot — but at the
+/// preview's zoom level rather than the final render's, so the returned PNG
+/// is small and aligns with the preview tiles. When the GLW event cannot be
+/// resolved the response is a fully transparent PNG, leaving the tiles
+/// unchanged.
+///
+/// # Errors
+///
+/// Returns an error if the zoom level is out of range, the font is unknown,
+/// the GLW colours fail to parse, or a referenced GLW row cannot be read.
+pub async fn glw_preview(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Json(req): Json<GlwPreviewRequest>,
+) -> Result<axum::response::Response, Error> {
+    use axum::response::IntoResponse as _;
+    use sl_glw::MapLikeGlwExt as _;
+    let zoom = ZoomLevel::try_new(req.zoom)
+        .map_err(|err| Error::BadRequest(format!("invalid zoom: {err}")))?;
+    let rect = GridRectangle::new(
+        GridCoordinates::new(req.lower_left_x, req.lower_left_y),
+        GridCoordinates::new(req.upper_right_x, req.upper_right_y),
+    );
+    let mut map = Map::blank(rect, zoom);
+    // Resolve the font first so a missing-font request fails fast.
+    let font_path = state
+        .fonts
+        .path_for(&req.glw.font_id)
+        .ok_or_else(|| Error::BadRequest(format!("unknown font_id `{}`", req.glw.font_id)))?;
+    let font = sl_map_apis::text::load_font(font_path)?;
+    // Read-only resolution: unlike the real render this never persists a row.
+    if let Some(event) = resolve_glw_event_readonly(&state, user.user_id, &req.glw.source).await? {
+        // Same style as the final render (legend included) so the preview is
+        // faithful to what will be drawn.
+        let style = build_glw_style(&req.glw.style, req.glw.legend_slot.as_deref())?;
+        map.draw_glw_event_with_font(&event, &style, &font)?;
+    } else {
+        tracing::warn!("GLW event not found; preview overlay is fully transparent");
+    }
+    // PNG keeps the transparent background so only the overlay composites over
+    // the client's tiles.
+    let image = encode_map(&map, OutputFormat::Png)?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], image).into_response())
 }
 
 /// Map a [`OutputFormat`] to its lowercase name used in the persisted
@@ -2324,7 +2397,6 @@ async fn rewrite_settings_json_with_saved_glw(
 mod placement_slots_tests {
     use super::*;
     use pretty_assertions::assert_eq;
-    use sl_types::map::ZoomLevel;
 
     fn blank_map() -> Result<Map, Box<dyn std::error::Error>> {
         // a 4x4 region rectangle at zoom 4 -> 128x128 pixels
@@ -2385,7 +2457,6 @@ mod label_tests {
     use pretty_assertions::assert_eq;
     use pretty_assertions::assert_matches;
     use sl_map_apis::coverage::{HAlign, PlacementSlot, VAlign};
-    use sl_types::map::ZoomLevel;
 
     /// A `FontDirectory` scanning the workspace root, which contains the
     /// bundled `DejaVuSans.ttf` (font id `DejaVuSans.ttf`).

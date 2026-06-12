@@ -267,6 +267,13 @@ button:disabled {
   pointer-events: none;
 }
 
+/* GLW overlay PNG composited over the tiles, under the route SVG. JS sets the
+   explicit left/top/width/height to match the final-image bounds rectangle. */
+.map-container img.glw-overlay {
+  position: absolute;
+  pointer-events: none;
+}
+
 .tile-legend {
   display: flex;
   flex-wrap: wrap;

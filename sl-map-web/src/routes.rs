@@ -130,6 +130,10 @@ pub fn build(state: AppState) -> Router {
             "/api/render/placement-slots/usb-notecard",
             post(render::free_placement_slots_usb_notecard),
         )
+        // read-only: rasterise just the GLW overlay as a transparent PNG sized
+        // to the final-image bounds, for the client-side preview to composite
+        // over the map tiles
+        .route("/api/render/glw-preview", post(render::glw_preview))
         .route("/api/render/{id}/events", get(events::events))
         .route("/api/render/{id}/image", get(result::image))
         .route(

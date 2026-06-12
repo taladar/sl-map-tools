@@ -321,6 +321,30 @@ function appendBordersToForm(fd) {
 
 // --- preview composition ---
 
+// Fetch the GLW overlay for `rect` rendered at preview zoom `z` as a blob
+// URL, or null when the GLW panel is disabled. Reuses the same `readGlwOptions`
+// payload the real render submits, so the preview overlay is drawn by the very
+// same server-side code path. Throws (with the panel's validation message, or
+// the server's error text) so the caller can surface it.
+async function fetchGlwOverlay(rect, z) {
+  const glw = readGlwOptions();
+  if (!glw) return null;
+  const resp = await fetch("/api/render/glw-preview", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      lower_left_x: rect.lower_left_x,
+      lower_left_y: rect.lower_left_y,
+      upper_right_x: rect.upper_right_x,
+      upper_right_y: rect.upper_right_y,
+      zoom: z,
+      glw,
+    }),
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  return URL.createObjectURL(await resp.blob());
+}
+
 function renderPreview(rect, waypoints) {
   const container = $("preview-container");
   container.replaceChildren();
@@ -450,6 +474,37 @@ function renderPreview(rect, waypoints) {
   }
 
   viewport.appendChild(svg);
+
+  // GLW overlay. The server rasterises just the GLW shapes/labels/legend onto
+  // a transparent image the size of the final-image bounds at this same zoom
+  // level, which we drop into the bounds rectangle so it lines up with the
+  // tiles. Inserted before the route SVG so the route stays on top (matching
+  // the final render's layering: GLW under the route). The fetch is async, so
+  // the placeholder <img> is positioned now and its src filled in on arrival.
+  if ($("glw_enabled") && $("glw_enabled").checked) {
+    const glwImg = document.createElement("img");
+    glwImg.className = "glw-overlay";
+    glwImg.style.left = `${boundsX.toFixed(1)}px`;
+    glwImg.style.top = `${boundsY.toFixed(1)}px`;
+    glwImg.style.width = `${boundsW.toFixed(1)}px`;
+    glwImg.style.height = `${boundsH.toFixed(1)}px`;
+    viewport.insertBefore(glwImg, svg);
+    fetchGlwOverlay(rect, z)
+      .then((url) => {
+        if (!url) {
+          glwImg.remove();
+          return;
+        }
+        glwImg.src = url;
+        glwImg.addEventListener("load", () => URL.revokeObjectURL(url), {
+          once: true,
+        });
+      })
+      .catch((err) => {
+        glwImg.remove();
+        $("preview-status").textContent = `GLW overlay failed: ${err.message}`;
+      });
+  }
 
   container.appendChild(viewport);
   fitViewport(container, viewport, widthPx, heightPx);

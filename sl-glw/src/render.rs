@@ -613,6 +613,7 @@ where
         scale,
         fg: style.palette.label_fg,
         shadow: style.palette.label_shadow,
+        align: sl_map_apis::coverage::HAlign::Left,
     };
     map.draw_text_label((x, y), &lines, &label_style, font);
     Ok(())
@@ -658,6 +659,7 @@ where
         scale,
         fg: style.palette.label_fg,
         shadow: style.palette.label_shadow,
+        align: sl_map_apis::coverage::HAlign::Left,
     };
     map.draw_text_label((x, y), &lines, &label_style, font);
     Ok(())
@@ -700,6 +702,7 @@ where
         scale,
         fg: style.palette.legend_fg,
         shadow: style.palette.label_shadow,
+        align: sl_map_apis::coverage::HAlign::Left,
     };
     map.draw_text_label(
         (

@@ -2558,6 +2558,9 @@ fn plan_labels(
                 scale,
                 fg: color,
                 shadow: Rgba([0, 0, 0, 180]),
+                // Each line is aligned within the block by the label's own
+                // horizontal alignment (the block is then placed in the slot).
+                align: h,
             },
             origin: (
                 i32::try_from(origin_x).unwrap_or(0),

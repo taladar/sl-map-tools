@@ -93,6 +93,9 @@ pub struct LabelStyle {
     pub fg: image::Rgba<u8>,
     /// Drop-shadow colour rendered one pixel down-right of the foreground.
     pub shadow: image::Rgba<u8>,
+    /// Horizontal alignment of each line within the multi-line block (the block
+    /// is as wide as its widest line). Single-line labels are unaffected.
+    pub align: crate::coverage::HAlign,
 }
 
 /// Measure the rendered pixel size `(width, height)` of a multi-line text
@@ -176,6 +179,15 @@ pub(crate) fn draw_multi_line_with_shadow<M, F>(
         reason = "font line metrics for a sane pixel size are small positive values, nowhere near i32::MAX"
     )]
     let line_height = (scaled.height() + scaled.line_gap()).ceil() as i32;
+    // Block width is the widest line; each line is aligned within it so the
+    // per-line alignment is independent of the block's placement in the slot.
+    let mut block_w: u32 = 0;
+    for line in lines {
+        let (w, _) = imageproc::drawing::text_size(style.scale, font, line);
+        if w > block_w {
+            block_w = w;
+        }
+    }
     for (i, line) in lines.iter().enumerate() {
         #[expect(
             clippy::cast_possible_truncation,
@@ -183,7 +195,13 @@ pub(crate) fn draw_multi_line_with_shadow<M, F>(
             reason = "line counts for any real label are tiny, nowhere near i32::MAX"
         )]
         let line_y = y + line_height * i as i32;
-        draw_text_with_shadow(map, x, line_y, style, font, line);
+        let (line_w, _) = imageproc::drawing::text_size(style.scale, font, line);
+        #[expect(
+            clippy::cast_possible_wrap,
+            reason = "the alignment offset is a small pixel value, nowhere near i32::MAX"
+        )]
+        let x_off = style.align.offset(line_w, block_w) as i32;
+        draw_text_with_shadow(map, x + x_off, line_y, style, font, line);
     }
 }
 
@@ -270,6 +288,7 @@ mod tests {
             scale: ab_glyph::PxScale::from(20.0),
             fg: image::Rgba([255, 255, 255, 255]),
             shadow: image::Rgba([0, 0, 0, 200]),
+            align: crate::coverage::HAlign::Left,
         };
         map.draw_text_label((40, 40), &["Label".to_owned()], &style, &font);
         // some pixel in the label region must now be non-transparent
@@ -283,6 +302,61 @@ mod tests {
             }
         }
         assert!(drawn, "draw_text_label should write visible pixels");
+        Ok(())
+    }
+
+    #[test]
+    fn multi_line_aligns_each_line_within_the_block() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::coverage::HAlign;
+        let font = test_font()?;
+        let scale = ab_glyph::PxScale::from(24.0);
+        // a short line stacked over a wide line: the short line's horizontal
+        // position within the block depends on the per-line alignment.
+        let lines = vec!["I".to_owned(), "WWWWWWWW".to_owned()];
+        let scaled = font.as_scaled(scale);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "test"
+        )]
+        let line_h = (scaled.height() + scaled.line_gap()).ceil() as u32;
+
+        // Leftmost non-transparent x across the first line's rows.
+        let first_line_min_x = |map: &Map| -> Option<u32> {
+            let mut found: Option<u32> = None;
+            for y in 10..(10 + line_h) {
+                for x in 0..352u32 {
+                    let image::Rgba([_, _, _, a]) = image::GenericImageView::get_pixel(map, x, y);
+                    if a != 0 {
+                        found = Some(found.map_or(x, |m| m.min(x)));
+                    }
+                }
+            }
+            found
+        };
+
+        let mut left = blank_map()?;
+        let left_style = LabelStyle {
+            scale,
+            fg: image::Rgba([255, 255, 255, 255]),
+            shadow: image::Rgba([0, 0, 0, 200]),
+            align: HAlign::Left,
+        };
+        left.draw_text_label((10, 10), &lines, &left_style, &font);
+
+        let mut right = blank_map()?;
+        let right_style = LabelStyle {
+            align: HAlign::Right,
+            ..left_style
+        };
+        right.draw_text_label((10, 10), &lines, &right_style, &font);
+
+        let left_min = first_line_min_x(&left).ok_or("left first line drew nothing")?;
+        let right_min = first_line_min_x(&right).ok_or("right first line drew nothing")?;
+        assert!(
+            right_min > left_min + 10,
+            "the short first line should shift right under right alignment (left={left_min}, right={right_min})"
+        );
         Ok(())
     }
 }

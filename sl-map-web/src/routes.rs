@@ -47,9 +47,11 @@ const LOGO_REQUEST_BODY_LIMIT: usize = 6 * 1024 * 1024;
 /// element `.style` properties from JS for positional layout
 /// (`element.style.width = ...`), which CSP treats as an inline style.
 /// `img-src` also allows the Linden Lab map-tile CDN so the renderer
-/// preview can display tiles.
+/// preview can display tiles, and `blob:` so the preview can display the
+/// server-rendered GLW overlay (fetched as a blob and shown via
+/// `URL.createObjectURL`).
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; \
-     img-src 'self' https://secondlife-maps-cdn.akamaized.net; \
+     img-src 'self' https://secondlife-maps-cdn.akamaized.net blob:; \
      script-src 'self'; \
      style-src 'self' 'unsafe-inline'; \
      connect-src 'self'; \
@@ -287,4 +289,25 @@ pub fn build(state: AppState) -> Router {
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CONTENT_SECURITY_POLICY;
+
+    /// The preview displays the server-rendered GLW overlay via a `blob:` URL
+    /// (`URL.createObjectURL`), so the `img-src` directive must permit `blob:`
+    /// or the browser blocks the overlay image.
+    #[test]
+    fn csp_img_src_allows_blob() {
+        let img_src_allows_blob = CONTENT_SECURITY_POLICY
+            .split(';')
+            .map(str::trim)
+            .filter(|d| d.starts_with("img-src"))
+            .any(|d| d.split_whitespace().any(|s| s == "blob:"));
+        assert!(
+            img_src_allows_blob,
+            "img-src must allow blob: for the GLW preview overlay; CSP was: {CONTENT_SECURITY_POLICY}"
+        );
+    }
 }

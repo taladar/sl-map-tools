@@ -475,12 +475,14 @@ function renderPreview(rect, waypoints) {
 
   viewport.appendChild(svg);
 
-  // GLW overlay. The server rasterises just the GLW shapes/labels/legend onto
-  // a transparent image the size of the final-image bounds at this same zoom
-  // level, which we drop into the bounds rectangle so it lines up with the
-  // tiles. Inserted before the route SVG so the route stays on top (matching
-  // the final render's layering: GLW under the route). The fetch is async, so
-  // the placeholder <img> is positioned now and its src filled in on arrival.
+  // GLW overlay. The server rasterises just the geographic GLW shapes and
+  // their labels (the legend is excluded — it is placed separately by the
+  // placement-slot logic) onto a transparent image the size of the final-image
+  // bounds at this same zoom level, which we drop into the bounds rectangle so
+  // it lines up with the tiles. Inserted before the route SVG so the route
+  // stays on top (matching the final render's layering: GLW under the route).
+  // The fetch is async, so the placeholder <img> is positioned now and its src
+  // filled in on arrival.
   if ($("glw_enabled") && $("glw_enabled").checked) {
     const glwImg = document.createElement("img");
     glwImg.className = "glw-overlay";

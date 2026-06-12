@@ -808,12 +808,13 @@ pub struct GlwPreviewRequest {
 /// preview can composite it over the map tiles. Read-only: nothing is
 /// persisted (no `saved_glw_data` row is inserted).
 ///
-/// The overlay is drawn exactly as the final render draws it — shapes,
-/// per-shape labels, and the base legend in the chosen slot — but at the
-/// preview's zoom level rather than the final render's, so the returned PNG
-/// is small and aligns with the preview tiles. When the GLW event cannot be
-/// resolved the response is a fully transparent PNG, leaving the tiles
-/// unchanged.
+/// The overlay draws the geographic GLW content — shapes and their per-shape
+/// labels — at the preview's zoom level rather than the final render's, so the
+/// returned PNG is small and aligns with the preview tiles. The base legend is
+/// deliberately omitted: like [`apply_glw_overlay_readonly`] it is a candidate
+/// placement element handled separately by the placement-slot logic, not part
+/// of the geographic overlay. When the GLW event cannot be resolved the
+/// response is a fully transparent PNG, leaving the tiles unchanged.
 ///
 /// # Errors
 ///
@@ -841,9 +842,13 @@ pub async fn glw_preview(
     let font = sl_map_apis::text::load_font(font_path)?;
     // Read-only resolution: unlike the real render this never persists a row.
     if let Some(event) = resolve_glw_event_readonly(&state, user.user_id, &req.glw.source).await? {
-        // Same style as the final render (legend included) so the preview is
-        // faithful to what will be drawn.
-        let style = build_glw_style(&req.glw.style, req.glw.legend_slot.as_deref())?;
+        // The legend is excluded from the overlay: it is a *candidate*
+        // placement element handled separately by the placement-slot logic
+        // (see `apply_glw_overlay_readonly`), not part of the geographic
+        // overlay the preview composites over the tiles. Only the shapes and
+        // their per-shape labels are drawn.
+        let mut style = build_glw_style(&req.glw.style, None)?;
+        style.legend_position = None;
         map.draw_glw_event_with_font(&event, &style, &font)?;
     } else {
         tracing::warn!("GLW event not found; preview overlay is fully transparent");
@@ -2447,6 +2452,158 @@ mod placement_slots_tests {
             .find(|s| s.slot == "top_right")
             .ok_or("missing top_right slot")?;
         assert!(top_right.available);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod glw_preview_tests {
+    //! Tests for the drawing the `glw_preview` handler performs once the event
+    //! is resolved: rendering the GLW overlay onto a transparent blank map at
+    //! the preview zoom, with the legend excluded (it is placed separately by
+    //! the placement-slot logic). The resolution / HTTP plumbing needs a full
+    //! `AppState`, so these cover the pure drawing core instead.
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use sl_glw::{GlwEvent, MapLikeGlwExt as _};
+
+    /// Sample event with one area and one circle (same shape as the
+    /// `sl-glw` render smoke test's fixture).
+    const SAMPLE_JSON: &str = r#"{
+        "eventId": 6910,
+        "eventName": "test cruise",
+        "eventKey": "key cruise",
+        "directorName": "LaliaCasau Resident",
+        "directorKey": "b609826a-b167-41e0-8e67-9fc0e78b97a1",
+        "base": {
+            "wind": { "dir": 175, "speed": 17, "gusts": 8, "shifts": 5, "period": 90 },
+            "waves": {
+                "height": 1.5, "speed": 3, "length": 35,
+                "heightVar": 5, "lengthVar": 5,
+                "effects": { "speed": 1, "steer": 1 }
+            },
+            "currents": { "speed": 0, "dir": 180, "waterDepth": 0 }
+        },
+        "areas": {
+            "area1": {
+                "coordSW": { "x": 1133, "y": 1048 },
+                "coordNE": { "x": 1135, "y": 1049 },
+                "margin": 25, "overlap": 0,
+                "currents": { "speed": 1, "dir": 225, "waterDepth": 8 }
+            }
+        },
+        "circles": {
+            "circle1": {
+                "centerSim": { "x": 1136, "y": 1051 },
+                "centerPoint": { "x": 90, "y": 175 },
+                "radius": 127, "margin": 25, "overlap": 0,
+                "wind": { "speed": 15 },
+                "currents": { "speed": 0.1, "dir": 225, "waterDepth": 6 }
+            }
+        }
+    }"#;
+
+    /// A `FontDirectory` scanning the workspace root for the bundled
+    /// `DejaVuSans.ttf`.
+    fn test_font() -> Result<ab_glyph::FontVec, Box<dyn std::error::Error>> {
+        let root = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
+        let fonts = crate::fonts::FontDirectory::scan(root)?;
+        let path = fonts
+            .path_for("DejaVuSans.ttf")
+            .ok_or("bundled DejaVuSans.ttf font is missing")?;
+        Ok(sl_map_apis::text::load_font(path)?)
+    }
+
+    /// The blank map the preview overlay is drawn onto: a transparent RGBA
+    /// image whose dimensions are `pixels_per_region(zoom) * size`, matching
+    /// the `boundsW`/`boundsH` the client computes for the bounds rectangle.
+    /// This is the alignment contract between the overlay PNG and the tiles.
+    #[test]
+    fn blank_overlay_dimensions_match_client_bounds() -> Result<(), Box<dyn std::error::Error>> {
+        let rect = GridRectangle::new(
+            GridCoordinates::new(1130, 1045),
+            GridCoordinates::new(1140, 1055),
+        );
+        let zoom = ZoomLevel::try_new(4)?;
+        let map = Map::blank(rect, zoom);
+        let (w, h) = image::GenericImageView::dimensions(&map);
+        // 11 sims each way × 32 px/region at zoom 4.
+        assert_eq!((w, h), (11 * 32, 11 * 32));
+        // a fresh blank overlay is fully transparent, so it composites over the
+        // tiles without altering them until shapes are drawn
+        for y in 0..h {
+            for x in 0..w {
+                let image::Rgba([_, _, _, a]) = image::GenericImageView::get_pixel(&map, x, y);
+                assert_eq!(a, 0, "blank overlay must start fully transparent");
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether any non-transparent pixel falls inside the top-left `n×n`
+    /// corner, where the default-slot legend would be drawn and where the
+    /// sample event has no shapes (all shapes sit at sim x ≥ 1133, i.e. ≥ 96 px
+    /// from the left).
+    fn top_left_has_pixels(map: &Map, n: u32) -> bool {
+        for y in 0..n {
+            for x in 0..n {
+                let image::Rgba([_, _, _, a]) = image::GenericImageView::get_pixel(map, x, y);
+                if a != 0 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// The preview draws the shapes but omits the legend: drawing the event
+    /// with the legend enabled fills the top-left corner, while the preview's
+    /// legend-disabled style leaves that corner untouched.
+    #[test]
+    fn preview_overlay_omits_the_legend() -> Result<(), Box<dyn std::error::Error>> {
+        let event: GlwEvent = serde_json::from_str(SAMPLE_JSON)?;
+        let font = test_font()?;
+        let rect = GridRectangle::new(
+            GridCoordinates::new(1130, 1045),
+            GridCoordinates::new(1140, 1055),
+        );
+        let zoom = ZoomLevel::try_new(4)?;
+
+        // Baseline: the legend in its default top-left slot writes pixels into
+        // the top-left corner.
+        let mut with_legend = Map::blank(rect.clone(), zoom);
+        let style_with = build_glw_style(&GlwStyleOverrides::default(), Some("top_left"))?;
+        with_legend.draw_glw_event_with_font(&event, &style_with, &font)?;
+        assert!(
+            top_left_has_pixels(&with_legend, 40),
+            "the legend should fill the top-left corner when enabled"
+        );
+
+        // Preview style: legend disabled exactly as `glw_preview` does. The
+        // shape-free top-left corner stays fully transparent.
+        let mut without_legend = Map::blank(rect, zoom);
+        let mut style_without = build_glw_style(&GlwStyleOverrides::default(), None)?;
+        style_without.legend_position = None;
+        without_legend.draw_glw_event_with_font(&event, &style_without, &font)?;
+        assert!(
+            !top_left_has_pixels(&without_legend, 40),
+            "the preview overlay must not draw the legend"
+        );
+
+        // The shapes themselves are still drawn (the overlay isn't empty).
+        let (w, h) = image::GenericImageView::dimensions(&without_legend);
+        let mut any = false;
+        'outer: for y in 0..h {
+            for x in 0..w {
+                let image::Rgba([_, _, _, a]) =
+                    image::GenericImageView::get_pixel(&without_legend, x, y);
+                if a != 0 {
+                    any = true;
+                    break 'outer;
+                }
+            }
+        }
+        assert!(any, "the GLW shapes should still be drawn");
         Ok(())
     }
 }

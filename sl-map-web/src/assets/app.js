@@ -871,6 +871,23 @@ const renderProgressEl = $("render-progress");
 const renderResultEl = $("render-result");
 const renderStatusEl = $("render-status");
 
+// Pull a human-readable message out of a failed response. The server's error
+// envelope is {"error": "..."} (see error.rs); fall back to the raw body so a
+// pre-JSON response still reads sensibly. Used by the render flows, which show
+// the message inline rather than in a modal — e.g. the "logo renders at … but
+// the free area at slot … only has …" rejection now returned before a render
+// is ever saved.
+async function errorText(resp) {
+  const raw = await resp.text();
+  try {
+    const body = JSON.parse(raw);
+    if (body && typeof body.error === "string") return body.error;
+  } catch (_e) {
+    // not JSON — use the raw text
+  }
+  return raw;
+}
+
 function startRenderUI() {
   hide(renderResultEl);
   show(renderProgressEl);
@@ -1058,7 +1075,7 @@ async function renderGrid() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!resp.ok) throw new Error(await resp.text());
+    if (!resp.ok) throw new Error(await errorText(resp));
     const { job_id } = await resp.json();
     await followJob(job_id, false);
   } catch (err) {
@@ -1096,7 +1113,7 @@ async function renderNotecard() {
       method: "POST",
       body: fd,
     });
-    if (!resp.ok) throw new Error(await resp.text());
+    if (!resp.ok) throw new Error(await errorText(resp));
     const { job_id, notecard } = await resp.json();
     if (notecard) addNotecardOptionIfNew(notecard);
     await followJob(job_id, withWithoutRoute);

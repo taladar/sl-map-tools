@@ -438,6 +438,23 @@ pub async fn grid_rectangle(
         GridCoordinates::new(req.lower_left_x, req.lower_left_y),
         GridCoordinates::new(req.upper_right_x, req.upper_right_y),
     );
+    let glw_ctx = req.glw.clone().map(|opts| GlwJobCtx {
+        options: opts,
+        destination,
+        created_by: user.user_id,
+    });
+    // Reject an over-full placement before persisting anything: the fit check
+    // runs on a blank+GLW map, so it needs no map-tile fetch.
+    plan_placements(
+        &state,
+        rect.clone(),
+        &common,
+        glw_ctx.as_ref(),
+        None,
+        &req.labels,
+        &req.logos,
+    )
+    .await?;
     let settings = SavedRenderSettings::GridRectangle(SavedGridRectangleSettings {
         lower_left_x: req.lower_left_x,
         lower_left_y: req.lower_left_y,
@@ -469,11 +486,6 @@ pub async fn grid_rectangle(
     .await?;
     link_render_logos(&state, render_id, &logo_ids).await?;
     let (job_id, job) = state.jobs.create_with_id(render_id).await;
-    let glw_ctx = req.glw.clone().map(|opts| GlwJobCtx {
-        options: opts,
-        destination,
-        created_by: user.user_id,
-    });
     spawn_grid_rectangle_job(
         state, job_id, job, rect, common, glw_ctx, req.labels, req.logos,
     );
@@ -505,6 +517,26 @@ pub async fn usb_notecard(
     // returned summary is what the response surfaces back to the UI so it
     // can update its dropdown if the effective id is new.
     let (notecard, notecard_summary) = resolve_notecard(&state, &user, &parsed).await?;
+
+    let glw_ctx = parsed.glw.clone().map(|opts| GlwJobCtx {
+        options: opts,
+        destination: parsed.destination,
+        created_by: user.user_id,
+    });
+    // Reject an over-full placement before persisting the render. The route's
+    // rectangle is resolved here for the fit check; the job re-resolves it
+    // (region lookups are cached) so it can also backfill the notecard bounds.
+    let (_bare_rect, rect) = resolve_notecard_rect(&state, &notecard, parsed.borders).await?;
+    plan_placements(
+        &state,
+        rect,
+        &parsed.common,
+        glw_ctx.as_ref(),
+        Some((&notecard, parsed.color)),
+        &parsed.labels,
+        &parsed.logos,
+    )
+    .await?;
 
     let settings = SavedRenderSettings::UsbNotecard(SavedUsbNotecardSettings {
         notecard_id: notecard_summary.notecard_id,
@@ -541,11 +573,6 @@ pub async fn usb_notecard(
     link_render_logos(&state, render_id, &logo_ids).await?;
 
     let (job_id, job) = state.jobs.create_with_id(render_id).await;
-    let glw_ctx = parsed.glw.clone().map(|opts| GlwJobCtx {
-        options: opts,
-        destination: parsed.destination,
-        created_by: user.user_id,
-    });
     spawn_usb_notecard_job(
         state,
         job_id,
@@ -1924,21 +1951,20 @@ async fn run_grid_rectangle_job(
     // Layering: base map below, GLW overlay on top. No route for the
     // grid-rectangle path. Labels go last, above everything.
     let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
-    let legend_slot = legend_slot_of(glw_ctx.as_ref());
-    // Free space for labels/logos is measured on an overlay-only map — the base
-    // tiles are opaque and would otherwise count as fully covered. This mirrors
-    // the free-slot detection (GLW shapes only, legend excluded); there is no
-    // route on the grid-rectangle path.
-    let occ = {
-        let mut occ = Map::blank_fit(occ_rect, common.max_width, common.max_height)?;
-        if let Some(ctx) = glw_ctx.as_ref() {
-            apply_glw_overlay_readonly(&state, ctx.created_by, &ctx.options, &mut occ).await?;
-        }
-        occ
-    };
-    let (label_draws, label_slots) = plan_labels(&state.fonts, &labels, legend_slot, &[], &occ)?;
+    // Free space for labels/logos is measured on an overlay-only map (GLW shapes
+    // only, no route on the grid path); the same planning rejected an over-full
+    // slot at submit time, so this normally cannot fail here.
+    let (label_draws, logo_draws) = plan_placements(
+        &state,
+        occ_rect,
+        &common,
+        glw_ctx.as_ref(),
+        None,
+        &labels,
+        &logos,
+    )
+    .await?;
     execute_labels(&label_draws, &mut map);
-    let (logo_draws, _) = plan_logos(&state, &logos, legend_slot, &label_slots, &occ).await?;
     execute_logos(&logo_draws, &mut map);
     let image = encode_map(&map, common.format)?;
     Ok(JobOutcome::Ok {
@@ -1969,21 +1995,11 @@ async fn run_usb_notecard_job(
     labels: Vec<TextLabel>,
     logos: Vec<LogoPlacement>,
 ) -> Result<JobOutcome, Error> {
-    let (border_north, border_south, border_east, border_west) = borders;
-    let bare_rect = {
-        let mut region = state.region_cache.lock().await;
-        usb_notecard_to_grid_rectangle(&mut region, &notecard).await?
-    };
+    let (bare_rect, rect) = resolve_notecard_rect(&state, &notecard, borders).await?;
     // Cache the bare rectangle (without border padding) on the notecard
     // row so the library UI can show its bounds without redoing region
-    // resolution. Done before render-side expansion to keep notecard
-    // bounds == route's bounding box.
+    // resolution. The bare box keeps notecard bounds == route's bounding box.
     update_notecard_bounds(&state.db, notecard_id, &bare_rect).await?;
-    let rect = bare_rect
-        .expanded_west(border_west)
-        .expanded_east(border_east)
-        .expanded_south(border_south)
-        .expanded_north(border_north);
     // Backfill the bounds on the saved_renders row now that we know the
     // rectangle; the library UI shows them even for `in_progress` rows.
     update_render_bounds(&state.db, render_id, &rect).await?;
@@ -2026,22 +2042,19 @@ async fn run_usb_notecard_job(
         // Labels and logos go last, above the route, sharing one
         // mutually-exclusive pool of placement slots. Their free space is
         // measured on an overlay-only map (route + GLW shapes, legend excluded)
-        // rather than the opaque tiled map, matching the free-slot detection.
-        let legend_slot = legend_slot_of(glw_ctx.as_ref());
-        let occ = {
-            let mut occ = Map::blank_fit(occ_rect, common.max_width, common.max_height)?;
-            if let Some(ctx) = glw_ctx.as_ref() {
-                apply_glw_overlay_readonly(&state, ctx.created_by, &ctx.options, &mut occ).await?;
-            }
-            let mut region = state.region_cache.lock().await;
-            occ.draw_route_with_progress(&mut region, &notecard, route_color, None)
-                .await?;
-            occ
-        };
-        let (label_draws, label_slots) =
-            plan_labels(&state.fonts, &labels, legend_slot, &[], &occ)?;
+        // rather than the opaque tiled map; the same planning rejected an
+        // over-full slot at submit time, so this normally cannot fail here.
+        let (label_draws, logo_draws) = plan_placements(
+            &state,
+            occ_rect,
+            &common,
+            glw_ctx.as_ref(),
+            Some((&notecard, route_color)),
+            &labels,
+            &logos,
+        )
+        .await?;
         execute_labels(&label_draws, &mut map);
-        let (logo_draws, _) = plan_logos(&state, &logos, legend_slot, &label_slots, &occ).await?;
         execute_logos(&logo_draws, &mut map);
         (without_route, map, glw_data_id)
     };
@@ -2808,6 +2821,65 @@ fn execute_logos(draws: &[LogoDraw], map: &mut Map) {
     for d in draws {
         image::imageops::overlay(map.image_mut(), &d.img, d.x, d.y);
     }
+}
+
+/// Resolve a notecard to its route's grid rectangle: the bare bounding box of
+/// the waypoints plus the configured border padding. Shared by the submit-time
+/// placement check and the render job so both measure the same rectangle.
+async fn resolve_notecard_rect(
+    state: &AppState,
+    notecard: &USBNotecard,
+    borders: (u16, u16, u16, u16),
+) -> Result<(GridRectangle, GridRectangle), Error> {
+    let bare_rect = {
+        let mut region = state.region_cache.lock().await;
+        usb_notecard_to_grid_rectangle(&mut region, notecard).await?
+    };
+    let (border_north, border_south, border_east, border_west) = borders;
+    let rect = bare_rect
+        .expanded_west(border_west)
+        .expanded_east(border_east)
+        .expanded_south(border_south)
+        .expanded_north(border_north);
+    Ok((bare_rect, rect))
+}
+
+/// Build the overlay-only occupancy map (a blank base sized to the final image,
+/// plus the GLW shapes and — for notecard renders — the route) and plan the
+/// labels and logos against it, returning the draws to paint.
+///
+/// This is the single source of truth for placement fit. The submit handlers
+/// call it before persisting a render so an over-full slot is rejected up front
+/// (nothing is saved), and the render jobs call it to produce the draws they
+/// composite onto the real map. Sharing one routine guarantees the pre-save
+/// check and the job can never disagree about whether a placement fits. The
+/// occupancy is measured on a blank base (the opaque map tiles would otherwise
+/// count as fully covered), so this needs no map-tile fetch.
+async fn plan_placements(
+    state: &AppState,
+    occ_rect: GridRectangle,
+    common: &CommonParams,
+    glw_ctx: Option<&GlwJobCtx>,
+    route: Option<(&USBNotecard, Rgba<u8>)>,
+    labels: &[TextLabel],
+    logos: &[LogoPlacement],
+) -> Result<(Vec<LabelDraw>, Vec<LogoDraw>), Error> {
+    let legend_slot = legend_slot_of(glw_ctx);
+    let occ = {
+        let mut occ = Map::blank_fit(occ_rect, common.max_width, common.max_height)?;
+        if let Some(ctx) = glw_ctx {
+            apply_glw_overlay_readonly(state, ctx.created_by, &ctx.options, &mut occ).await?;
+        }
+        if let Some((notecard, color)) = route {
+            let mut region = state.region_cache.lock().await;
+            occ.draw_route_with_progress(&mut region, notecard, color, None)
+                .await?;
+        }
+        occ
+    };
+    let (label_draws, label_slots) = plan_labels(&state.fonts, labels, legend_slot, &[], &occ)?;
+    let (logo_draws, _) = plan_logos(state, logos, legend_slot, &label_slots, &occ).await?;
+    Ok((label_draws, logo_draws))
 }
 
 /// Validate that every logo placement references a logo the user may read

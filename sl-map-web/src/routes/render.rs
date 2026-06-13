@@ -2828,6 +2828,20 @@ async fn resolve_glw_event(
             let row =
                 crate::library::assert_can_read_glw_data(&state.db, ctx.created_by, *glw_data_id)
                     .await?;
+            // Enforce the same-library invariant the comment on `validate_logos`
+            // documents: a render's saved GLW data must live in the render's own
+            // scope, so it stays visible to (and deletable by) the same audience
+            // and a group render never silently depends on a personal row.
+            let glw_dest = crate::library::destination_from_columns(
+                row.owner_user_id.clone(),
+                row.owner_group_id.clone(),
+            )?;
+            if glw_dest != ctx.destination {
+                return Err(Error::BadRequest(format!(
+                    "GLW data {glw_data_id} is not in the same library as this render; \
+                     copy it into the render's scope first"
+                )));
+            }
             let event: sl_glw::GlwEvent = serde_json::from_str(&row.payload_json)?;
             Ok(Some(ResolvedGlwEvent {
                 event,

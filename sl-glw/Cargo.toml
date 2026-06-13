@@ -9,7 +9,7 @@ edition = "2024"
 rust-version = "1.94.0"
 
 publish = true
-repository = "https://github.com/taladar/sl-glw"
+repository = "https://github.com/taladar/sl-map-tools"
 keywords = ["globalwind", "map", "render", "secondlife", "sailing"]
 categories = ["api-bindings", "rendering", "visualization"]
 

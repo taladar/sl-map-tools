@@ -16,3 +16,6 @@ flamegraph.svg
 *.jpg
 *.png
 /sl-chat-log-parser/.env
+
+# test fixtures that must ship with the crate despite the *.txt rule above
+!/sl-map-apis/tests/fixtures/tscc-2026-03-30.txt

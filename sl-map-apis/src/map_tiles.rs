@@ -2184,7 +2184,8 @@ mod test {
     #[test]
     fn test_real_notecard_with_duplicate_consecutive_lines_parses()
     -> Result<(), Box<dyn std::error::Error>> {
-        let notecard: USBNotecard = include_str!("../../tscc-2026-03-30.txt").parse()?;
+        let notecard: USBNotecard =
+            include_str!("../tests/fixtures/tscc-2026-03-30.txt").parse()?;
         let has_identical_consecutive = notecard
             .waypoints()
             .windows(2)
@@ -2200,7 +2201,8 @@ mod test {
     /// contains identical consecutive lines must complete without error.
     #[tokio::test]
     async fn test_draw_real_route_with_duplicate_line() -> Result<(), Box<dyn std::error::Error>> {
-        let notecard: USBNotecard = include_str!("../../tscc-2026-03-30.txt").parse()?;
+        let notecard: USBNotecard =
+            include_str!("../tests/fixtures/tscc-2026-03-30.txt").parse()?;
         let temp_dir = tempfile::tempdir()?;
         let mut map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
         let mut region_cache =

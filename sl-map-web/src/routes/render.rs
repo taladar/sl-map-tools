@@ -1484,6 +1484,10 @@ pub async fn placement_preview_grid_rectangle(
 ) -> Result<axum::response::Response, Error> {
     use axum::response::IntoResponse as _;
     validate_dimensions(req.max_width, req.max_height)?;
+    // Gate read access before compositing — `plan_logos` loads the file by id
+    // with no authorization (the submit path relies on `validate_logos`, which
+    // the preview path does not run).
+    assert_can_read_logos(&state, user.user_id, &req.logos).await?;
     let rect = GridRectangle::new(
         GridCoordinates::new(req.lower_left_x, req.lower_left_y),
         GridCoordinates::new(req.upper_right_x, req.upper_right_y),
@@ -1526,6 +1530,10 @@ pub async fn placement_preview_usb_notecard(
 ) -> Result<axum::response::Response, Error> {
     use axum::response::IntoResponse as _;
     let parsed = parse_render_form(multipart).await?;
+    // Gate read access before compositing — `plan_logos` loads the file by id
+    // with no authorization (the submit path relies on `validate_logos`, which
+    // the preview path does not run).
+    assert_can_read_logos(&state, user.user_id, &parsed.logos).await?;
     let notecard: USBNotecard = match &parsed.notecard_source {
         NotecardSource::Fresh { text, .. } => text.parse()?,
         NotecardSource::Existing { notecard_id } => {
@@ -3490,6 +3498,24 @@ async fn validate_logos(
         }
     }
     Ok(ids)
+}
+
+/// Authorize *read* access to every logo referenced by a placement set,
+/// without the same-library requirement [`validate_logos`] additionally
+/// enforces. Used by the read-only placement-preview endpoints: they carry no
+/// render destination (so the same-scope check does not apply), but must still
+/// refuse to composite — and thereby disclose the pixels of — a logo the
+/// current user cannot see. [`plan_logos`] itself loads the file by id with no
+/// authorization, trusting its callers to have gated read access first.
+async fn assert_can_read_logos(
+    state: &AppState,
+    current_user: Uuid,
+    logos: &[LogoPlacement],
+) -> Result<(), Error> {
+    for logo in logos {
+        library::assert_can_read_logo(&state.db, current_user, logo.logo_id).await?;
+    }
+    Ok(())
 }
 
 /// Insert the `saved_render_logos` link rows for a render. Idempotent per

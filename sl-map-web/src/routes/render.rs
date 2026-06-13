@@ -21,6 +21,7 @@ use sl_types::map::{
     GridCoordinates, GridRectangle, GridRectangleLike as _, RegionCoordinates, USBNotecard,
     ZoomLevel,
 };
+use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
 use crate::auth::CurrentUser;
@@ -1293,16 +1294,27 @@ pub struct RegionOverlayPreviewRequest {
 /// as — the final render draws it. Read-only: nothing is persisted (region
 /// names are resolved through the shared cache only).
 ///
+/// Resolving region names is the slow part (one cached-but-cold lookup per
+/// region), so the response is a streaming `application/x-ndjson` body rather
+/// than a bare PNG: one JSON object per line, the region-name progress events
+/// (`region_names_planned` / `region_name_resolved`, same shape as the render
+/// SSE) as they happen, then a terminal line — `{"type":"image","data":"<base64
+/// png>"}` on success or `{"type":"error","message":…}` on failure. This lets
+/// the preview show a live `region names: N / M` counter for the work it (not
+/// the later render, which finds the names already cached) actually performs.
+///
 /// # Errors
 ///
-/// Returns an error if the dimensions are invalid, a text overlay is requested
-/// without a (known) font, or PNG encoding fails.
+/// Returns an error (before streaming starts) if the dimensions are invalid or a
+/// text overlay is requested without a (known) font. Failures during rendering
+/// are reported as the terminal `error` line within the stream.
 pub async fn region_overlay_preview(
     _user: CurrentUser,
     State(state): State<AppState>,
     Json(req): Json<RegionOverlayPreviewRequest>,
 ) -> Result<axum::response::Response, Error> {
     use axum::response::IntoResponse as _;
+    use futures::StreamExt as _;
     validate_dimensions(req.max_width, req.max_height)?;
     let rect = GridRectangle::new(
         GridCoordinates::new(req.lower_left_x, req.lower_left_y),
@@ -1313,22 +1325,86 @@ pub async fn region_overlay_preview(
         names: req.draw_region_names,
         coordinates: req.draw_region_coordinates,
     };
-    // Final-image resolution so the per-region pixel size — and therefore the
-    // size gate — matches the real render once the client scales the PNG into
-    // the bounds rectangle.
-    let mut map = Map::blank_fit(rect, req.max_width, req.max_height)?;
-    apply_region_overlay(
-        &state,
-        opts,
-        req.region_label_font_id.as_deref(),
-        &mut map,
-        None,
+    // Fail fast with a normal HTTP error (before any streaming) when a text
+    // overlay is requested without a usable font.
+    assert_region_overlay_font(&state, opts, req.region_label_font_id.as_deref())?;
+    let font_id = req.region_label_font_id.clone();
+    let (max_width, max_height) = (req.max_width, req.max_height);
+
+    // The worker streams NDJSON lines into this channel; the response body drains
+    // it. A small buffer is fine — `forward_region_overlay_progress` applies
+    // backpressure with `.send().await`.
+    let (line_tx, line_rx) = tokio::sync::mpsc::channel::<Bytes>(64);
+    drop(tokio::spawn(run_region_overlay_preview_stream(
+        state, rect, opts, font_id, max_width, max_height, line_tx,
+    )));
+    let stream = ReceiverStream::new(line_rx).map(Ok::<Bytes, std::convert::Infallible>);
+    let body = axum::body::Body::from_stream(stream);
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/x-ndjson")],
+        body,
     )
-    .await?;
-    // PNG keeps the transparent background so only the overlay composites over
-    // the client's tiles.
-    let image = encode_map(&map, OutputFormat::Png)?;
-    Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], image).into_response())
+        .into_response())
+}
+
+/// Worker for [`region_overlay_preview`]: build the overlay (streaming
+/// region-name progress as NDJSON lines into `line_tx`) and emit a terminal
+/// `image` (base64 PNG) or `error` line. Best-effort throughout — if the client
+/// disconnects, the line sends fail and the worker simply stops.
+async fn run_region_overlay_preview_stream(
+    state: AppState,
+    rect: GridRectangle,
+    opts: RegionOverlayOptions,
+    font_id: Option<String>,
+    max_width: u32,
+    max_height: u32,
+    line_tx: tokio::sync::mpsc::Sender<Bytes>,
+) {
+    let (ev_tx, ev_rx) = tokio::sync::mpsc::channel::<MapProgressEvent>(256);
+    let forwarder = tokio::spawn(forward_region_overlay_progress(ev_rx, line_tx.clone()));
+    let result = async {
+        let mut map = Map::blank_fit(rect, max_width, max_height)?;
+        apply_region_overlay(&state, opts, font_id.as_deref(), &mut map, Some(&ev_tx)).await?;
+        encode_map(&map, OutputFormat::Png)
+    }
+    .await;
+    drop(ev_tx);
+    let _join = forwarder.await;
+    let final_line = match result {
+        Ok(png) => {
+            use base64::Engine as _;
+            let data = base64::engine::general_purpose::STANDARD.encode(&png);
+            serde_json::json!({ "type": "image", "data": data }).to_string()
+        }
+        Err(err) => serde_json::to_string(&ProgressDto::Error {
+            message: err.to_string(),
+        })
+        .unwrap_or_else(|_| {
+            r#"{"type":"error","message":"region overlay preview failed"}"#.to_owned()
+        }),
+    };
+    drop(line_tx.send(Bytes::from(format!("{final_line}\n"))).await);
+}
+
+/// Convert region-name `MapProgressEvent`s into NDJSON lines (one per line) on
+/// the response channel, reusing [`ProgressDto`] so the wire shape matches the
+/// render SSE. Stops when the event channel closes or the client disconnects.
+async fn forward_region_overlay_progress(
+    mut ev_rx: tokio::sync::mpsc::Receiver<MapProgressEvent>,
+    line_tx: tokio::sync::mpsc::Sender<Bytes>,
+) {
+    while let Some(event) = ev_rx.recv().await {
+        let Ok(json) = serde_json::to_string(&ProgressDto::from(event)) else {
+            continue;
+        };
+        if line_tx
+            .send(Bytes::from(format!("{json}\n")))
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
 }
 
 /// Plan the labels + logos against `occupancy` (an overlay-only map carrying

@@ -497,12 +497,25 @@ async function fetchPlacementOverlay(rect) {
   return URL.createObjectURL(await resp.blob());
 }
 
+// Show / clear the region-name resolution progress line under the preview.
+function setRegionOverlayStatus(text) {
+  const el = $("preview-overlay-status");
+  if (el) el.textContent = text;
+}
+
+// The in-flight region-overlay request, so a newer one can cancel an older one
+// (the user toggling options re-fetches before the previous stream finishes).
+let regionOverlayAbort = null;
+
 // Fetch the per-region annotation overlay (rectangles, names, grid
-// coordinates) rendered at the final-image resolution as a blob URL, or null
-// when none of the three overlays is enabled. The server draws it with the very
-// same code — and the very same size/count gate — the final render uses, onto a
-// transparent image the size of the final image, which the caller drops into
-// the bounds rectangle so it lines up with the tiles. Throws on server error.
+// coordinates) as a blob URL, or null when none of the three overlays is
+// enabled. The endpoint streams NDJSON: region-name progress lines (resolving a
+// name is a cached-but-cold lookup per region — the slow part) followed by a
+// terminal `image` (base64 PNG) or `error` line. We surface the progress as a
+// "region names: N / M" line, mirroring the render display, then return the
+// decoded PNG. The overlay is rendered at the final-image resolution, so the
+// labels appear exactly when the final render draws them (just scaled down).
+// Returns null if the request was superseded (aborted). Throws on server error.
 async function fetchRegionOverlay(rect) {
   const overlay = readRegionOverlay();
   if (
@@ -510,24 +523,83 @@ async function fetchRegionOverlay(rect) {
     !overlay.draw_region_names &&
     !overlay.draw_region_coordinates
   ) {
+    setRegionOverlayStatus("");
     return null;
   }
+  // Cancel any earlier in-flight overlay request.
+  if (regionOverlayAbort) regionOverlayAbort.abort();
+  const controller = new AbortController();
+  regionOverlayAbort = controller;
   const shared = readSharedParams();
-  const resp = await fetch("/api/render/region-overlay-preview", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      lower_left_x: rect.lower_left_x,
-      lower_left_y: rect.lower_left_y,
-      upper_right_x: rect.upper_right_x,
-      upper_right_y: rect.upper_right_y,
-      max_width: shared.max_width,
-      max_height: shared.max_height,
-      ...overlay,
-    }),
-  });
+  let resp;
+  try {
+    resp = await fetch("/api/render/region-overlay-preview", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        lower_left_x: rect.lower_left_x,
+        lower_left_y: rect.lower_left_y,
+        upper_right_x: rect.upper_right_x,
+        upper_right_y: rect.upper_right_y,
+        max_width: shared.max_width,
+        max_height: shared.max_height,
+        ...overlay,
+      }),
+    });
+  } catch (err) {
+    if (err.name === "AbortError") return null;
+    throw err;
+  }
   if (!resp.ok) throw new Error(await resp.text());
-  return URL.createObjectURL(await resp.blob());
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let imageData = null;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch (_err) {
+          continue;
+        }
+        if (msg.type === "region_names_planned") {
+          setRegionOverlayStatus(`region names: 0 / ${msg.total_regions}`);
+        } else if (msg.type === "region_name_resolved") {
+          const n = msg.index + 1;
+          if (n === msg.total || (n & 0x1f) === 0) {
+            setRegionOverlayStatus(`region names: ${n} / ${msg.total}`);
+          }
+        } else if (msg.type === "image") {
+          imageData = msg.data;
+        } else if (msg.type === "error") {
+          setRegionOverlayStatus("");
+          throw new Error(msg.message);
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name === "AbortError") return null;
+    throw err;
+  }
+  // Only the most recent request clears the shared status line.
+  if (regionOverlayAbort === controller) {
+    regionOverlayAbort = null;
+    setRegionOverlayStatus("");
+  }
+  if (!imageData) return null;
+  const blob = await (await fetch(`data:image/png;base64,${imageData}`)).blob();
+  return URL.createObjectURL(blob);
 }
 
 // Draw (or refresh) the per-region annotation overlay on a preview viewport,

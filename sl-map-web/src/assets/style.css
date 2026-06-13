@@ -343,6 +343,15 @@ button:disabled {
   display: block;
 }
 
+/* Replaces a tile <img> that failed to load (SL CDN 403 = no map data) when
+   "Fill missing map tiles" is enabled, painted in the chosen colour (set
+   inline by JS) so the preview mirrors the final render's missing-tile fill. */
+.map-container .tiles .missing-tile {
+  position: absolute;
+  width: 256px;
+  height: 256px;
+}
+
 .map-container svg.route-overlay {
   position: absolute;
   inset: 0;

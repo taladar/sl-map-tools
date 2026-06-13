@@ -1285,6 +1285,12 @@ pub struct RegionOverlayPreviewRequest {
     /// id of the font to draw region names / coordinates with.
     #[serde(default)]
     pub region_label_font_id: Option<String>,
+    /// optional hex colour for the missing-region fill. When set (the user has
+    /// "Fill missing regions" enabled) and region names are being looked up,
+    /// regions the lookup reports as non-existent are painted with this colour,
+    /// reusing the lookup result the names need anyway. Absent → no fill.
+    #[serde(default)]
+    pub missing_region_color: Option<String>,
 }
 
 /// `POST /api/render/region-overlay-preview` — rasterise the optional
@@ -1329,6 +1335,11 @@ pub async fn region_overlay_preview(
     // overlay is requested without a usable font.
     assert_region_overlay_font(&state, opts, req.region_label_font_id.as_deref())?;
     let font_id = req.region_label_font_id.clone();
+    let missing_region_color = req
+        .missing_region_color
+        .as_deref()
+        .map(parse_color)
+        .transpose()?;
     let (max_width, max_height) = (req.max_width, req.max_height);
 
     // The worker streams NDJSON lines into this channel; the response body drains
@@ -1336,7 +1347,14 @@ pub async fn region_overlay_preview(
     // backpressure with `.send().await`.
     let (line_tx, line_rx) = tokio::sync::mpsc::channel::<Bytes>(64);
     drop(tokio::spawn(run_region_overlay_preview_stream(
-        state, rect, opts, font_id, max_width, max_height, line_tx,
+        state,
+        rect,
+        opts,
+        font_id,
+        missing_region_color,
+        max_width,
+        max_height,
+        line_tx,
     )));
     let stream = ReceiverStream::new(line_rx).map(Ok::<Bytes, std::convert::Infallible>);
     let body = axum::body::Body::from_stream(stream);
@@ -1351,11 +1369,16 @@ pub async fn region_overlay_preview(
 /// region-name progress as NDJSON lines into `line_tx`) and emit a terminal
 /// `image` (base64 PNG) or `error` line. Best-effort throughout — if the client
 /// disconnects, the line sends fail and the worker simply stops.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a one-shot helper carrying the preview request fields into the streaming task"
+)]
 async fn run_region_overlay_preview_stream(
     state: AppState,
     rect: GridRectangle,
     opts: RegionOverlayOptions,
     font_id: Option<String>,
+    missing_region_color: Option<Rgba<u8>>,
     max_width: u32,
     max_height: u32,
     line_tx: tokio::sync::mpsc::Sender<Bytes>,
@@ -1364,7 +1387,15 @@ async fn run_region_overlay_preview_stream(
     let forwarder = tokio::spawn(forward_region_overlay_progress(ev_rx, line_tx.clone()));
     let result = async {
         let mut map = Map::blank_fit(rect, max_width, max_height)?;
-        apply_region_overlay(&state, opts, font_id.as_deref(), &mut map, Some(&ev_tx)).await?;
+        apply_region_overlay(
+            &state,
+            opts,
+            font_id.as_deref(),
+            missing_region_color,
+            &mut map,
+            Some(&ev_tx),
+        )
+        .await?;
         encode_map(&map, OutputFormat::Png)
     }
     .await;
@@ -2274,6 +2305,7 @@ async fn apply_region_overlay(
     state: &AppState,
     opts: RegionOverlayOptions,
     font_id: Option<&str>,
+    missing_region_color: Option<Rgba<u8>>,
     map: &mut Map,
     progress: Option<&tokio::sync::mpsc::Sender<MapProgressEvent>>,
 ) -> Result<(), Error> {
@@ -2282,22 +2314,25 @@ async fn apply_region_overlay(
     if !opts.any() {
         return Ok(());
     }
-    if opts.rectangles {
-        draw_region_rectangles(map);
-    }
-    if !opts.any_text() {
-        return Ok(());
-    }
-    // Gate the text overlays: too-small regions can't hold the text, and
-    // too-many regions would fan name resolution out into thousands of lookups.
+    // The text overlays (names / coordinates) are gated twice — too-small regions
+    // can't hold the text, and too-many regions would fan name resolution out
+    // into thousands of lookups. When the gate fails the per-region loop is
+    // skipped entirely; rectangles (which need no loop) are still drawn below.
     let pixels_per_region = map.pixels_per_region();
     let region_count = usize::from(map.size_x()).saturating_mul(usize::from(map.size_y()));
-    if !region_text_overlay_allowed(pixels_per_region, region_count) {
-        tracing::info!(
-            pixels_per_region,
-            region_count,
-            "skipping region name/coordinate overlay (regions too small or too many)"
-        );
+    let run_loop = opts.any_text() && region_text_overlay_allowed(pixels_per_region, region_count);
+    if !run_loop {
+        if opts.any_text() {
+            tracing::info!(
+                pixels_per_region,
+                region_count,
+                "skipping region name/coordinate overlay (regions too small or too many)"
+            );
+        }
+        // No per-region loop, so draw the outlines on their own.
+        if opts.rectangles {
+            draw_region_rectangles(map);
+        }
         return Ok(());
     }
     let font_id = font_id.ok_or_else(|| {
@@ -2329,23 +2364,27 @@ async fn apply_region_overlay(
     for x in map.x_range() {
         for y in map.y_range() {
             let grid = GridCoordinates::new(x, y);
-            // The region's lower-left corner is the text anchor; SL y points up
-            // while image y points down, so this pixel is the *bottom* edge.
-            let Some((left, bottom)) = map.pixel_coordinates_for_coordinates(
-                &grid,
-                &RegionCoordinates::new(0f32, 0f32, 0f32),
-            ) else {
+            let Some((left, top, width, height)) = region_pixel_rect(map, &grid) else {
                 continue;
             };
-            let mut lines: Vec<String> = Vec::new();
-            if opts.coordinates {
-                lines.push(format!("({x}, {y})"));
-            }
+            // Resolve the name (when enabled). The result also tells us whether
+            // the region exists: `Ok(None)` is a confirmed-missing region, which
+            // we paint with the missing-region colour when that is enabled.
+            // `Err` is an inconclusive lookup — leave it untouched.
+            let mut region_name: Option<String> = None;
+            let mut missing = false;
             if opts.names {
-                let name = {
+                let lookup = {
                     let mut region = state.region_cache.lock().await;
-                    region.get_region_name(&grid).await.ok().flatten()
+                    region.get_region_name(&grid).await
                 };
+                match lookup {
+                    Ok(Some(name)) => region_name = Some(name.to_string()),
+                    Ok(None) => missing = true,
+                    Err(err) => {
+                        tracing::debug!("region name lookup failed for {grid:?}: {err}");
+                    }
+                }
                 if let Some(tx) = progress {
                     drop(tx.try_send(MapProgressEvent::RegionNameResolved {
                         index: resolved,
@@ -2353,14 +2392,29 @@ async fn apply_region_overlay(
                     }));
                 }
                 resolved = resolved.saturating_add(1);
-                if let Some(name) = name {
-                    lines.push(name.to_string());
-                }
+            }
+            // Layer per region, bottom-up: missing-region fill, then the outline,
+            // then the text — so each sits above the previous.
+            if let Some(color) = missing_region_color.filter(|_| missing) {
+                map.draw_filled_rect(left, top, width, height, color);
+            }
+            if opts.rectangles {
+                map.draw_hollow_rect(left, top, width, height, REGION_RECTANGLE_COLOR);
+            }
+            let mut lines: Vec<String> = Vec::new();
+            if opts.coordinates {
+                lines.push(format!("({x}, {y})"));
+            }
+            if let Some(name) = region_name {
+                lines.push(name);
             }
             if lines.is_empty() {
                 continue;
             }
             let (_text_w, text_h) = sl_map_apis::text::measure_text(scale, &font, &lines);
+            // SL y points up while image y points down, so the region's bottom
+            // edge (the text anchor) is `top + height`.
+            let bottom = top.saturating_add(height);
             let origin_x = i32::try_from(left)
                 .unwrap_or(0)
                 .saturating_add(REGION_LABEL_PADDING);
@@ -2374,31 +2428,29 @@ async fn apply_region_overlay(
     Ok(())
 }
 
-/// Draw a hairline outline around every region of `map`. The two opposite
-/// corners are mapped to pixels (same pattern as `crop_imm_grid_rectangle`) so
-/// no floating-point pixel-per-region rounding is needed.
+/// The pixel rectangle `(left, top, width, height)` a region occupies in `map`,
+/// or `None` if the region is outside it. The two opposite corners are mapped to
+/// pixels (same pattern as `crop_imm_grid_rectangle`) so no floating-point
+/// pixel-per-region rounding is needed.
+fn region_pixel_rect(map: &Map, grid: &GridCoordinates) -> Option<(u32, u32, u32, u32)> {
+    use sl_map_apis::map_tiles::MapLike as _;
+    let (x0, y0) =
+        map.pixel_coordinates_for_coordinates(grid, &RegionCoordinates::new(0f32, 0f32, 0f32))?;
+    let (x1, y1) =
+        map.pixel_coordinates_for_coordinates(grid, &RegionCoordinates::new(256f32, 256f32, 0f32))?;
+    Some((x0.min(x1), y0.min(y1), x0.abs_diff(x1), y0.abs_diff(y1)))
+}
+
+/// Draw a hairline outline around every region of `map`.
 fn draw_region_rectangles(map: &mut Map) {
     use sl_map_apis::map_tiles::MapLike as _;
     use sl_types::map::GridRectangleLike as _;
     for x in map.x_range() {
         for y in map.y_range() {
             let grid = GridCoordinates::new(x, y);
-            let lower_left = map.pixel_coordinates_for_coordinates(
-                &grid,
-                &RegionCoordinates::new(0f32, 0f32, 0f32),
-            );
-            let upper_right = map.pixel_coordinates_for_coordinates(
-                &grid,
-                &RegionCoordinates::new(256f32, 256f32, 0f32),
-            );
-            let (Some((x0, y0)), Some((x1, y1))) = (lower_left, upper_right) else {
-                continue;
-            };
-            let left = x0.min(x1);
-            let top = y0.min(y1);
-            let width = x0.abs_diff(x1);
-            let height = y0.abs_diff(y1);
-            map.draw_hollow_rect(left, top, width, height, REGION_RECTANGLE_COLOR);
+            if let Some((left, top, width, height)) = region_pixel_rect(map, &grid) {
+                map.draw_hollow_rect(left, top, width, height, REGION_RECTANGLE_COLOR);
+            }
         }
     }
 }
@@ -2441,6 +2493,9 @@ async fn run_grid_rectangle_job(
         &state,
         common.region_overlay,
         common.region_label_font_id.as_deref(),
+        // The final render fills missing regions properly during tile building
+        // (`Map::new_with_progress`), so the overlay never paints them here.
+        None,
         &mut map,
         Some(&tx),
     )
@@ -2536,6 +2591,10 @@ async fn run_usb_notecard_job(
             &state,
             common.region_overlay,
             common.region_label_font_id.as_deref(),
+            // The final render fills missing regions properly during tile
+            // building (`Map::new_with_progress`), so the overlay never paints
+            // them here.
+            None,
             &mut map,
             Some(&tx),
         )
@@ -4276,6 +4335,7 @@ mod label_tests {
 #[cfg(test)]
 mod region_overlay_tests {
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn text_overlay_gate_requires_both_size_and_count() {
@@ -4330,6 +4390,37 @@ mod region_overlay_tests {
             drawn,
             "draw_region_rectangles should write opaque white pixels"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn missing_region_fill_paints_the_region_rect() -> Result<(), Box<dyn std::error::Error>> {
+        use sl_map_apis::map_tiles::MapLike as _;
+        // a 2x2 region map at zoom 4 -> 64x64 px, 32 px per region.
+        let rect = GridRectangle::new(
+            GridCoordinates::new(1000, 1000),
+            GridCoordinates::new(1001, 1001),
+        );
+        let mut map = Map::blank(rect, ZoomLevel::try_new(4)?);
+        // Fill the lower-left region (grid 1000,1000) the way apply_region_overlay
+        // does for an `Ok(None)` (missing) region.
+        let grid = GridCoordinates::new(1000, 1000);
+        let (left, top, width, height) =
+            region_pixel_rect(&map, &grid).ok_or("region not in map")?;
+        let fill = Rgba([0x19, 0x48, 0x5a, 0xff]);
+        map.draw_filled_rect(left, top, width, height, fill);
+
+        // a pixel inside the filled region carries the colour …
+        assert_eq!(
+            map.get_pixel(left + 1, top + 1),
+            fill,
+            "fill colour painted"
+        );
+        // … while a pixel in the diagonally-opposite region stays transparent.
+        let other = region_pixel_rect(&map, &GridCoordinates::new(1001, 1001))
+            .ok_or("other region not in map")?;
+        let image::Rgba([_, _, _, a]) = map.get_pixel(other.0 + 1, other.1 + 1);
+        assert_eq!(a, 0, "unfilled region stays transparent");
         Ok(())
     }
 }

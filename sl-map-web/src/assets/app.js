@@ -130,6 +130,35 @@ function pickPreviewZoom(sizeX, sizeY) {
   return 8;
 }
 
+// Gate for the region name/coordinate overlay, mirrored from the server so the
+// preview can tell whether the missing-region fill will be shown. KEEP IN SYNC
+// with MIN_PIXELS_PER_REGION_FOR_REGION_LABELS / MAX_REGIONS_FOR_REGION_LABELS
+// in sl-map-web/src/routes/render.rs.
+const MIN_PX_PER_REGION_FOR_NAMES = 64;
+const MAX_REGIONS_FOR_NAMES = 1024;
+
+// The zoom the final render fits into max_width × max_height, mirroring
+// ZoomLevel::max_zoom_level_to_fit_regions_into_output_image (clamped 1..8).
+function finalFitZoom(sizeX, sizeY, maxW, maxH) {
+  const pprX = Math.ceil(maxW / Math.max(1, sizeX));
+  const pprY = Math.ceil(maxH / Math.max(1, sizeY));
+  const zx = 9 - Math.min(8, Math.floor(Math.log2(Math.max(1, pprX))));
+  const zy = 9 - Math.min(8, Math.floor(Math.log2(Math.max(1, pprY))));
+  return Math.max(1, Math.min(8, Math.max(zx, zy)));
+}
+
+// Whether the per-region name lookup runs for the given selection — i.e. the
+// region overlay's name/coordinate text (and thus the opportunistic
+// missing-region fill) is shown in the preview. Matches the server gate against
+// the final-render per-region pixel size.
+function regionNamesShownInPreview(sizeX, sizeY, maxW, maxH) {
+  const finalPpr = pixelsPerRegion(finalFitZoom(sizeX, sizeY, maxW, maxH));
+  return (
+    finalPpr >= MIN_PX_PER_REGION_FOR_NAMES &&
+    sizeX * sizeY <= MAX_REGIONS_FOR_NAMES
+  );
+}
+
 function $(id) {
   return document.getElementById(id);
 }
@@ -190,6 +219,10 @@ $("missing_map_tile_enabled").addEventListener("change", (e) => {
 });
 $("missing_region_enabled").addEventListener("change", (e) => {
   $("missing_region_color").disabled = !e.target.checked;
+  // Re-fetch the overlay (it now paints / stops painting missing regions) and
+  // update the hint about whether the fill is part of the preview.
+  refreshRegionOverlay();
+  updateFillHint();
 });
 
 // Persist the route colour on the user's account so the preferred
@@ -503,6 +536,39 @@ function setRegionOverlayStatus(text) {
   if (el) el.textContent = text;
 }
 
+// Update the "Fill missing regions" hint under the Selected-area line, stating
+// whether the missing-region colour is part of the current preview. It only is
+// when "Fill missing regions" is enabled, "Draw region names" is enabled (the
+// lookups that reveal missing regions), and the area is small enough that the
+// name overlay isn't gated out. `rect` defaults to the last previewed rectangle.
+function updateFillHint(rect) {
+  const el = $("preview-fill-hint");
+  if (!el) return;
+  const r = rect || lastPreviewRect;
+  if (!$("missing_region_enabled").checked || !r) {
+    el.textContent = "";
+    return;
+  }
+  const sizeX = r.upper_right_x - r.lower_left_x + 1;
+  const sizeY = r.upper_right_y - r.lower_left_y + 1;
+  if (sizeX <= 0 || sizeY <= 0) {
+    el.textContent = "";
+    return;
+  }
+  const shared = readSharedParams();
+  const shown =
+    $("draw_region_names").checked &&
+    regionNamesShownInPreview(
+      sizeX,
+      sizeY,
+      shared.max_width,
+      shared.max_height,
+    );
+  el.textContent = shown
+    ? "Fill missing regions: shown in this preview."
+    : "Fill missing regions: applied in the final render only — enable Draw region names on a small enough area (regions ≥ 64 px, ≤ 1024 regions) to preview it.";
+}
+
 // The in-flight region-overlay request, so a newer one can cancel an older one
 // (the user toggling options re-fetches before the previous stream finishes).
 let regionOverlayAbort = null;
@@ -544,6 +610,9 @@ async function fetchRegionOverlay(rect) {
         upper_right_y: rect.upper_right_y,
         max_width: shared.max_width,
         max_height: shared.max_height,
+        // Only sent when "Fill missing regions" is enabled; the server paints
+        // regions the name lookup reports as missing with this colour.
+        missing_region_color: shared.missing_region_color,
         ...overlay,
       }),
     });
@@ -653,6 +722,7 @@ function renderPreview(rect, waypoints) {
     $("preview-status").textContent =
       "Invalid rectangle: corners must be ordered.";
     $("preview-region-info").textContent = "";
+    $("preview-fill-hint").textContent = "";
     return;
   }
   const z = pickPreviewZoom(sizeX, sizeY);
@@ -679,6 +749,14 @@ function renderPreview(rect, waypoints) {
   viewport.dataset.intrinsicWidth = String(widthPx);
   viewport.dataset.intrinsicHeight = String(heightPx);
 
+  // The SL map CDN returns 403 for a tile with no map data, which fires the
+  // <img> error event. When "Fill missing map tiles" is enabled we deduce the
+  // missing tile from that and replace the (broken) image with a cell painted
+  // in the chosen colour — the same colour the final render fills it with.
+  const missingTileColor = $("missing_map_tile_enabled").checked
+    ? $("missing_map_tile_color").value
+    : null;
+
   const tiles = document.createElement("div");
   tiles.className = "tiles";
   tiles.style.width = `${widthPx}px`;
@@ -691,10 +769,26 @@ function renderPreview(rect, waypoints) {
       img.className = "tile";
       img.loading = "lazy";
       img.alt = `tile ${z}-${cornerX}-${cornerY}`;
-      img.src = TILE_URL(z, cornerX, cornerY);
-      img.style.left = `${tx * TILE_PX}px`;
       // SL y increases upward but DOM y increases downward
-      img.style.top = `${(tilesY - 1 - ty) * TILE_PX}px`;
+      const leftPx = `${tx * TILE_PX}px`;
+      const topPx = `${(tilesY - 1 - ty) * TILE_PX}px`;
+      img.style.left = leftPx;
+      img.style.top = topPx;
+      if (missingTileColor) {
+        img.addEventListener(
+          "error",
+          () => {
+            const cell = document.createElement("div");
+            cell.className = "missing-tile";
+            cell.style.left = leftPx;
+            cell.style.top = topPx;
+            cell.style.backgroundColor = missingTileColor;
+            img.replaceWith(cell);
+          },
+          { once: true },
+        );
+      }
+      img.src = TILE_URL(z, cornerX, cornerY);
       tiles.appendChild(img);
     }
   }
@@ -862,6 +956,8 @@ function renderPreview(rect, waypoints) {
   // tile grid shown, which may extend past it to tile boundaries).
   $("preview-region-info").textContent =
     `Selected area: ${sizeX} × ${sizeY} regions (${sizeX * sizeY} total).`;
+  // Whether the missing-region fill is part of this preview.
+  updateFillHint(rect);
 
   // Auto-compute the free slots so the per-slot buttons appear with the tiles.
   findFreeSlots();
@@ -3286,7 +3382,12 @@ document.addEventListener("DOMContentLoaded", () => {
     "region_label_font_id",
   ].forEach((id) => {
     const el = $(id);
-    if (el) el.addEventListener("change", () => refreshRegionOverlay());
+    if (el)
+      el.addEventListener("change", () => {
+        refreshRegionOverlay();
+        // "Draw region names" toggles whether the missing-region fill can show.
+        updateFillHint();
+      });
   });
   // The slot occupancy differs between the grid and notecard tabs, so a tab
   // switch invalidates the cached result (the placements themselves persist).

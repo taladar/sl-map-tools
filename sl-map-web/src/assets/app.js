@@ -2738,6 +2738,11 @@ async function editLogo(g) {
   const anchor = primaryAnchor(g);
   const existing = g.type === "logo" ? g.config : null;
   const def = slotDefaultAlign(anchor);
+  // Object URL of the upload-tab preview file, declared in this scope (not in
+  // `build`) so it can be revoked once the modal closes — Save or Cancel.
+  // formModal has no teardown hook, so a blob picked here would otherwise leak
+  // for the life of the page.
+  let uploadUrl = null;
   const value = await formModal({
     title: existing ? "Edit logo" : "Add logo",
     okText: existing ? "Save" : "Add",
@@ -2772,9 +2777,9 @@ async function editLogo(g) {
       // source subtabs). Default to upload only when adding into an empty
       // library, so an empty picker is not the first thing shown.
       let source = !existing && loadedLogos.length === 0 ? "upload" : "reuse";
-      // Object URL + intrinsic size of the file chosen on the upload tab, so the
-      // preview and fit check work before the file is actually uploaded.
-      let uploadUrl = null;
+      // Intrinsic size of the file chosen on the upload tab, so the preview and
+      // fit check work before the file is actually uploaded. (`uploadUrl` is
+      // declared in the enclosing scope so it survives to be revoked on close.)
       let uploadDims = null;
       const setPreview = (src) => {
         if (src) {
@@ -2910,6 +2915,9 @@ async function editLogo(g) {
       };
     },
   });
+  // The modal has closed (Save or Cancel); release the preview blob if one was
+  // created on the upload tab.
+  if (uploadUrl) URL.revokeObjectURL(uploadUrl);
   if (value === null) return;
   assignGroup(g, "logo", value);
 }

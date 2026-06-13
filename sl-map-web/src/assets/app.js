@@ -2134,6 +2134,24 @@ async function clearGroup(g) {
   refreshPlacement();
 }
 
+// GLW rendering off ⇒ there can be no legend, so reset any slot still set to the
+// legend. This keeps a previously-chosen legend from lingering once GLW is
+// turned off (the legend option/button is hidden in that state). Pure state
+// mutation; the caller is responsible for re-validating / refreshing. Returns
+// true if a legend was cleared.
+function clearLegendWhenGlwDisabled() {
+  if ($("glw_enabled") && $("glw_enabled").checked) return false;
+  let cleared = false;
+  for (const g of slotGroups) {
+    if (g.type === "legend") {
+      g.type = "none";
+      g.config = null;
+      cleared = true;
+    }
+  }
+  return cleared;
+}
+
 // Merge whatever groups currently cover `slots` into one fresh group (used
 // when restoring saved combined placements).
 function ensureGroupForSlots(slots) {
@@ -2877,6 +2895,9 @@ function drawSlotsOverlay(viewport) {
   const toggle = $("show_slots");
   if (!toggle || !toggle.checked) return;
   if (!lastPlacementSlots || !lastPlacementImageSize) return;
+  // Drop any stale legend selection if GLW rendering is off, so the slot is not
+  // shown as occupied by a legend that can no longer be placed.
+  clearLegendWhenGlwDisabled();
   const bx = parseFloat(viewport.dataset.boundsX);
   const by = parseFloat(viewport.dataset.boundsY);
   const bw = parseFloat(viewport.dataset.boundsW);
@@ -2929,8 +2950,11 @@ function drawSlotsOverlay(viewport) {
       ["none", "None", "none"],
       ["label", "Text label", "label"],
       ["logo", "Logo", "logo"],
-      ["legend", "GLW legend", "legend"],
     ];
+    // The GLW legend can only be placed when GLW rendering is enabled.
+    if ($("glw_enabled") && $("glw_enabled").checked) {
+      radios.push(["legend", "GLW legend", "legend"]);
+    }
     for (const [type, title, icon] of radios) {
       const b = iconButton(icon, title, g.type === type, () =>
         onSlotButton(g, type),
@@ -3174,8 +3198,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const glwEnabled = $("glw_enabled");
   if (glwEnabled)
     glwEnabled.addEventListener("change", () => {
+      // Turning GLW off removes the legend option, so drop a legend that was
+      // already placed in a slot before refreshing the overlays and buttons.
+      clearLegendWhenGlwDisabled();
       validateLabels();
       refreshPlacementPreview();
+      redrawSlotsOverlay();
     });
   // The per-region annotation overlay redraws on its own without touching the
   // tiles or the placement overlays.

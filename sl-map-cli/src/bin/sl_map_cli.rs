@@ -434,6 +434,7 @@ async fn report_progress(mut rx: tokio::sync::mpsc::Receiver<MapProgressEvent>) 
     let mut tiles: Option<ProgressBar> = None;
     let mut regions: Option<ProgressBar> = None;
     let mut waypoints: Option<ProgressBar> = None;
+    let mut region_names: Option<ProgressBar> = None;
     let mut memory_hits: u64 = 0;
     let mut disk_hits: u64 = 0;
     let mut network_fetches: u64 = 0;
@@ -495,6 +496,17 @@ async fn report_progress(mut rx: tokio::sync::mpsc::Receiver<MapProgressEvent>) 
                 if let Some(pb) = waypoints.as_ref() {
                     pb.inc(1);
                     pb.set_message(region.into_inner());
+                }
+            }
+            MapProgressEvent::RegionNamesPlanned { total_regions } => {
+                let pb = multi.add(ProgressBar::new(u64::from(total_regions)));
+                pb.set_style(bar_style.to_owned());
+                pb.set_prefix("region names");
+                region_names = Some(pb);
+            }
+            MapProgressEvent::RegionNameResolved { .. } => {
+                if let Some(pb) = region_names.as_ref() {
+                    pb.inc(1);
                 }
             }
         }

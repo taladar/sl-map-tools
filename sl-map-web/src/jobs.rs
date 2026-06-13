@@ -78,6 +78,19 @@ pub enum ProgressDto {
         /// resolved region name.
         region: String,
     },
+    /// resolving region names for the per-region annotation overlay has
+    /// started.
+    RegionNamesPlanned {
+        /// number of regions whose names will be resolved.
+        total_regions: u32,
+    },
+    /// one region's name has been resolved for the overlay.
+    RegionNameResolved {
+        /// 0-based index of the region.
+        index: u32,
+        /// total number of regions whose names will be resolved.
+        total: u32,
+    },
     /// the job has finished successfully.
     Done,
     /// the job has finished with an error.
@@ -131,6 +144,12 @@ impl From<MapProgressEvent> for ProgressDto {
                 total,
                 region: region.into_inner(),
             },
+            MapProgressEvent::RegionNamesPlanned { total_regions } => {
+                Self::RegionNamesPlanned { total_regions }
+            }
+            MapProgressEvent::RegionNameResolved { index, total } => {
+                Self::RegionNameResolved { index, total }
+            }
         }
     }
 }
@@ -289,4 +308,32 @@ pub async fn record_event(state: &JobState, event: ProgressDto) {
     // best-effort: no receivers is fine, that just means no-one is
     // listening for live updates yet.
     drop(state.ping.send(()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    /// The region-name overlay progress events must serialise to the exact
+    /// `type` tags and field names the client's `handleProgress` switch reads.
+    #[test]
+    fn region_name_progress_events_serialise_for_the_client()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let planned = ProgressDto::from(MapProgressEvent::RegionNamesPlanned { total_regions: 42 });
+        assert_eq!(
+            serde_json::to_value(&planned)?,
+            serde_json::json!({ "type": "region_names_planned", "total_regions": 42 })
+        );
+
+        let resolved = ProgressDto::from(MapProgressEvent::RegionNameResolved {
+            index: 7,
+            total: 42,
+        });
+        assert_eq!(
+            serde_json::to_value(&resolved)?,
+            serde_json::json!({ "type": "region_name_resolved", "index": 7, "total": 42 })
+        );
+        Ok(())
+    }
 }

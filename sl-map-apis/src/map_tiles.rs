@@ -421,6 +421,19 @@ pub enum MapProgressEvent {
         /// the region name of the waypoint
         region: RegionName,
     },
+    /// resolving region names for the per-region annotation overlay is about to
+    /// start, lists the total number of regions whose names will be looked up
+    RegionNamesPlanned {
+        /// total number of regions whose names will be resolved
+        total_regions: u32,
+    },
+    /// one region's name has been resolved for the per-region annotation overlay
+    RegionNameResolved {
+        /// the index of this region (0-based)
+        index: u32,
+        /// the total number of regions whose names will be resolved
+        total: u32,
+    },
 }
 
 /// a best-effort progress reporter; emits an event on a `tokio::sync::mpsc`

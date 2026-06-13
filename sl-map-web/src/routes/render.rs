@@ -1317,7 +1317,14 @@ pub async fn region_overlay_preview(
     // size gate — matches the real render once the client scales the PNG into
     // the bounds rectangle.
     let mut map = Map::blank_fit(rect, req.max_width, req.max_height)?;
-    apply_region_overlay(&state, opts, req.region_label_font_id.as_deref(), &mut map).await?;
+    apply_region_overlay(
+        &state,
+        opts,
+        req.region_label_font_id.as_deref(),
+        &mut map,
+        None,
+    )
+    .await?;
     // PNG keeps the transparent background so only the overlay composites over
     // the client's tiles.
     let image = encode_map(&map, OutputFormat::Png)?;
@@ -2192,6 +2199,7 @@ async fn apply_region_overlay(
     opts: RegionOverlayOptions,
     font_id: Option<&str>,
     map: &mut Map,
+    progress: Option<&tokio::sync::mpsc::Sender<MapProgressEvent>>,
 ) -> Result<(), Error> {
     use sl_map_apis::map_tiles::MapLike as _;
     use sl_types::map::GridRectangleLike as _;
@@ -2234,6 +2242,14 @@ async fn apply_region_overlay(
         shadow: Rgba([0, 0, 0, 180]),
         align: sl_map_apis::coverage::HAlign::Left,
     };
+    // Resolving a name is a (cached but possibly cold) upstream lookup per
+    // region, so report it as progress — but only when names are actually being
+    // looked up (coordinates / rectangles are computed locally and need none).
+    let total_regions = u32::try_from(region_count).unwrap_or(u32::MAX);
+    if let Some(tx) = progress.filter(|_| opts.names) {
+        drop(tx.try_send(MapProgressEvent::RegionNamesPlanned { total_regions }));
+    }
+    let mut resolved: u32 = 0;
     for x in map.x_range() {
         for y in map.y_range() {
             let grid = GridCoordinates::new(x, y);
@@ -2254,6 +2270,13 @@ async fn apply_region_overlay(
                     let mut region = state.region_cache.lock().await;
                     region.get_region_name(&grid).await.ok().flatten()
                 };
+                if let Some(tx) = progress {
+                    drop(tx.try_send(MapProgressEvent::RegionNameResolved {
+                        index: resolved,
+                        total: total_regions,
+                    }));
+                }
+                resolved = resolved.saturating_add(1);
                 if let Some(name) = name {
                     lines.push(name.to_string());
                 }
@@ -2333,20 +2356,23 @@ async fn run_grid_rectangle_job(
         )
         .await?
     };
-    drop(tx);
-    // wait for the forwarder so the event history is complete before we
-    // signal completion to subscribers
-    let _join = forwarder.await;
     // Layering: base map below, then the per-region annotation overlay, then
     // the GLW overlay. No route for the grid-rectangle path. Labels go last,
-    // above everything.
+    // above everything. The overlay resolves region names (when enabled), so it
+    // keeps reporting progress on `tx` — drop the sender and join the forwarder
+    // only after it returns.
     apply_region_overlay(
         &state,
         common.region_overlay,
         common.region_label_font_id.as_deref(),
         &mut map,
+        Some(&tx),
     )
     .await?;
+    drop(tx);
+    // wait for the forwarder so the event history is complete before we
+    // signal completion to subscribers
+    let _join = forwarder.await;
     let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
     // Free space for labels/logos is measured on an overlay-only map (GLW shapes
     // only, no route on the grid path); the same planning rejected an over-full
@@ -2435,6 +2461,7 @@ async fn run_usb_notecard_job(
             common.region_overlay,
             common.region_label_font_id.as_deref(),
             &mut map,
+            Some(&tx),
         )
         .await?;
         // GLW overlay sits between the base map and the route, so the

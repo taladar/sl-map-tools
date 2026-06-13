@@ -1230,6 +1230,8 @@ function startRenderUI() {
   checkedRegions = 0;
   totalWaypoints = 0;
   resolvedWaypoints = 0;
+  totalRegionNames = 0;
+  resolvedRegionNames = 0;
   renderStatusEl.textContent = "Starting render…";
 }
 
@@ -1258,6 +1260,8 @@ let totalRegions = 0;
 let checkedRegions = 0;
 let totalWaypoints = 0;
 let resolvedWaypoints = 0;
+let totalRegionNames = 0;
+let resolvedRegionNames = 0;
 
 function updateStatus() {
   const parts = [];
@@ -1269,6 +1273,9 @@ function updateStatus() {
   }
   if (totalWaypoints > 0) {
     parts.push(`waypoints: ${resolvedWaypoints} / ${totalWaypoints}`);
+  }
+  if (totalRegionNames > 0) {
+    parts.push(`region names: ${resolvedRegionNames} / ${totalRegionNames}`);
   }
   renderStatusEl.textContent = parts.join("  ·  ");
 }
@@ -1317,6 +1324,21 @@ function handleProgress(evt) {
     case "route_waypoint_resolved":
       resolvedWaypoints = evt.index + 1;
       updateStatus();
+      break;
+    case "region_names_planned":
+      totalRegionNames = evt.total_regions;
+      resolvedRegionNames = 0;
+      updateStatus();
+      break;
+    case "region_name_resolved":
+      resolvedRegionNames = evt.index + 1;
+      // throttle UI updates like region_checked (every 32)
+      if (
+        resolvedRegionNames === totalRegionNames ||
+        (resolvedRegionNames & 0x1f) === 0
+      ) {
+        updateStatus();
+      }
       break;
     case "done":
       renderStatusEl.textContent = "Render complete.";

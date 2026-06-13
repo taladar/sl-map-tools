@@ -613,7 +613,7 @@ pub async fn grid_rectangle(
         Some(&rect),
     )
     .await?;
-    link_render_logos(&state, render_id, &logo_ids).await?;
+    link_render_logos_or_fail(&state, render_id, &logo_ids).await?;
     let (job_id, job) = state.jobs.create_with_id(render_id).await;
     spawn_grid_rectangle_job(
         state, job_id, job, rect, common, glw_ctx, req.labels, req.logos,
@@ -708,7 +708,7 @@ pub async fn usb_notecard(
         None,
     )
     .await?;
-    link_render_logos(&state, render_id, &logo_ids).await?;
+    link_render_logos_or_fail(&state, render_id, &logo_ids).await?;
 
     let (job_id, job) = state.jobs.create_with_id(render_id).await;
     spawn_usb_notecard_job(
@@ -3530,6 +3530,30 @@ async fn assert_can_read_logos(
 ) -> Result<(), Error> {
     for logo in logos {
         library::assert_can_read_logo(&state.db, current_user, logo.logo_id).await?;
+    }
+    Ok(())
+}
+
+/// Link the render's logos, marking the freshly-inserted render row `failed`
+/// if the link step errors. Without this a [`link_render_logos`] failure
+/// between [`insert_render_row`] and spawning the job would strand the
+/// `in_progress` row forever — no job is ever spawned to fail it, so it would
+/// show as a perpetual spinner and keep counting against the user's
+/// concurrent-render cap.
+async fn link_render_logos_or_fail(
+    state: &AppState,
+    render_id: Uuid,
+    logo_ids: &[Uuid],
+) -> Result<(), Error> {
+    if let Err(err) = link_render_logos(state, render_id, logo_ids).await {
+        update_failed(
+            state,
+            render_id,
+            &format!("linking render logos failed: {err}"),
+            Utc::now(),
+        )
+        .await;
+        return Err(err);
     }
     Ok(())
 }

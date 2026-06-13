@@ -171,6 +171,15 @@ function hide(el) {
   el.classList.add("hidden");
 }
 
+// True only on the main render page (index.html). app.js is also loaded on
+// library.html for the shared header bar and the generic tab handler above, but
+// everything below that wires up the render form targets elements that exist
+// only here. Gate those top-level statements on this flag so they neither throw
+// (a missing-element TypeError used to abort the rest of the script) nor run
+// render initialisation against a DOM that has no render form. `missing_map_tile_enabled`
+// is a render-only control, so its presence is a reliable page discriminator.
+const ON_RENDER_PAGE = Boolean($("missing_map_tile_enabled"));
+
 // --- tab switching ---
 
 document.querySelectorAll(".tab").forEach((tab) => {
@@ -214,16 +223,18 @@ function activeTab() {
 
 // --- shared param helpers ---
 
-$("missing_map_tile_enabled").addEventListener("change", (e) => {
-  $("missing_map_tile_color").disabled = !e.target.checked;
-});
-$("missing_region_enabled").addEventListener("change", (e) => {
-  $("missing_region_color").disabled = !e.target.checked;
-  // Re-fetch the overlay (it now paints / stops painting missing regions) and
-  // update the hint about whether the fill is part of the preview.
-  refreshRegionOverlay();
-  updateFillHint();
-});
+if (ON_RENDER_PAGE)
+  $("missing_map_tile_enabled").addEventListener("change", (e) => {
+    $("missing_map_tile_color").disabled = !e.target.checked;
+  });
+if (ON_RENDER_PAGE)
+  $("missing_region_enabled").addEventListener("change", (e) => {
+    $("missing_region_color").disabled = !e.target.checked;
+    // Re-fetch the overlay (it now paints / stops painting missing regions) and
+    // update the hint about whether the fill is part of the preview.
+    refreshRegionOverlay();
+    updateFillHint();
+  });
 
 // Persist the route colour on the user's account so the preferred
 // shade follows the user across browsers and devices. The value is
@@ -231,20 +242,21 @@ $("missing_region_enabled").addEventListener("change", (e) => {
 // the central place that fetches that endpoint) and saved by `PATCH
 // /api/users/me/preferences` on every picker change.
 const ROUTE_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-$("route_color").addEventListener("change", async (e) => {
-  const value = e.target.value;
-  if (!ROUTE_COLOR_RE.test(value)) return;
-  try {
-    await fetch("/api/users/me/preferences", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ route_color: value }),
-    });
-  } catch (_err) {
-    // ignore — network failures here are cosmetic; the local picker
-    // value still applies to the next render submission.
-  }
-});
+if (ON_RENDER_PAGE)
+  $("route_color").addEventListener("change", async (e) => {
+    const value = e.target.value;
+    if (!ROUTE_COLOR_RE.test(value)) return;
+    try {
+      await fetch("/api/users/me/preferences", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ route_color: value }),
+      });
+    } catch (_err) {
+      // ignore — network failures here are cosmetic; the local picker
+      // value still applies to the next render submission.
+    }
+  });
 
 // --- destination + saved-notecard pickers ---
 
@@ -322,7 +334,8 @@ async function loadNotecardsForScope(scope) {
   }
 }
 
-document.addEventListener("DOMContentLoaded", loadGroupsAndNotecards);
+if (ON_RENDER_PAGE)
+  document.addEventListener("DOMContentLoaded", loadGroupsAndNotecards);
 
 function readSharedParams() {
   return {
@@ -1078,17 +1091,18 @@ function fitViewport(container, viewport, widthPx, heightPx) {
 // re-fit any visible map containers on window resize. We re-read the
 // intrinsic dimensions from the viewport's dataset so this works even
 // after the preview has been regenerated with a different rectangle.
-window.addEventListener("resize", () => {
-  document.querySelectorAll(".map-container").forEach((container) => {
-    const vp = container.querySelector(".viewport");
-    if (!vp) return;
-    const w = parseFloat(vp.dataset.intrinsicWidth);
-    const h = parseFloat(vp.dataset.intrinsicHeight);
-    if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
-      fitViewport(container, vp, w, h);
-    }
+if (ON_RENDER_PAGE)
+  window.addEventListener("resize", () => {
+    document.querySelectorAll(".map-container").forEach((container) => {
+      const vp = container.querySelector(".viewport");
+      if (!vp) return;
+      const w = parseFloat(vp.dataset.intrinsicWidth);
+      const h = parseFloat(vp.dataset.intrinsicHeight);
+      if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+        fitViewport(container, vp, w, h);
+      }
+    });
   });
-});
 
 // --- preview handlers ---
 
@@ -1157,10 +1171,11 @@ async function previewNotecard() {
 }
 
 // Shared Preview button (in the Preview panel): dispatch on the active tab.
-$("preview_btn").addEventListener("click", () => {
-  if (activeTab() === "notecard") previewNotecard();
-  else previewGrid();
-});
+if (ON_RENDER_PAGE)
+  $("preview_btn").addEventListener("click", () => {
+    if (activeTab() === "notecard") previewNotecard();
+    else previewGrid();
+  });
 
 // --- extend / shrink the previewed area by one region ---
 
@@ -1660,10 +1675,11 @@ async function renderNotecard() {
 }
 
 // Shared Generate button (in the Render panel): dispatch on the active tab.
-$("generate_btn").addEventListener("click", () => {
-  if (activeTab() === "notecard") renderNotecard();
-  else renderGrid();
-});
+if (ON_RENDER_PAGE)
+  $("generate_btn").addEventListener("click", () => {
+    if (activeTab() === "notecard") renderNotecard();
+    else renderGrid();
+  });
 
 // After the server resolves a freshly uploaded (or auto-copied) notecard,
 // surface it in the reuse-from picker so subsequent renders can pick it
@@ -1823,7 +1839,8 @@ async function selectReuseNotecard(notecardId) {
   if (ncSel) ncSel.value = notecardId;
 }
 
-document.addEventListener("DOMContentLoaded", applyPrefillFromQuery);
+if (ON_RENDER_PAGE)
+  document.addEventListener("DOMContentLoaded", applyPrefillFromQuery);
 
 // =====================================================================
 // GLW overlay panel
@@ -3363,56 +3380,57 @@ function debounce(fn, ms) {
   };
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  initSlotGroups();
-  loadLogosForScope().catch(() => {});
-  // Escape cancels a pending copy/swap (only when no modal is open — the modal
-  // handles its own Escape).
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && pendingSlotAction) cancelSlotAction();
-  });
-  const showSlots = $("show_slots");
-  if (showSlots)
-    showSlots.addEventListener("change", () => redrawSlotsOverlay());
-  // GLW on/off changes whether the legend draws and changes slot occupancy, so
-  // re-validate and refresh the preview overlays.
-  const glwEnabled = $("glw_enabled");
-  if (glwEnabled)
-    glwEnabled.addEventListener("change", () => {
-      // Turning GLW off removes the legend option, so drop a legend that was
-      // already placed in a slot before refreshing the overlays and buttons.
-      clearLegendWhenGlwDisabled();
-      validateLabels();
-      refreshPlacementPreview();
-      redrawSlotsOverlay();
+if (ON_RENDER_PAGE)
+  document.addEventListener("DOMContentLoaded", () => {
+    initSlotGroups();
+    loadLogosForScope().catch(() => {});
+    // Escape cancels a pending copy/swap (only when no modal is open — the modal
+    // handles its own Escape).
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && pendingSlotAction) cancelSlotAction();
     });
-  // The per-region annotation overlay redraws on its own without touching the
-  // tiles or the placement overlays.
-  [
-    "draw_region_rectangles",
-    "draw_region_names",
-    "draw_region_coordinates",
-    "region_label_font_id",
-  ].forEach((id) => {
-    const el = $(id);
-    if (el)
-      el.addEventListener("change", () => {
-        refreshRegionOverlay();
-        // "Draw region names" toggles whether the missing-region fill can show.
-        updateFillHint();
+    const showSlots = $("show_slots");
+    if (showSlots)
+      showSlots.addEventListener("change", () => redrawSlotsOverlay());
+    // GLW on/off changes whether the legend draws and changes slot occupancy, so
+    // re-validate and refresh the preview overlays.
+    const glwEnabled = $("glw_enabled");
+    if (glwEnabled)
+      glwEnabled.addEventListener("change", () => {
+        // Turning GLW off removes the legend option, so drop a legend that was
+        // already placed in a slot before refreshing the overlays and buttons.
+        clearLegendWhenGlwDisabled();
+        validateLabels();
+        refreshPlacementPreview();
+        redrawSlotsOverlay();
       });
-  });
-  // The slot occupancy differs between the grid and notecard tabs, so a tab
-  // switch invalidates the cached result (the placements themselves persist).
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      lastPlacementSlots = null;
-      lastGroupRects = {};
-      lastPlacementImageSize = null;
-      const st = $("placement-status");
-      if (st) st.textContent = "";
-      validateLabels();
+    // The per-region annotation overlay redraws on its own without touching the
+    // tiles or the placement overlays.
+    [
+      "draw_region_rectangles",
+      "draw_region_names",
+      "draw_region_coordinates",
+      "region_label_font_id",
+    ].forEach((id) => {
+      const el = $(id);
+      if (el)
+        el.addEventListener("change", () => {
+          refreshRegionOverlay();
+          // "Draw region names" toggles whether the missing-region fill can show.
+          updateFillHint();
+        });
     });
+    // The slot occupancy differs between the grid and notecard tabs, so a tab
+    // switch invalidates the cached result (the placements themselves persist).
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        lastPlacementSlots = null;
+        lastGroupRects = {};
+        lastPlacementImageSize = null;
+        const st = $("placement-status");
+        if (st) st.textContent = "";
+        validateLabels();
+      });
+    });
+    validateLabels();
   });
-  validateLabels();
-});

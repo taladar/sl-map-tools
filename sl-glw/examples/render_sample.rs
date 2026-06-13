@@ -178,7 +178,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // from the supplied path and pass it into the `_with_font` API.
     let bytes = fs_err::read(&font_path)?;
     let font = ab_glyph::FontVec::try_from_vec(bytes)?;
-    map.draw_glw_event_with_font(&event, &style, &font)?;
+    map.draw_glw_event_with_font(&event, &style, &font);
 
     let out = std::path::Path::new("target/sl-glw-sample.png");
     map.image().save(out)?;

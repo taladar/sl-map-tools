@@ -98,9 +98,6 @@ pub enum Error {
     /// error in the GLW event cache (HTTP fetch / on-disk redb / JSON).
     #[error("GLW event cache error: {0}")]
     GlwEventCache(#[from] sl_glw::GlwEventCacheError),
-    /// error from the GLW renderer (drawing onto the map).
-    #[error("GLW render error: {0}")]
-    GlwRender(#[from] sl_glw::RenderError),
     /// error parsing a TrueType font file.
     #[error("font parse error: {0}")]
     FontParse(#[from] ab_glyph::InvalidFont),
@@ -185,8 +182,7 @@ impl IntoResponse for Error {
             | Self::Json(_)
             | Self::Database
             | Self::PasswordHash(_)
-            | Self::GlwEventCache(_)
-            | Self::GlwRender(_) => ReqwestStatusCode::INTERNAL_SERVER_ERROR,
+            | Self::GlwEventCache(_) => ReqwestStatusCode::INTERNAL_SERVER_ERROR,
         };
         // The 500-class variants may carry filesystem paths (`Io`),
         // argon2 parameter detail (`PasswordHash`), decoder internals

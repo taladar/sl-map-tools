@@ -62,14 +62,6 @@ pub enum ParseError {
         /// human-readable description of the allowed domain
         allowed: &'static str,
     },
-    /// a required field was missing from the JSON document
-    #[error("missing required field: {0}")]
-    MissingField(&'static str),
-    /// a `areas` / `circles` key did not match the expected `area<N>` /
-    /// `circle<N>` pattern. Currently informational only — we do not
-    /// reject the key on the basis of name.
-    #[error("invalid keyed-object name: {0}")]
-    InvalidKey(String),
 }
 
 /// Errors that arise from the three-tier cache around GLW events.
@@ -105,22 +97,11 @@ pub enum GlwEventCacheError {
     SystemTimeError(#[from] std::time::SystemTimeError),
 }
 
-/// Errors that arise while rendering GLW data onto a map.
-#[expect(
-    clippy::module_name_repetitions,
-    reason = "the error types are the primary public surface of this module"
-)]
-#[derive(Debug, thiserror::Error)]
-pub enum RenderError {
-    /// the bundled font could not be loaded
-    #[error("failed to load bundled font for labels: {0}")]
-    FontLoad(String),
-}
-
 /// Umbrella error type that wraps every error this crate can produce.
 ///
-/// Useful when a caller needs a single `Result` type across fetch, parse,
-/// cache and render boundaries.
+/// Useful when a caller needs a single `Result` type across fetch, parse
+/// and cache boundaries. Rendering is infallible, so it has no variant
+/// here.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// an HTTP fetch or response-decoding error
@@ -132,7 +113,4 @@ pub enum Error {
     /// a cache-layer error
     #[error(transparent)]
     Cache(#[from] GlwEventCacheError),
-    /// a render-layer error
-    #[error(transparent)]
-    Render(#[from] RenderError),
 }

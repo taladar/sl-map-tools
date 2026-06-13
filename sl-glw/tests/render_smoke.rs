@@ -144,7 +144,7 @@ fn draw_glw_event_modifies_image() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!((pre_w, pre_h), (image_size, image_size));
     let pixel_before = image::Rgba([0u8, 0, 0, 255]);
 
-    map.draw_glw_event(&event, &GlwStyle::default())?;
+    map.draw_glw_event(&event, &GlwStyle::default());
 
     // At least *some* pixel in the image must have changed colour.
     let mut changed = false;

@@ -14,7 +14,7 @@ pub use crate::client::{
     DEFAULT_GLW_HOST, DEFAULT_GLW_VERSION, GlwClient, base_url_for_version, default_base_url,
     fetch_event_by_id, fetch_event_by_key,
 };
-pub use crate::error::{Error, FetchError, GlwEventCacheError, ParseError, RenderError};
+pub use crate::error::{Error, FetchError, GlwEventCacheError, ParseError};
 pub use crate::render::{MapLikeGlwExt, draw_glw_event};
 pub use crate::style::{GlwColorPalette, GlwStyle};
 pub use crate::types::{

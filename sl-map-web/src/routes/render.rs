@@ -952,7 +952,7 @@ async fn apply_glw_overlay_readonly(
     // constraint), so its slot does not matter here.
     let mut style = build_glw_style(&options.style, None)?;
     style.legend_position = None;
-    map.draw_glw_event_with_font(&event, &style, &font)?;
+    map.draw_glw_event_with_font(&event, &style, &font);
     Ok(())
 }
 
@@ -1106,7 +1106,7 @@ pub async fn glw_preview(
         // their per-shape labels are drawn.
         let mut style = build_glw_style(&req.glw.style, None)?;
         style.legend_position = None;
-        map.draw_glw_event_with_font(&event, &style, &font)?;
+        map.draw_glw_event_with_font(&event, &style, &font);
     } else {
         tracing::warn!("GLW event not found; preview overlay is fully transparent");
     }
@@ -1164,7 +1164,7 @@ pub async fn glw_legend_preview(
             if let Some(event) =
                 resolve_glw_event_readonly(&state, user.user_id, &glw.source).await?
             {
-                map.draw_glw_base_legend(&event.base, &style, &font)?;
+                map.draw_glw_base_legend(&event.base, &style, &font);
             } else {
                 tracing::warn!("GLW event not found; legend preview is fully transparent");
             }
@@ -3012,7 +3012,7 @@ async fn apply_glw_overlay_to_map(
         return Ok(None);
     };
     let style = build_glw_style(&ctx.options.style, ctx.options.legend_slot.as_deref())?;
-    map.draw_glw_event_with_font(&resolved.event, &style, &font)?;
+    map.draw_glw_event_with_font(&resolved.event, &style, &font);
     Ok(Some(resolved.glw_data_id))
 }
 
@@ -3851,7 +3851,7 @@ mod glw_preview_tests {
         // the top-left corner.
         let mut with_legend = Map::blank(rect.clone(), zoom);
         let style_with = build_glw_style(&GlwStyleOverrides::default(), Some("top_left"))?;
-        with_legend.draw_glw_event_with_font(&event, &style_with, &font)?;
+        with_legend.draw_glw_event_with_font(&event, &style_with, &font);
         assert!(
             top_left_has_pixels(&with_legend, 40),
             "the legend should fill the top-left corner when enabled"
@@ -3862,7 +3862,7 @@ mod glw_preview_tests {
         let mut without_legend = Map::blank(rect, zoom);
         let mut style_without = build_glw_style(&GlwStyleOverrides::default(), None)?;
         style_without.legend_position = None;
-        without_legend.draw_glw_event_with_font(&event, &style_without, &font)?;
+        without_legend.draw_glw_event_with_font(&event, &style_without, &font);
         assert!(
             !top_left_has_pixels(&without_legend, 40),
             "the preview overlay must not draw the legend"
@@ -4090,7 +4090,7 @@ mod glw_legend_preview_tests {
         let mut map = Map::blank_fit(rect, 512, 512)?;
         let style = build_glw_style(&GlwStyleOverrides::default(), Some("bottom_right"))?;
         // Exactly what the handler does: draw the legend alone (no shapes).
-        map.draw_glw_base_legend(&event.base, &style, &font)?;
+        map.draw_glw_base_legend(&event.base, &style, &font);
         let (w, h) = image::GenericImageView::dimensions(&map);
         assert!(
             corner_has_pixels(&map, w.saturating_sub(80), h.saturating_sub(80), 80, 80),
@@ -4122,7 +4122,7 @@ mod glw_legend_preview_tests {
         // The handler only calls draw when legend_position.is_some(); mirror
         // that guard, then assert nothing was drawn.
         if style.legend_position.is_some() {
-            map.draw_glw_base_legend(&event.base, &style, &font)?;
+            map.draw_glw_base_legend(&event.base, &style, &font);
         }
         let (w, h) = image::GenericImageView::dimensions(&map);
         for y in 0..h {

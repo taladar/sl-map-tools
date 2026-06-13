@@ -5,11 +5,11 @@
 //!
 //! ```no_run
 //! use sl_glw::{GlwEvent, GlwStyle, MapLikeGlwExt};
-//! # async fn demo<M: sl_map_apis::map_tiles::MapLike>(
+//! # fn demo<M: sl_map_apis::map_tiles::MapLike>(
 //! #     mut map: M, event: &GlwEvent,
-//! # ) -> Result<(), sl_glw::RenderError> {
-//! map.draw_glw_event(event, &GlwStyle::default())?;
-//! # Ok(()) }
+//! # ) {
+//! map.draw_glw_event(event, &GlwStyle::default());
+//! # }
 //! ```
 //!
 //! Text rendering (per-shape labels and the corner legend) is opt-in
@@ -22,7 +22,6 @@ use sl_types::map::{GridRectangleLike as _, RegionCoordinates};
 
 use sl_map_apis::text::{LabelStyle, measure_text};
 
-use crate::error::RenderError;
 use crate::geometry;
 use crate::style::GlwStyle;
 use crate::types::{
@@ -37,165 +36,103 @@ pub trait MapLikeGlwExt: MapLike {
     /// circle that intersects this map's grid rectangle), plus the
     /// optional base legend if the style requests it.
     ///
-    /// # Errors
-    ///
-    /// Returns [`RenderError`] if a rendering primitive fails. Note
-    /// that out-of-range areas/circles are skipped silently with a
-    /// `tracing::debug!`, not surfaced as an error.
-    fn draw_glw_event(&mut self, event: &GlwEvent, style: &GlwStyle) -> Result<(), RenderError> {
+    /// Out-of-range areas/circles are skipped silently with a
+    /// `tracing::debug!`.
+    fn draw_glw_event(&mut self, event: &GlwEvent, style: &GlwStyle) {
         for area in event.areas.as_slice() {
-            self.draw_glw_area(area, &event.base, style)?;
+            self.draw_glw_area(area, &event.base, style);
         }
         for circle in event.circles.as_slice() {
-            self.draw_glw_circle(circle, &event.base, style)?;
+            self.draw_glw_circle(circle, &event.base, style);
         }
         // Base legend currently a no-op; see module docs.
-        Ok(())
     }
 
     /// Draw a single area onto the map.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RenderError`] if a rendering primitive fails.
-    fn draw_glw_area(
-        &mut self,
-        area: &Area,
-        base: &Base,
-        style: &GlwStyle,
-    ) -> Result<(), RenderError> {
-        draw_area_default(self, area, base, style)
+    fn draw_glw_area(&mut self, area: &Area, base: &Base, style: &GlwStyle) {
+        draw_area_default(self, area, base, style);
     }
 
     /// Draw a single circle onto the map.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RenderError`] if a rendering primitive fails.
-    fn draw_glw_circle(
-        &mut self,
-        circle: &Circle,
-        base: &Base,
-        style: &GlwStyle,
-    ) -> Result<(), RenderError> {
-        draw_circle_default(self, circle, base, style)
+    fn draw_glw_circle(&mut self, circle: &Circle, base: &Base, style: &GlwStyle) {
+        draw_circle_default(self, circle, base, style);
     }
 
     /// Like [`Self::draw_glw_event`], but additionally renders the
     /// per-shape override labels (if `style.label_overrides`) and the
     /// base legend panel (if `style.legend_position != None`) using the
     /// supplied font.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RenderError`] if a rendering primitive fails.
-    fn draw_glw_event_with_font<F: Font>(
-        &mut self,
-        event: &GlwEvent,
-        style: &GlwStyle,
-        font: &F,
-    ) -> Result<(), RenderError> {
-        self.draw_glw_event(event, style)?;
+    fn draw_glw_event_with_font<F: Font>(&mut self, event: &GlwEvent, style: &GlwStyle, font: &F) {
+        self.draw_glw_event(event, style);
         if style.label_overrides {
             for area in event.areas.as_slice() {
-                self.draw_glw_area_label(area, &event.base, style, font)?;
+                self.draw_glw_area_label(area, &event.base, style, font);
             }
             for circle in event.circles.as_slice() {
-                self.draw_glw_circle_label(circle, &event.base, style, font)?;
+                self.draw_glw_circle_label(circle, &event.base, style, font);
             }
         }
         if style.legend_position.is_some() {
-            self.draw_glw_base_legend(&event.base, style, font)?;
+            self.draw_glw_base_legend(&event.base, style, font);
         }
-        Ok(())
     }
 
     /// Draw the override-summary label for a single area, using the
     /// supplied font. Only the fields the area actually overrides are
     /// listed.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RenderError`] if a rendering primitive fails.
     fn draw_glw_area_label<F: Font>(
         &mut self,
         area: &Area,
         base: &Base,
         style: &GlwStyle,
         font: &F,
-    ) -> Result<(), RenderError> {
-        draw_area_label_default(self, area, base, style, font)
+    ) {
+        draw_area_label_default(self, area, base, style, font);
     }
 
     /// Draw the override-summary label for a single circle, using the
     /// supplied font. Only the fields the circle actually overrides are
     /// listed.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RenderError`] if a rendering primitive fails.
     fn draw_glw_circle_label<F: Font>(
         &mut self,
         circle: &Circle,
         base: &Base,
         style: &GlwStyle,
         font: &F,
-    ) -> Result<(), RenderError> {
-        draw_circle_label_default(self, circle, base, style, font)
+    ) {
+        draw_circle_label_default(self, circle, base, style, font);
     }
 
     /// Draw the base wind/current/wave legend in the placement slot given by
     /// `style.legend_position`. No-op if that is `None`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RenderError`] if a rendering primitive fails.
-    fn draw_glw_base_legend<F: Font>(
-        &mut self,
-        base: &Base,
-        style: &GlwStyle,
-        font: &F,
-    ) -> Result<(), RenderError> {
-        draw_base_legend_default(self, base, style, font)
+    fn draw_glw_base_legend<F: Font>(&mut self, base: &Base, style: &GlwStyle, font: &F) {
+        draw_base_legend_default(self, base, style, font);
     }
 }
 
 impl<M: MapLike + ?Sized> MapLikeGlwExt for M {}
 
 /// Convenience free function: same as `MapLikeGlwExt::draw_glw_event`.
-///
-/// # Errors
-///
-/// Returns [`RenderError`] if a rendering primitive fails.
-pub fn draw_glw_event<M: MapLike + ?Sized>(
-    map: &mut M,
-    event: &GlwEvent,
-    style: &GlwStyle,
-) -> Result<(), RenderError> {
-    map.draw_glw_event(event, style)
+pub fn draw_glw_event<M: MapLike + ?Sized>(map: &mut M, event: &GlwEvent, style: &GlwStyle) {
+    map.draw_glw_event(event, style);
 }
 
 /// Default implementation of `draw_glw_area` (factored out so the
 /// blanket impl stays a no-op forwarding shell).
-fn draw_area_default<M: MapLike + ?Sized>(
-    map: &mut M,
-    area: &Area,
-    base: &Base,
-    style: &GlwStyle,
-) -> Result<(), RenderError> {
+fn draw_area_default<M: MapLike + ?Sized>(map: &mut M, area: &Area, base: &Base, style: &GlwStyle) {
     let Some((sw_x, sw_y)) = map.pixel_coordinates_for_coordinates(
         &area.grid_rectangle.lower_left_corner(),
         &RegionCoordinates::new(0.0, 0.0, 0.0),
     ) else {
         tracing::debug!(area = %area.name, "area outside map; skipping");
-        return Ok(());
+        return;
     };
     let Some((ne_x, ne_y)) = map.pixel_coordinates_for_coordinates(
         &area.grid_rectangle.upper_right_corner(),
         &RegionCoordinates::new(256.0, 256.0, 0.0),
     ) else {
         tracing::debug!(area = %area.name, "area corner outside map; skipping");
-        return Ok(());
+        return;
     };
     let (x0, x1) = sort_pair(sw_x, ne_x);
     let (y0, y1) = sort_pair(sw_y, ne_y);
@@ -276,7 +213,6 @@ fn draw_area_default<M: MapLike + ?Sized>(
         let anchor = (fx0 + inset, fy0 + fh - inset);
         draw_wave_glyph(map, anchor, height_m.meters(), style);
     }
-    Ok(())
 }
 
 /// Default implementation of `draw_glw_circle`.
@@ -285,11 +221,11 @@ fn draw_circle_default<M: MapLike + ?Sized>(
     circle: &Circle,
     base: &Base,
     style: &GlwStyle,
-) -> Result<(), RenderError> {
+) {
     let Some(center) = geometry::circle_center_pixel(map, &circle.center_sim, &circle.center_point)
     else {
         tracing::debug!(circle = %circle.name, "circle centre outside map; skipping");
-        return Ok(());
+        return;
     };
     let radius_px = (circle.radius.meters() * map.pixels_per_meter()).max(1.0);
     let cx_i = i32::try_from(center.0 as i64).unwrap_or(0);
@@ -345,7 +281,6 @@ fn draw_circle_default<M: MapLike + ?Sized>(
         let anchor = (center.0 - offset, center.1 + offset);
         draw_wave_glyph(map, anchor, height_m.meters(), style);
     }
-    Ok(())
 }
 
 /// Sort two unsigned pixel coordinates so the lower value comes first.
@@ -573,32 +508,26 @@ fn build_base_legend_lines(base: &Base) -> Vec<String> {
 
 /// Default implementation of `draw_glw_area_label`: places the label
 /// inside the rectangle, horizontally centred at the bottom edge.
-fn draw_area_label_default<M, F>(
-    map: &mut M,
-    area: &Area,
-    base: &Base,
-    style: &GlwStyle,
-    font: &F,
-) -> Result<(), RenderError>
+fn draw_area_label_default<M, F>(map: &mut M, area: &Area, base: &Base, style: &GlwStyle, font: &F)
 where
     M: MapLike + ?Sized,
     F: Font,
 {
     let lines = build_label_lines(base, area.wind, area.currents, area.waves);
     if lines.is_empty() {
-        return Ok(());
+        return;
     }
     let Some((sw_x, sw_y)) = map.pixel_coordinates_for_coordinates(
         &area.grid_rectangle.lower_left_corner(),
         &RegionCoordinates::new(0.0, 0.0, 0.0),
     ) else {
-        return Ok(());
+        return;
     };
     let Some((ne_x, ne_y)) = map.pixel_coordinates_for_coordinates(
         &area.grid_rectangle.upper_right_corner(),
         &RegionCoordinates::new(256.0, 256.0, 0.0),
     ) else {
-        return Ok(());
+        return;
     };
     let (x0, x1) = sort_pair(sw_x, ne_x);
     let (y0, y1) = sort_pair(sw_y, ne_y);
@@ -616,7 +545,6 @@ where
         align: sl_map_apis::coverage::HAlign::Left,
     };
     map.draw_text_label((x, y), &lines, &label_style, font);
-    Ok(())
 }
 
 /// Default implementation of `draw_glw_circle_label`: places the label
@@ -627,18 +555,17 @@ fn draw_circle_label_default<M, F>(
     base: &Base,
     style: &GlwStyle,
     font: &F,
-) -> Result<(), RenderError>
-where
+) where
     M: MapLike + ?Sized,
     F: Font,
 {
     let lines = build_label_lines(base, circle.wind, circle.currents, circle.waves);
     if lines.is_empty() {
-        return Ok(());
+        return;
     }
     let Some(center) = geometry::circle_center_pixel(map, &circle.center_sim, &circle.center_point)
     else {
-        return Ok(());
+        return;
     };
     let radius_px = (circle.radius.meters() * map.pixels_per_meter()).max(1.0);
     let scale = ab_glyph::PxScale::from(style.label_font_px);
@@ -662,24 +589,18 @@ where
         align: sl_map_apis::coverage::HAlign::Left,
     };
     map.draw_text_label((x, y), &lines, &label_style, font);
-    Ok(())
 }
 
 /// Default implementation of `draw_glw_base_legend`: draws a small
 /// translucent panel in the configured corner with the base wind /
 /// current / wave summary on it.
-fn draw_base_legend_default<M, F>(
-    map: &mut M,
-    base: &Base,
-    style: &GlwStyle,
-    font: &F,
-) -> Result<(), RenderError>
+fn draw_base_legend_default<M, F>(map: &mut M, base: &Base, style: &GlwStyle, font: &F)
 where
     M: MapLike + ?Sized,
     F: Font,
 {
     let Some(anchor) = style.legend_position else {
-        return Ok(());
+        return;
     };
     let lines = build_base_legend_lines(base);
     let scale = ab_glyph::PxScale::from(style.label_font_px);
@@ -713,7 +634,6 @@ where
         &label_style,
         font,
     );
-    Ok(())
 }
 
 /// Draw the wave glyph: two stacked sine-like rows, each with two
@@ -807,7 +727,7 @@ mod tests {
             legend_position: Some(PlacementSlot::TopLeft),
             ..GlwStyle::default()
         };
-        tl.draw_glw_event_with_font(&event, &style_tl, &font)?;
+        tl.draw_glw_event_with_font(&event, &style_tl, &font);
         assert!(
             alpha_at(&tl, 12, 12) != 0,
             "TopLeft legend should fill its corner"
@@ -820,7 +740,7 @@ mod tests {
             legend_position: Some(PlacementSlot::BottomRight),
             ..GlwStyle::default()
         };
-        br.draw_glw_event_with_font(&event, &style_br, &font)?;
+        br.draw_glw_event_with_font(&event, &style_br, &font);
         assert!(
             alpha_at(&br, w - 12, h - 12) != 0,
             "BottomRight legend fills its corner"
@@ -834,7 +754,7 @@ mod tests {
                 legend_position: Some(position),
                 ..GlwStyle::default()
             };
-            map.draw_glw_event_with_font(&event, &style, &font)?;
+            map.draw_glw_event_with_font(&event, &style, &font);
             let mut any = false;
             for y in 0..h {
                 for x in 0..w {

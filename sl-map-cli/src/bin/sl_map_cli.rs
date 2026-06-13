@@ -73,9 +73,6 @@ pub enum Error {
     /// error in the GLW event cache (HTTP fetch / disk cache / JSON)
     #[error("error in GLW event cache: {0}")]
     GlwEventCacheError(#[from] sl_glw::GlwEventCacheError),
-    /// error rendering the GLW overlay onto the map
-    #[error("error rendering GLW overlay: {0}")]
-    GlwRenderError(#[from] sl_glw::RenderError),
     /// error serializing or deserializing a GLW event to/from JSON
     /// (used by --glw-input-file and --glw-output-file)
     #[error("GLW JSON error: {0}")]
@@ -588,7 +585,7 @@ async fn fetch_and_draw_glw(
     }
 
     let style = args.build_style();
-    map.draw_glw_event_with_font(&event, &style, &font)?;
+    map.draw_glw_event_with_font(&event, &style, &font);
     Ok(true)
 }
 

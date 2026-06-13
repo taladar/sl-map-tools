@@ -16,11 +16,67 @@
 //! `glw122`, `glw127`). Override with [`GlwClient::with_glw_version`] or
 //! supply a fully custom base URL.
 
+use std::time::Duration;
+
 use crate::error::FetchError;
 use crate::types::{EventId, GlwEvent, GlwEventKey};
 
 /// Default protocol-and-host segment of the GLW URL.
 pub const DEFAULT_GLW_HOST: &str = "http://globalwind.net";
+
+/// Total per-request timeout for GLW fetches.
+const GLW_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Connection-establishment timeout for GLW fetches.
+const GLW_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Maximum GLW response body we are willing to buffer, in bytes. Event JSON is
+/// a few KiB; this cap guards against a hostile or malfunctioning server (the
+/// default host is plain HTTP, so the response is neither authenticated nor
+/// integrity-protected) streaming an unbounded body and exhausting memory.
+const MAX_GLW_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Build the `reqwest::Client` used for all GLW fetches, with request and
+/// connect timeouts. Without these a slow or hung upstream stalls a fetch
+/// forever — and in sl-map-web the fetch runs while the single GLW-cache mutex
+/// is held, so one stuck request would block every GLW operation process-wide.
+/// Falls back to a default client if the builder fails (e.g. TLS init), matching
+/// `reqwest::Client::new`'s own behaviour.
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "build_http_client reads clearly at the call sites in this and the cache module"
+)]
+#[must_use]
+pub fn build_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(GLW_REQUEST_TIMEOUT)
+        .connect_timeout(GLW_CONNECT_TIMEOUT)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+/// Read a response body into a `String`, refusing to buffer more than
+/// `max_bytes`. Aborts early on an over-cap advertised `Content-Length` and
+/// again while streaming chunks, so a server that omits or lies about the
+/// length still cannot exhaust memory. Invalid UTF-8 is replaced, matching
+/// `reqwest::Response::text`.
+async fn read_body_capped(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<String, FetchError> {
+    let limit_u64 = u64::try_from(max_bytes).unwrap_or(u64::MAX);
+    if response.content_length().is_some_and(|len| len > limit_u64) {
+        return Err(FetchError::ResponseTooLarge { limit: max_bytes });
+    }
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if buf.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(FetchError::ResponseTooLarge { limit: max_bytes });
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&buf).into_owned())
+}
 
 /// Default GLW protocol version segment in the path.
 pub const DEFAULT_GLW_VERSION: &str = "glw127";
@@ -91,7 +147,7 @@ impl GlwClient {
     /// is in an unusable shape; otherwise infallible.
     pub fn with_base_url(base_url: url::Url) -> Result<Self, FetchError> {
         Ok(Self {
-            http: reqwest::Client::new(),
+            http: build_http_client(),
             base_url,
         })
     }
@@ -239,10 +295,12 @@ async fn fetch_one(
     }
     if !status.is_success() {
         let url = response.url().to_string();
-        let body = response.text().await.unwrap_or_default();
+        let body = read_body_capped(response, MAX_GLW_RESPONSE_BYTES)
+            .await
+            .unwrap_or_default();
         return Err(FetchError::BadStatus { status, url, body });
     }
-    let body = response.text().await?;
+    let body = read_body_capped(response, MAX_GLW_RESPONSE_BYTES).await?;
     let trimmed = body.trim();
     if trimmed.is_empty() || trimmed == "{}" {
         tracing::debug!("GLW server returned empty body for event lookup");

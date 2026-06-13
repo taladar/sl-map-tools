@@ -78,7 +78,7 @@ impl GlwEventCache {
         cache_directory: PathBuf,
         base_url: Option<url::Url>,
     ) -> Result<Self, GlwEventCacheError> {
-        let client = reqwest::Client::new();
+        let client = crate::client::build_http_client();
         let base_url = match base_url {
             Some(u) => u,
             None => default_base_url().map_err(GlwEventCacheError::FetchError)?,

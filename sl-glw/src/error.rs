@@ -27,6 +27,12 @@ pub enum FetchError {
         /// the response body (truncated by the caller if needed)
         body: String,
     },
+    /// the response body exceeded the maximum we are willing to buffer
+    #[error("GLW response body exceeded the {limit}-byte limit")]
+    ResponseTooLarge {
+        /// the byte limit that was exceeded
+        limit: usize,
+    },
     /// the configured base URL was not parseable as a [`url::Url`]
     #[error("invalid GLW base URL: {0}")]
     InvalidBaseUrl(#[from] url::ParseError),

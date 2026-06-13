@@ -271,7 +271,7 @@ pub struct LogoPlacement {
     /// id of the saved logo (`saved_logos.logo_id`) to draw.
     pub logo_id: Uuid,
     /// integer scale factor applied with nearest-neighbour sampling (no
-    /// blur). Must be `1` or `2`.
+    /// blur). Must be `1`, `2` or `4` (enforced in `plan_logos`).
     #[serde(default = "default_logo_scale")]
     pub scale: u8,
     /// the slots this logo spans, as combined by the user (each a slot-anchor

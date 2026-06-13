@@ -356,6 +356,17 @@ button:disabled {
   pointer-events: none;
 }
 
+/* Per-region annotation overlay PNG (rectangles, names, grid coordinates),
+   rendered at the final-image resolution and dropped into the bounds rectangle.
+   Bottom-most overlay — the final render draws it just above the bare tiles,
+   below the GLW overlay, route and labels. JS inserts it right after the tiles
+   so DOM order keeps it under the others, and sets the explicit
+   left/top/width/height. */
+.map-container img.region-overlay {
+  position: absolute;
+  pointer-events: none;
+}
+
 /* Route PNG, rendered server-side at the final-image resolution with the very
    same spline + arrows code the output uses, and dropped into the bounds
    rectangle. Sits above the GLW shapes and below the bounds-guide SVG (so the

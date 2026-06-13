@@ -46,6 +46,65 @@ const MAX_OUTPUT_DIMENSION: u32 = 0x8000;
 /// monopolising the worker.
 const MAX_CONCURRENT_RENDERS_PER_USER: i64 = 3;
 
+/// Minimum rendered size of a region, in pixels, for the per-region name and
+/// grid-coordinate text overlays to be drawn. Below this the text simply does
+/// not fit a region and would smear across its neighbours, so both are skipped
+/// (the cheap rectangle outline is still drawn). 64 px corresponds to zoom
+/// level 3 or lower.
+const MIN_PIXELS_PER_REGION_FOR_REGION_LABELS: f32 = 64.0;
+
+/// Maximum number of regions in a render for which the per-region name and
+/// grid-coordinate overlays are drawn. Each region name is an individual
+/// upstream lookup (cached, but cold on first use), so a huge rectangle would
+/// fan out into thousands of requests. With the default 2048 px output and the
+/// 64 px-per-region floor above this works out to roughly a 32×32 region area.
+const MAX_REGIONS_FOR_REGION_LABELS: usize = 1024;
+
+/// Fraction of a region's rendered pixel size used as the region-label font
+/// size, before clamping to [`REGION_LABEL_FONT_MIN_PX`] /
+/// [`REGION_LABEL_FONT_MAX_PX`]. Keeps the text proportional to the zoom.
+const REGION_LABEL_FONT_FACTOR: f32 = 0.12;
+
+/// Lower clamp for the region-label font size in pixels.
+const REGION_LABEL_FONT_MIN_PX: f32 = 8.0;
+
+/// Upper clamp for the region-label font size in pixels.
+const REGION_LABEL_FONT_MAX_PX: f32 = 22.0;
+
+/// Padding in pixels between a region's lower-left corner and the text block
+/// drawn inside it.
+const REGION_LABEL_PADDING: i32 = 3;
+
+/// Colour of the per-region rectangle outline (opaque white; the maps it sits
+/// over are land/water so a light hairline reads on both).
+const REGION_RECTANGLE_COLOR: Rgba<u8> = Rgba([255, 255, 255, 255]);
+
+/// Which of the optional per-region annotation overlays to draw. All three are
+/// independent checkboxes in the UI and may be combined.
+#[derive(Debug, Clone, Copy, Default)]
+struct RegionOverlayOptions {
+    /// draw a hairline rectangle around each region.
+    rectangles: bool,
+    /// draw each region's name in its lower-left corner.
+    names: bool,
+    /// draw each region's `(x, y)` grid coordinates (above the name when both
+    /// are enabled).
+    coordinates: bool,
+}
+
+impl RegionOverlayOptions {
+    /// whether any overlay at all is requested.
+    const fn any(self) -> bool {
+        self.rectangles || self.names || self.coordinates
+    }
+
+    /// whether any text overlay (name or coordinates) is requested. Text is
+    /// the part gated by region size and count.
+    const fn any_text(self) -> bool {
+        self.names || self.coordinates
+    }
+}
+
 /// Output format for the rendered image.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -89,6 +148,10 @@ struct CommonParams {
     missing_region_color: Option<Rgba<u8>>,
     /// output image format.
     format: OutputFormat,
+    /// which optional per-region annotation overlays to draw.
+    region_overlay: RegionOverlayOptions,
+    /// id of the font to draw region names / coordinates with (when enabled).
+    region_label_font_id: Option<String>,
 }
 
 /// Where a render's GLW overlay should come from.
@@ -265,6 +328,19 @@ pub struct GridRectangleRequest {
     /// output format.
     #[serde(default)]
     pub format: OutputFormat,
+    /// draw a hairline rectangle around each region.
+    #[serde(default)]
+    pub draw_region_rectangles: bool,
+    /// draw each region's name in its lower-left corner.
+    #[serde(default)]
+    pub draw_region_names: bool,
+    /// draw each region's `(x, y)` grid coordinates above its name.
+    #[serde(default)]
+    pub draw_region_coordinates: bool,
+    /// id of the font to draw region names / coordinates with. Required only
+    /// when one of those overlays is enabled; must match a `GET /api/fonts` id.
+    #[serde(default)]
+    pub region_label_font_id: Option<String>,
     /// destination for the saved render. Defaults to the user's personal
     /// library. Format: `"personal"` or `"group:<uuid>"`.
     #[serde(default)]
@@ -348,6 +424,18 @@ pub struct SavedGridRectangleSettings {
     pub missing_region_color: Option<String>,
     /// output format (`png` / `jpeg`).
     pub format: String,
+    /// draw a hairline rectangle around each region.
+    #[serde(default)]
+    pub draw_region_rectangles: bool,
+    /// draw each region's name in its lower-left corner.
+    #[serde(default)]
+    pub draw_region_names: bool,
+    /// draw each region's `(x, y)` grid coordinates above its name.
+    #[serde(default)]
+    pub draw_region_coordinates: bool,
+    /// id of the font used for region names / coordinates.
+    #[serde(default)]
+    pub region_label_font_id: Option<String>,
     /// GLW overlay used for the render. When set, the carrier is always
     /// `GlwSource::SavedId` so `Regenerate` reliably points at a row in
     /// `saved_glw_data` instead of refetching from the GLW server.
@@ -363,6 +451,10 @@ pub struct SavedGridRectangleSettings {
 
 /// Persisted form fields for a USB-notecard render.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "this is a flat persisted form-settings record; each bool maps directly to one independent checkbox in the render form"
+)]
 pub struct SavedUsbNotecardSettings {
     /// the saved notecard the render was launched from.
     pub notecard_id: Uuid,
@@ -390,6 +482,18 @@ pub struct SavedUsbNotecardSettings {
     pub missing_region_color: Option<String>,
     /// output format (`png` / `jpeg`).
     pub format: String,
+    /// draw a hairline rectangle around each region.
+    #[serde(default)]
+    pub draw_region_rectangles: bool,
+    /// draw each region's name in its lower-left corner.
+    #[serde(default)]
+    pub draw_region_names: bool,
+    /// draw each region's `(x, y)` grid coordinates above its name.
+    #[serde(default)]
+    pub draw_region_coordinates: bool,
+    /// id of the font used for region names / coordinates.
+    #[serde(default)]
+    pub region_label_font_id: Option<String>,
     /// whether a without-route variant was also produced.
     pub save_without_route: bool,
     /// GLW overlay used for the render. See [`SavedGridRectangleSettings::glw`].
@@ -429,7 +533,18 @@ pub async fn grid_rectangle(
             .map(parse_color)
             .transpose()?,
         format: req.format,
+        region_overlay: RegionOverlayOptions {
+            rectangles: req.draw_region_rectangles,
+            names: req.draw_region_names,
+            coordinates: req.draw_region_coordinates,
+        },
+        region_label_font_id: req.region_label_font_id.clone(),
     };
+    assert_region_overlay_font(
+        &state,
+        common.region_overlay,
+        common.region_label_font_id.as_deref(),
+    )?;
     let destination = Destination::parse(req.save_to.as_deref().unwrap_or("personal"))?;
     library::assert_can_write(&state.db, user.user_id, destination).await?;
     assert_under_concurrent_limit(&state.db, user.user_id).await?;
@@ -465,6 +580,10 @@ pub async fn grid_rectangle(
         missing_map_tile_color: common.missing_map_tile_color.map(hex_from_rgba),
         missing_region_color: common.missing_region_color.map(hex_from_rgba),
         format: format_name(req.format).to_owned(),
+        draw_region_rectangles: req.draw_region_rectangles,
+        draw_region_names: req.draw_region_names,
+        draw_region_coordinates: req.draw_region_coordinates,
+        region_label_font_id: req.region_label_font_id.clone(),
         // The worker may rewrite this in place after a successful
         // fresh-fetch so the carrier always lands as `SavedId` at rest
         // (stable Regenerate).
@@ -509,6 +628,11 @@ pub async fn usb_notecard(
 ) -> Result<Json<StartedResponse>, Error> {
     let parsed = parse_render_form(multipart).await?;
     library::assert_can_write(&state.db, user.user_id, parsed.destination).await?;
+    assert_region_overlay_font(
+        &state,
+        parsed.common.region_overlay,
+        parsed.common.region_label_font_id.as_deref(),
+    )?;
     assert_under_concurrent_limit(&state.db, user.user_id).await?;
     let logo_ids = validate_logos(&state, user.user_id, parsed.destination, &parsed.logos).await?;
 
@@ -550,6 +674,10 @@ pub async fn usb_notecard(
         missing_map_tile_color: parsed.common.missing_map_tile_color.map(hex_from_rgba),
         missing_region_color: parsed.common.missing_region_color.map(hex_from_rgba),
         format: format_name(parsed.common.format).to_owned(),
+        draw_region_rectangles: parsed.common.region_overlay.rectangles,
+        draw_region_names: parsed.common.region_overlay.names,
+        draw_region_coordinates: parsed.common.region_overlay.coordinates,
+        region_label_font_id: parsed.common.region_label_font_id.clone(),
         save_without_route: parsed.with_without_route,
         // The worker may rewrite this in place after a successful
         // fresh-fetch so the carrier always lands as `SavedId` at rest.
@@ -1127,6 +1255,75 @@ pub async fn route_preview(
     Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], image).into_response())
 }
 
+/// Body of `POST /api/render/region-overlay-preview` (JSON).
+#[derive(Debug, Clone, Deserialize)]
+pub struct RegionOverlayPreviewRequest {
+    /// lower-left x grid coordinate of the final-image rectangle.
+    pub lower_left_x: u16,
+    /// lower-left y grid coordinate of the final-image rectangle.
+    pub lower_left_y: u16,
+    /// upper-right x grid coordinate of the final-image rectangle.
+    pub upper_right_x: u16,
+    /// upper-right y grid coordinate of the final-image rectangle.
+    pub upper_right_y: u16,
+    /// final-image fit width in pixels (so the overlay is rasterised at the
+    /// same resolution — and thus the same per-region pixel size — the real
+    /// render uses, keeping the size gate consistent between preview and final).
+    pub max_width: u32,
+    /// final-image fit height in pixels.
+    pub max_height: u32,
+    /// draw a hairline rectangle around each region.
+    #[serde(default)]
+    pub draw_region_rectangles: bool,
+    /// draw each region's name in its lower-left corner.
+    #[serde(default)]
+    pub draw_region_names: bool,
+    /// draw each region's `(x, y)` grid coordinates above its name.
+    #[serde(default)]
+    pub draw_region_coordinates: bool,
+    /// id of the font to draw region names / coordinates with.
+    #[serde(default)]
+    pub region_label_font_id: Option<String>,
+}
+
+/// `POST /api/render/region-overlay-preview` — rasterise the optional
+/// per-region annotation overlay (rectangles, names, grid coordinates) onto a
+/// transparent image at the final-image resolution, so the client-side preview
+/// can composite it into the bounds rectangle exactly where — and gated exactly
+/// as — the final render draws it. Read-only: nothing is persisted (region
+/// names are resolved through the shared cache only).
+///
+/// # Errors
+///
+/// Returns an error if the dimensions are invalid, a text overlay is requested
+/// without a (known) font, or PNG encoding fails.
+pub async fn region_overlay_preview(
+    _user: CurrentUser,
+    State(state): State<AppState>,
+    Json(req): Json<RegionOverlayPreviewRequest>,
+) -> Result<axum::response::Response, Error> {
+    use axum::response::IntoResponse as _;
+    validate_dimensions(req.max_width, req.max_height)?;
+    let rect = GridRectangle::new(
+        GridCoordinates::new(req.lower_left_x, req.lower_left_y),
+        GridCoordinates::new(req.upper_right_x, req.upper_right_y),
+    );
+    let opts = RegionOverlayOptions {
+        rectangles: req.draw_region_rectangles,
+        names: req.draw_region_names,
+        coordinates: req.draw_region_coordinates,
+    };
+    // Final-image resolution so the per-region pixel size — and therefore the
+    // size gate — matches the real render once the client scales the PNG into
+    // the bounds rectangle.
+    let mut map = Map::blank_fit(rect, req.max_width, req.max_height)?;
+    apply_region_overlay(&state, opts, req.region_label_font_id.as_deref(), &mut map).await?;
+    // PNG keeps the transparent background so only the overlay composites over
+    // the client's tiles.
+    let image = encode_map(&map, OutputFormat::Png)?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "image/png")], image).into_response())
+}
+
 /// Plan the labels + logos against `occupancy` (an overlay-only map carrying
 /// the route + GLW shapes) and draw them onto a fresh transparent map of the
 /// same final-image dimensions, returning the PNG. Used by the placement
@@ -1351,6 +1548,10 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
     let mut missing_region_color: Option<Rgba<u8>> = None;
     let mut format = OutputFormat::default();
     let mut with_without_route = false;
+    let mut draw_region_rectangles = false;
+    let mut draw_region_names = false;
+    let mut draw_region_coordinates = false;
+    let mut region_label_font_id: Option<String> = None;
     let mut notecard_text: Option<String> = None;
     let mut notecard_file: Option<String> = None;
     let mut notecard_id: Option<Uuid> = None;
@@ -1427,10 +1628,26 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
             }
             "save_without_route" => {
                 let raw = field.text().await?;
-                with_without_route = matches!(
-                    raw.trim().to_ascii_lowercase().as_str(),
-                    "1" | "on" | "true" | "yes"
-                );
+                with_without_route = parse_form_bool(&raw);
+            }
+            "draw_region_rectangles" => {
+                let raw = field.text().await?;
+                draw_region_rectangles = parse_form_bool(&raw);
+            }
+            "draw_region_names" => {
+                let raw = field.text().await?;
+                draw_region_names = parse_form_bool(&raw);
+            }
+            "draw_region_coordinates" => {
+                let raw = field.text().await?;
+                draw_region_coordinates = parse_form_bool(&raw);
+            }
+            "region_label_font_id" => {
+                let raw = field.text().await?;
+                let trimmed = raw.trim();
+                if !trimmed.is_empty() {
+                    region_label_font_id = Some(trimmed.to_owned());
+                }
             }
             "save_to" => destination_raw = Some(field.text().await?),
             "notecard_name" => {
@@ -1484,6 +1701,12 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
         missing_map_tile_color,
         missing_region_color,
         format,
+        region_overlay: RegionOverlayOptions {
+            rectangles: draw_region_rectangles,
+            names: draw_region_names,
+            coordinates: draw_region_coordinates,
+        },
+        region_label_font_id,
     };
     let notecard_source = if let Some(id) = notecard_id {
         if notecard_file.is_some() || notecard_text.is_some() {
@@ -1915,6 +2138,172 @@ fn spawn_usb_notecard_job(
     }));
 }
 
+// =====================================================================
+// Per-region annotation overlay — rectangles, names, grid coordinates.
+// Shared between the two render workers and the preview endpoint.
+// =====================================================================
+
+/// Reject a render up front when a per-region text overlay (names or
+/// coordinates) is requested but no usable font is available, so the submit
+/// endpoints fail with a clear `400` instead of the background job dying. A
+/// no-text request (rectangles only, or nothing) needs no font and always
+/// passes.
+fn assert_region_overlay_font(
+    state: &AppState,
+    opts: RegionOverlayOptions,
+    font_id: Option<&str>,
+) -> Result<(), Error> {
+    if !opts.any_text() {
+        return Ok(());
+    }
+    let font_id = font_id.ok_or_else(|| {
+        Error::BadRequest("select a font for the region name / coordinate overlay".to_owned())
+    })?;
+    if state.fonts.path_for(font_id).is_none() {
+        return Err(Error::BadRequest(format!(
+            "unknown region label font_id `{font_id}`"
+        )));
+    }
+    Ok(())
+}
+
+/// Whether the per-region name / coordinate text overlay should be drawn for a
+/// render whose regions render at `pixels_per_region` pixels each and which
+/// covers `region_count` regions. Both gates must pass: the text only fits
+/// (and only reads) above a minimum per-region size, and resolving a name per
+/// region only stays affordable below a maximum region count.
+const fn region_text_overlay_allowed(pixels_per_region: f32, region_count: usize) -> bool {
+    pixels_per_region >= MIN_PIXELS_PER_REGION_FOR_REGION_LABELS
+        && region_count <= MAX_REGIONS_FOR_REGION_LABELS
+}
+
+/// Draw the requested per-region annotations onto `map`.
+///
+/// The rectangle outline is cheap and always drawn when requested. The name
+/// and coordinate text is gated twice — both must hold or the text is skipped
+/// (rectangles still draw): each region must render at least
+/// [`MIN_PIXELS_PER_REGION_FOR_REGION_LABELS`] pixels (otherwise the text does
+/// not fit), and the render must cover at most [`MAX_REGIONS_FOR_REGION_LABELS`]
+/// regions (otherwise resolving every region name fans out into too many
+/// upstream lookups). When both name and coordinate overlays are on, the
+/// coordinates are stacked above the name.
+async fn apply_region_overlay(
+    state: &AppState,
+    opts: RegionOverlayOptions,
+    font_id: Option<&str>,
+    map: &mut Map,
+) -> Result<(), Error> {
+    use sl_map_apis::map_tiles::MapLike as _;
+    use sl_types::map::GridRectangleLike as _;
+    if !opts.any() {
+        return Ok(());
+    }
+    if opts.rectangles {
+        draw_region_rectangles(map);
+    }
+    if !opts.any_text() {
+        return Ok(());
+    }
+    // Gate the text overlays: too-small regions can't hold the text, and
+    // too-many regions would fan name resolution out into thousands of lookups.
+    let pixels_per_region = map.pixels_per_region();
+    let region_count = usize::from(map.size_x()).saturating_mul(usize::from(map.size_y()));
+    if !region_text_overlay_allowed(pixels_per_region, region_count) {
+        tracing::info!(
+            pixels_per_region,
+            region_count,
+            "skipping region name/coordinate overlay (regions too small or too many)"
+        );
+        return Ok(());
+    }
+    let font_id = font_id.ok_or_else(|| {
+        Error::BadRequest("select a font for the region name / coordinate overlay".to_owned())
+    })?;
+    let font_path = state
+        .fonts
+        .path_for(font_id)
+        .ok_or_else(|| Error::BadRequest(format!("unknown region label font_id `{font_id}`")))?;
+    let font = sl_map_apis::text::load_font(font_path)?;
+    let scale = ab_glyph::PxScale::from(
+        (pixels_per_region * REGION_LABEL_FONT_FACTOR)
+            .clamp(REGION_LABEL_FONT_MIN_PX, REGION_LABEL_FONT_MAX_PX),
+    );
+    let style = sl_map_apis::text::LabelStyle {
+        scale,
+        fg: Rgba([255, 255, 255, 255]),
+        shadow: Rgba([0, 0, 0, 180]),
+        align: sl_map_apis::coverage::HAlign::Left,
+    };
+    for x in map.x_range() {
+        for y in map.y_range() {
+            let grid = GridCoordinates::new(x, y);
+            // The region's lower-left corner is the text anchor; SL y points up
+            // while image y points down, so this pixel is the *bottom* edge.
+            let Some((left, bottom)) = map.pixel_coordinates_for_coordinates(
+                &grid,
+                &RegionCoordinates::new(0f32, 0f32, 0f32),
+            ) else {
+                continue;
+            };
+            let mut lines: Vec<String> = Vec::new();
+            if opts.coordinates {
+                lines.push(format!("({x}, {y})"));
+            }
+            if opts.names {
+                let name = {
+                    let mut region = state.region_cache.lock().await;
+                    region.get_region_name(&grid).await.ok().flatten()
+                };
+                if let Some(name) = name {
+                    lines.push(name.to_string());
+                }
+            }
+            if lines.is_empty() {
+                continue;
+            }
+            let (_text_w, text_h) = sl_map_apis::text::measure_text(scale, &font, &lines);
+            let origin_x = i32::try_from(left)
+                .unwrap_or(0)
+                .saturating_add(REGION_LABEL_PADDING);
+            let origin_y = i32::try_from(bottom)
+                .unwrap_or(0)
+                .saturating_sub(REGION_LABEL_PADDING)
+                .saturating_sub(i32::try_from(text_h).unwrap_or(0));
+            map.draw_text_label((origin_x, origin_y), &lines, &style, &font);
+        }
+    }
+    Ok(())
+}
+
+/// Draw a hairline outline around every region of `map`. The two opposite
+/// corners are mapped to pixels (same pattern as `crop_imm_grid_rectangle`) so
+/// no floating-point pixel-per-region rounding is needed.
+fn draw_region_rectangles(map: &mut Map) {
+    use sl_map_apis::map_tiles::MapLike as _;
+    use sl_types::map::GridRectangleLike as _;
+    for x in map.x_range() {
+        for y in map.y_range() {
+            let grid = GridCoordinates::new(x, y);
+            let lower_left = map.pixel_coordinates_for_coordinates(
+                &grid,
+                &RegionCoordinates::new(0f32, 0f32, 0f32),
+            );
+            let upper_right = map.pixel_coordinates_for_coordinates(
+                &grid,
+                &RegionCoordinates::new(256f32, 256f32, 0f32),
+            );
+            let (Some((x0, y0)), Some((x1, y1))) = (lower_left, upper_right) else {
+                continue;
+            };
+            let left = x0.min(x1);
+            let top = y0.min(y1);
+            let width = x0.abs_diff(x1);
+            let height = y0.abs_diff(y1);
+            map.draw_hollow_rect(left, top, width, height, REGION_RECTANGLE_COLOR);
+        }
+    }
+}
+
 /// Run the grid-rectangle render to completion.
 async fn run_grid_rectangle_job(
     state: AppState,
@@ -1948,8 +2337,16 @@ async fn run_grid_rectangle_job(
     // wait for the forwarder so the event history is complete before we
     // signal completion to subscribers
     let _join = forwarder.await;
-    // Layering: base map below, GLW overlay on top. No route for the
-    // grid-rectangle path. Labels go last, above everything.
+    // Layering: base map below, then the per-region annotation overlay, then
+    // the GLW overlay. No route for the grid-rectangle path. Labels go last,
+    // above everything.
+    apply_region_overlay(
+        &state,
+        common.region_overlay,
+        common.region_label_font_id.as_deref(),
+        &mut map,
+    )
+    .await?;
     let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
     // Free space for labels/logos is measured on an overlay-only map (GLW shapes
     // only, no route on the grid path); the same planning rejected an over-full
@@ -2030,6 +2427,16 @@ async fn run_usb_notecard_job(
         } else {
             None
         };
+        // Per-region annotation overlay sits just above the bare tiles (and so
+        // is excluded from the without-route diagnostic above), below the GLW
+        // overlay and route.
+        apply_region_overlay(
+            &state,
+            common.region_overlay,
+            common.region_label_font_id.as_deref(),
+            &mut map,
+        )
+        .await?;
         // GLW overlay sits between the base map and the route, so the
         // route line stays the most-readable element of the final
         // image.
@@ -2186,6 +2593,16 @@ fn parse_u32(s: &str) -> Result<u32, Error> {
     s.trim()
         .parse::<u32>()
         .map_err(|e| Error::BadRequest(format!("invalid u32 `{s}`: {e}")))
+}
+
+/// Interpret a multipart-form checkbox value as a boolean. Treats the usual
+/// truthy spellings as `true` and everything else (including absence, handled
+/// by the field never appearing) as `false`.
+fn parse_form_bool(raw: &str) -> bool {
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "1" | "on" | "true" | "yes"
+    )
 }
 
 // =====================================================================
@@ -3749,6 +4166,67 @@ mod label_tests {
         )?;
         assert_eq!(g, vec![P::TopCenter, P::TopLeft]);
         assert_matches!(parse_slot_group(P::TopLeft, &["nope".to_owned()]), Err(_));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod region_overlay_tests {
+    use super::*;
+
+    #[test]
+    fn text_overlay_gate_requires_both_size_and_count() {
+        // both within bounds -> allowed
+        assert!(region_text_overlay_allowed(
+            MIN_PIXELS_PER_REGION_FOR_REGION_LABELS,
+            MAX_REGIONS_FOR_REGION_LABELS
+        ));
+        // regions too small -> skipped even with a single region
+        assert!(!region_text_overlay_allowed(
+            MIN_PIXELS_PER_REGION_FOR_REGION_LABELS - 1.0,
+            1
+        ));
+        // too many regions -> skipped even when each is large
+        assert!(!region_text_overlay_allowed(
+            256.0,
+            MAX_REGIONS_FOR_REGION_LABELS + 1
+        ));
+        // a comfortably-sized, small render is allowed
+        assert!(region_text_overlay_allowed(256.0, 4));
+    }
+
+    #[test]
+    fn rectangles_write_visible_pixels() -> Result<(), Box<dyn std::error::Error>> {
+        // a 4x4 region map at zoom 4 -> 128x128 transparent pixels
+        let rect = GridRectangle::new(
+            GridCoordinates::new(1000, 1000),
+            GridCoordinates::new(1003, 1003),
+        );
+        let mut map = Map::blank(rect, ZoomLevel::try_new(4)?);
+        // before drawing, the map is fully transparent
+        let before = (0..map.height())
+            .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
+            .any(|(x, y)| {
+                let image::Rgba([_, _, _, a]) = map.get_pixel(x, y);
+                a != 0
+            });
+        assert!(!before, "blank map should start fully transparent");
+
+        draw_region_rectangles(&mut map);
+
+        // the region grid lines must now have written opaque white pixels
+        let mut drawn = false;
+        for y in 0..map.height() {
+            for x in 0..map.width() {
+                if map.get_pixel(x, y) == image::Rgba([255, 255, 255, 255]) {
+                    drawn = true;
+                }
+            }
+        }
+        assert!(
+            drawn,
+            "draw_region_rectangles should write opaque white pixels"
+        );
         Ok(())
     }
 }

@@ -159,6 +159,14 @@ pub fn build(state: AppState) -> Router {
             "/api/render/placement-preview/usb-notecard",
             post(render::placement_preview_usb_notecard),
         )
+        // read-only: rasterise the optional per-region annotation overlay
+        // (rectangles, names, grid coordinates) as a transparent PNG at the
+        // final-image resolution, for the preview to composite into the bounds
+        // rectangle exactly as — and gated exactly as — the real render draws it
+        .route(
+            "/api/render/region-overlay-preview",
+            post(render::region_overlay_preview),
+        )
         .route("/api/render/{id}/events", get(events::events))
         .route("/api/render/{id}/image", get(result::image))
         .route(

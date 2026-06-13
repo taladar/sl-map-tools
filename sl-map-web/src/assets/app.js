@@ -305,6 +305,18 @@ function readSharedParams() {
   };
 }
 
+// The optional per-region annotation overlay options, shared by the render
+// submit and the preview. The font is only consulted server-side when names or
+// coordinates are enabled.
+function readRegionOverlay() {
+  return {
+    draw_region_rectangles: $("draw_region_rectangles").checked,
+    draw_region_names: $("draw_region_names").checked,
+    draw_region_coordinates: $("draw_region_coordinates").checked,
+    region_label_font_id: $("region_label_font_id").value || null,
+  };
+}
+
 function readBorders() {
   const get = (id) => {
     const v = $(id).value.trim();
@@ -324,6 +336,22 @@ function appendBordersToForm(fd) {
   Object.entries(b).forEach(([k, v]) => {
     if (v !== null) fd.append(k, String(v));
   });
+}
+
+// Append the per-region annotation overlay fields to a multipart form (the
+// notecard render path). Booleans are only sent when checked; the font id is
+// only sent when a name/coordinate overlay needs it.
+function appendRegionOverlayToForm(fd) {
+  const o = readRegionOverlay();
+  if (o.draw_region_rectangles) fd.append("draw_region_rectangles", "true");
+  if (o.draw_region_names) fd.append("draw_region_names", "true");
+  if (o.draw_region_coordinates) fd.append("draw_region_coordinates", "true");
+  if (
+    (o.draw_region_names || o.draw_region_coordinates) &&
+    o.region_label_font_id
+  ) {
+    fd.append("region_label_font_id", o.region_label_font_id);
+  }
 }
 
 // --- preview composition ---
@@ -467,6 +495,81 @@ async function fetchPlacementOverlay(rect) {
   }
   if (!resp.ok) throw new Error(await resp.text());
   return URL.createObjectURL(await resp.blob());
+}
+
+// Fetch the per-region annotation overlay (rectangles, names, grid
+// coordinates) rendered at the final-image resolution as a blob URL, or null
+// when none of the three overlays is enabled. The server draws it with the very
+// same code — and the very same size/count gate — the final render uses, onto a
+// transparent image the size of the final image, which the caller drops into
+// the bounds rectangle so it lines up with the tiles. Throws on server error.
+async function fetchRegionOverlay(rect) {
+  const overlay = readRegionOverlay();
+  if (
+    !overlay.draw_region_rectangles &&
+    !overlay.draw_region_names &&
+    !overlay.draw_region_coordinates
+  ) {
+    return null;
+  }
+  const shared = readSharedParams();
+  const resp = await fetch("/api/render/region-overlay-preview", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      lower_left_x: rect.lower_left_x,
+      lower_left_y: rect.lower_left_y,
+      upper_right_x: rect.upper_right_x,
+      upper_right_y: rect.upper_right_y,
+      max_width: shared.max_width,
+      max_height: shared.max_height,
+      ...overlay,
+    }),
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  return URL.createObjectURL(await resp.blob());
+}
+
+// Draw (or refresh) the per-region annotation overlay on a preview viewport,
+// reading the bounds rectangle from the viewport dataset. Inserted right after
+// the tiles so it stays below the GLW overlay, route and labels (matching the
+// final render's layering). The fetch returns null (image dropped) when no
+// region overlay is enabled.
+function drawRegionOverlay(viewport, rect) {
+  if (!viewport) return;
+  const old = viewport.querySelector("img.region-overlay");
+  if (old) old.remove();
+  const bx = parseFloat(viewport.dataset.boundsX);
+  const by = parseFloat(viewport.dataset.boundsY);
+  const bw = parseFloat(viewport.dataset.boundsW);
+  const bh = parseFloat(viewport.dataset.boundsH);
+  if (![bx, by, bw, bh].every(Number.isFinite)) return;
+  const img = document.createElement("img");
+  img.className = "region-overlay";
+  img.style.left = `${bx.toFixed(1)}px`;
+  img.style.top = `${by.toFixed(1)}px`;
+  img.style.width = `${bw.toFixed(1)}px`;
+  img.style.height = `${bh.toFixed(1)}px`;
+  // Insert just above the tiles so DOM order keeps it under the other overlays.
+  const tiles = viewport.querySelector(".tiles");
+  if (tiles && tiles.nextSibling) viewport.insertBefore(img, tiles.nextSibling);
+  else viewport.appendChild(img);
+  fetchRegionOverlay(rect)
+    .then((url) => {
+      clearOverlayError("Region overlay failed");
+      if (!url) {
+        img.remove();
+        return;
+      }
+      img.src = url;
+      img.addEventListener("load", () => URL.revokeObjectURL(url), {
+        once: true,
+      });
+    })
+    .catch((err) => {
+      img.remove();
+      $("preview-status").textContent = `Region overlay failed: ${err.message}`;
+    });
 }
 
 function renderPreview(rect, waypoints) {
@@ -654,6 +757,11 @@ function renderPreview(rect, waypoints) {
   viewport.dataset.boundsY = String(boundsY);
   viewport.dataset.boundsW = String(boundsW);
   viewport.dataset.boundsH = String(boundsH);
+
+  // Per-region annotation overlay (rectangles / names / coordinates). Drawn
+  // here, after the bounds dataset is set, so it can be refreshed independently
+  // when the checkboxes change.
+  drawRegionOverlay(viewport, rect);
 
   // GLW legend (independent of fit). The labels/logos overlay is drawn by
   // findFreeSlots() below, once the per-slot fit has been recomputed, so an
@@ -1281,6 +1389,7 @@ async function renderGrid() {
       upper_right_x: parseInt($("ur_x").value, 10),
       upper_right_y: parseInt($("ur_y").value, 10),
       ...readSharedParams(),
+      ...readRegionOverlay(),
       save_to: $("save_to").value,
     };
     if (glw) body.glw = glw;
@@ -1321,6 +1430,7 @@ async function renderNotecard() {
     fd.append("save_to", $("save_to").value);
     const withWithoutRoute = $("save_without_route").checked;
     if (withWithoutRoute) fd.append("save_without_route", "true");
+    appendRegionOverlayToForm(fd);
     const glw = readGlwOptions();
     if (glw) fd.append("glw_json", JSON.stringify(glw));
     const labels = readLabels();
@@ -1392,6 +1502,18 @@ async function applyPrefillFromQuery() {
   }
 }
 
+// Restore the per-region annotation overlay checkboxes + font from a saved
+// settings record (Regenerate). The font select may not be populated yet, so
+// the desired value is stashed in dataset.want for populateFontSelect to apply.
+function applyRegionOverlaySettings(s) {
+  $("draw_region_rectangles").checked = !!s.draw_region_rectangles;
+  $("draw_region_names").checked = !!s.draw_region_names;
+  $("draw_region_coordinates").checked = !!s.draw_region_coordinates;
+  if (s.region_label_font_id) {
+    populateFontSelect($("region_label_font_id"), s.region_label_font_id);
+  }
+}
+
 function applySettings(s) {
   // Rebuild placement state from scratch so restored labels/logos/legend
   // replace whatever was configured before.
@@ -1414,6 +1536,7 @@ function applySettings(s) {
       $("missing_region_color").disabled = false;
       $("missing_region_color").value = s.missing_region_color;
     }
+    applyRegionOverlaySettings(s);
     applyGlwSettings(s.glw);
     applyLabels(s.labels);
     applyLogos(s.logos);
@@ -1439,6 +1562,7 @@ function applySettings(s) {
     $("border_west").value = s.border_west || "";
     if (s.color) $("route_color").value = s.color;
     $("save_without_route").checked = !!s.save_without_route;
+    applyRegionOverlaySettings(s);
     if (s.notecard_id) {
       selectReuseNotecard(s.notecard_id).catch(() => {});
     }
@@ -1553,6 +1677,8 @@ async function loadFonts() {
     document
       .querySelectorAll(".label-font")
       .forEach((labelSel) => populateFontSelect(labelSel));
+    // the region name / coordinate overlay shares the same font list
+    populateFontSelect($("region_label_font_id"));
   } catch (err) {
     console.error("font list failed:", err);
   }
@@ -2004,6 +2130,15 @@ function refreshPlacementPreview() {
   if (!vp || !lastPreviewRect) return;
   drawLegendOverlay(vp, lastPreviewRect);
   drawPlacementOverlay(vp, lastPreviewRect);
+}
+
+// Re-fetch and redraw just the per-region annotation overlay on the current
+// preview (if any), without rebuilding the tiles. Called when one of the region
+// overlay checkboxes or the region label font changes.
+function refreshRegionOverlay() {
+  const vp = $("preview-container").querySelector(".viewport");
+  if (!vp || !lastPreviewRect) return;
+  drawRegionOverlay(vp, lastPreviewRect);
 }
 
 // Measure rendered text size against the server. Returns {width, height}.
@@ -3014,6 +3149,17 @@ document.addEventListener("DOMContentLoaded", () => {
       validateLabels();
       refreshPlacementPreview();
     });
+  // The per-region annotation overlay redraws on its own without touching the
+  // tiles or the placement overlays.
+  [
+    "draw_region_rectangles",
+    "draw_region_names",
+    "draw_region_coordinates",
+    "region_label_font_id",
+  ].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener("change", () => refreshRegionOverlay());
+  });
   // The slot occupancy differs between the grid and notecard tabs, so a tab
   // switch invalidates the cached result (the placements themselves persist).
   document.querySelectorAll(".tab").forEach((tab) => {

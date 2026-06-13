@@ -189,6 +189,29 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
         );
     }
 
+    /// draw a hollow (1px outline) rectangle with its top-left corner at the
+    /// given pixel coordinates and the given pixel size. Coordinates outside
+    /// the image are clipped by the drawing routine. Used for the optional
+    /// per-region grid overlay.
+    fn draw_hollow_rect(
+        &mut self,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        color: image::Rgba<u8>,
+    ) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        #[expect(
+            clippy::cast_possible_wrap,
+            reason = "our pixel coordinates should be nowhere near i32::MAX"
+        )]
+        let rect = imageproc::rect::Rect::at(x as i32, y as i32).of_size(width, height);
+        imageproc::drawing::draw_hollow_rect_mut(self.image_mut(), rect, color);
+    }
+
     /// draw a line from the given coordinates to the given coordinates
     fn draw_line(
         &mut self,

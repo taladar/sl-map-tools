@@ -87,6 +87,32 @@
         because each region inside an existing map tile has to be checked
         individually against the upstream server.
       </p>
+      <div class="row">
+        <label class="checkbox">
+          <input type="checkbox" id="draw_region_rectangles" />
+          Draw region rectangles
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" id="draw_region_names" />
+          Draw region names
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" id="draw_region_coordinates" />
+          Draw region grid coordinates
+        </label>
+        <label>
+          Region label font
+          <select id="region_label_font_id"></select>
+        </label>
+      </div>
+      <p class="note">
+        Region names and grid coordinates are only drawn when each region is
+        rendered large enough for the text to fit and the render covers a
+        limited number of regions (roughly a 32×32 area) — at smaller sizes or
+        larger areas the names will not fit and resolving every name would be
+        too slow, so they are skipped. The rectangle outline is always drawn
+        when enabled.
+      </p>
     </section>
 
     <nav class="tabs" role="tablist">

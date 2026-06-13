@@ -1573,6 +1573,10 @@ function showResult(jobId, meta, withWithoutRoute) {
   } else {
     hide(dlNoRoute);
   }
+  // Metadata button: opens the same modal (PPS HUD config + how-to) the library
+  // offers, built from the metadata already fetched for this render.
+  const metaBtn = $("result-metadata-btn");
+  if (metaBtn) metaBtn.onclick = () => metadataModal(meta);
 }
 
 async function renderGrid() {

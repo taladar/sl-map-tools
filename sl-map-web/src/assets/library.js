@@ -359,86 +359,8 @@ async function showMetadataModal(renderId) {
     });
     return;
   }
-  await infoModal({
-    title: "Render metadata",
-    build: (dialog) => {
-      const aspect = document.createElement("dl");
-      aspect.className = "metadata-list";
-      const rows = [
-        ["Width (regions)", meta.aspect_x],
-        ["Height (regions)", meta.aspect_y],
-        [
-          "Aspect ratio",
-          typeof meta.aspect_ratio === "number"
-            ? meta.aspect_ratio.toFixed(4)
-            : meta.aspect_ratio,
-        ],
-      ];
-      for (const [label, value] of rows) {
-        const dt = document.createElement("dt");
-        dt.textContent = label;
-        const dd = document.createElement("dd");
-        dd.textContent = String(value);
-        aspect.appendChild(dt);
-        aspect.appendChild(dd);
-      }
-      dialog.appendChild(aspect);
-
-      const ppsHeading = document.createElement("h3");
-      ppsHeading.className = "metadata-subheading";
-      ppsHeading.textContent = "PPS HUD config";
-      dialog.appendChild(ppsHeading);
-
-      const ppsBox = document.createElement("textarea");
-      ppsBox.className = "metadata-pps";
-      ppsBox.readOnly = true;
-      ppsBox.value = meta.pps_hud_config || "";
-      ppsBox.rows = 3;
-      dialog.appendChild(ppsBox);
-
-      const copyRow = document.createElement("div");
-      copyRow.className = "metadata-copy-row";
-      const copyBtn = document.createElement("button");
-      copyBtn.type = "button";
-      copyBtn.className = "modal-btn";
-      copyBtn.textContent = "Copy config";
-      const copyStatus = document.createElement("span");
-      copyStatus.className = "metadata-copy-status";
-      copyBtn.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(ppsBox.value);
-          copyStatus.textContent = "Copied.";
-        } catch (_err) {
-          ppsBox.select();
-          copyStatus.textContent = "Copy failed — selected for manual copy.";
-        }
-      });
-      copyRow.appendChild(copyBtn);
-      copyRow.appendChild(copyStatus);
-      dialog.appendChild(copyRow);
-
-      const howHeading = document.createElement("h3");
-      howHeading.className = "metadata-subheading";
-      howHeading.textContent = "How to apply this to your PPS HUD";
-      dialog.appendChild(howHeading);
-
-      const steps = document.createElement("ol");
-      steps.className = "metadata-steps";
-      const items = [
-        "Upload the rendered map image to Second Life and apply it to the map face of the PPS.",
-        "Resize the PPS so its display matches the aspect ratio shown above.",
-        'Edit your PPS and enable "Edit Linked Parts".',
-        "Select the dot prim and paste the config above into its description.",
-        "Long-click the dot prim and choose Reset in the menu that appears.",
-      ];
-      for (const text of items) {
-        const li = document.createElement("li");
-        li.textContent = text;
-        steps.appendChild(li);
-      }
-      dialog.appendChild(steps);
-    },
-  });
+  // Shared render-metadata modal (defined in modal.js).
+  await metadataModal(meta);
 }
 
 async function showGlwPayloadModal(glwDataId, name) {

@@ -2819,6 +2819,19 @@ struct ResolvedGlwEvent {
 /// For fresh-fetch sources (event id / key / pasted JSON) this inserts
 /// a new `saved_glw_data` row. For the `SavedId` source it just reads
 /// the existing row.
+///
+/// The freshly-inserted row is a first-class, named library item in its own
+/// right: the GLW list query (`fetch_glw_data_for`) returns it regardless of
+/// whether any render links it, and the user can rename or delete it from the
+/// library's GLW tab. So a render that *fails* after this insert does not
+/// strand a hidden orphan — the row stays a usable, user-managed library entry
+/// (and, being unlinked, is freely deletable; the `ON DELETE RESTRICT` FK only
+/// bites once a *successful* render references it). That is deliberate: it
+/// keeps `Regenerate` stable and lets the user re-render from the already
+/// fetched data without hitting the upstream again. Consequently we do *not*
+/// garbage-collect "unreferenced" GLW rows — doing so would delete intentional
+/// library items, unlike the render/logo *file* sweeper, whose targets have no
+/// independent meaning.
 async fn resolve_glw_event(
     state: &AppState,
     ctx: &GlwJobCtx,

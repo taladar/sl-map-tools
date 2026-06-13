@@ -667,8 +667,17 @@ async function fetchRegionOverlay(rect) {
     setRegionOverlayStatus("");
   }
   if (!imageData) return null;
-  const blob = await (await fetch(`data:image/png;base64,${imageData}`)).blob();
-  return URL.createObjectURL(blob);
+  return URL.createObjectURL(base64PngToBlob(imageData));
+}
+
+// Decode a base64 PNG into a Blob without fetch(). The page's CSP sets
+// connect-src 'self', which blocks fetch("data:image/png;base64,…") (it fails
+// with a NetworkError); img-src allows blob:, so we build the Blob directly.
+function base64PngToBlob(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: "image/png" });
 }
 
 // Draw (or refresh) the per-region annotation overlay on a preview viewport,

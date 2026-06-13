@@ -527,7 +527,12 @@ function glwRow(g) {
   rename.textContent = "Rename";
   rename.className = "row-action";
   rename.addEventListener("click", async () => {
-    const next = window.prompt("New name for this GLW data row:", g.name || "");
+    const next = await promptModal({
+      title: "Rename GLW data",
+      message: "New name for this GLW data row:",
+      default: g.name || "",
+      okText: "Rename",
+    });
     if (!next || !next.trim()) return;
     const resp = await fetch(`/api/glw/${g.glw_data_id}`, {
       method: "PATCH",
@@ -595,7 +600,12 @@ function logoRow(l) {
   rename.textContent = "Rename";
   rename.className = "row-action";
   rename.addEventListener("click", async () => {
-    const next = window.prompt("New name for this logo:", l.name || "");
+    const next = await promptModal({
+      title: "Rename logo",
+      message: "New name for this logo:",
+      default: l.name || "",
+      okText: "Rename",
+    });
     if (!next || !next.trim()) return;
     const resp = await fetch(`/api/logos/${l.logo_id}`, {
       method: "PATCH",

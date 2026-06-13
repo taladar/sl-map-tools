@@ -1080,6 +1080,16 @@ pub async fn glw_preview(
         GridCoordinates::new(req.lower_left_x, req.lower_left_y),
         GridCoordinates::new(req.upper_right_x, req.upper_right_y),
     );
+    // The rectangle and zoom are client-controlled, so bound the resulting
+    // image the same way the other render/preview endpoints do via
+    // `validate_dimensions`. Unlike those, this preview sizes the map from a
+    // fixed zoom rather than fitting into max_width/max_height, so a tiny
+    // request (e.g. the full grid at zoom 1) would otherwise drive an enormous
+    // `RgbaImage` allocation. Reproduce `Map::blank`'s sizing to check it.
+    let pixels_per_region = u32::from(zoom.pixels_per_region());
+    let width = pixels_per_region.saturating_mul(u32::from(rect.size_x()));
+    let height = pixels_per_region.saturating_mul(u32::from(rect.size_y()));
+    validate_dimensions(width, height)?;
     let mut map = Map::blank(rect, zoom);
     // Resolve the font first so a missing-font request fails fast.
     let font_path = state

@@ -98,6 +98,17 @@ pub struct LabelStyle {
     pub align: crate::coverage::HAlign,
 }
 
+/// Vertical advance between successive lines of a multi-line label, in pixels
+/// (before rounding): the scaled font height plus its line gap. Shared by
+/// [`measure_text`] and [`draw_multi_line_with_shadow`] so the fit check and
+/// the drawing round the *same* value and agree exactly on line stacking
+/// (measuring used to ceil the two metrics separately and so could over-report
+/// the height by up to one pixel per line).
+fn line_advance_px<F: Font>(scale: ab_glyph::PxScale, font: &F) -> f32 {
+    let scaled = font.as_scaled(scale);
+    scaled.height() + scaled.line_gap()
+}
+
 /// Measure the rendered pixel size `(width, height)` of a multi-line text
 /// block at the given font and pixel size, where width is the widest line and
 /// height is the total stacked height of `lines.len()` rows. Use this to check
@@ -111,13 +122,12 @@ pub fn measure_text<F: Font>(scale: ab_glyph::PxScale, font: &F, lines: &[String
     if lines.is_empty() {
         return (0, 0);
     }
-    let scaled = font.as_scaled(scale);
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         reason = "font line metrics for a sane pixel size are small positive values, nowhere near u32::MAX"
     )]
-    let line_height = scaled.height().ceil() as u32 + scaled.line_gap().ceil() as u32;
+    let line_height = line_advance_px(scale, font).ceil() as u32;
     let mut max_w: u32 = 0;
     for line in lines {
         let (w, _) = imageproc::drawing::text_size(scale, font, line);
@@ -173,12 +183,11 @@ pub(crate) fn draw_multi_line_with_shadow<M, F>(
     M: MapLike + ?Sized,
     F: Font,
 {
-    let scaled = font.as_scaled(style.scale);
     #[expect(
         clippy::cast_possible_truncation,
         reason = "font line metrics for a sane pixel size are small positive values, nowhere near i32::MAX"
     )]
-    let line_height = (scaled.height() + scaled.line_gap()).ceil() as i32;
+    let line_height = line_advance_px(style.scale, font).ceil() as i32;
     // Block width is the widest line; each line is aligned within it so the
     // per-line alignment is independent of the block's placement in the slot.
     let mut block_w: u32 = 0;

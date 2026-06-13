@@ -483,19 +483,22 @@ impl OccupancyGrid {
         }
     }
 
-    /// the largest all-free cell rectangle anchored per the given axis modes,
+    /// the largest-area axis-anchored rectangle of cells satisfying `free`,
     /// confined to the column range `[c_lo, c_hi)` and row range `[r_lo, r_hi)`,
-    /// returned as an exclusive cell rectangle `(r0, r1, c0, c1)`. Confining the
-    /// search to a slot's own third (see [`Self::col_band`] / [`Self::row_band`])
-    /// keeps the nine per-slot rectangles from overlapping one another.
-    fn largest_free_rect_in(
-        &self,
+    /// returned as an exclusive cell rectangle `(r0, r1, c0, c1)`, or `None` when
+    /// the band is empty or holds no qualifying cell. This is the shared
+    /// height-scan packing loop behind both [`Self::largest_free_rect_in`] (which
+    /// counts genuinely-free cells) and [`Self::subset_rect`] (which additionally
+    /// restricts to an allowed mask); they differ only in the `free` predicate
+    /// and what they map the result onto.
+    fn best_anchored_rect(
         c_lo: u32,
         c_hi: u32,
         r_lo: u32,
         r_hi: u32,
         hmode: AxisMode,
         vmode: AxisMode,
+        free: impl Fn(u32, u32) -> bool,
     ) -> Option<(u32, u32, u32, u32)> {
         if c_lo >= c_hi || r_lo >= r_hi {
             return None;
@@ -511,9 +514,7 @@ impl OccupancyGrid {
                     (r0, r0 + h)
                 }
             };
-            let col_free: Vec<bool> = (c_lo..c_hi)
-                .map(|c| (r0..r1).all(|r| self.is_free(r, c)))
-                .collect();
+            let col_free: Vec<bool> = (c_lo..c_hi).map(|c| (r0..r1).all(|r| free(r, c))).collect();
             let (off, w) = run_for_mode(&col_free, hmode);
             if w == 0 {
                 continue;
@@ -524,6 +525,25 @@ impl OccupancyGrid {
             }
         }
         best.map(|(_, r0, r1, c0, c1)| (r0, r1, c0, c1))
+    }
+
+    /// the largest all-free cell rectangle anchored per the given axis modes,
+    /// confined to the column range `[c_lo, c_hi)` and row range `[r_lo, r_hi)`,
+    /// returned as an exclusive cell rectangle `(r0, r1, c0, c1)`. Confining the
+    /// search to a slot's own third (see [`Self::col_band`] / [`Self::row_band`])
+    /// keeps the nine per-slot rectangles from overlapping one another.
+    fn largest_free_rect_in(
+        &self,
+        c_lo: u32,
+        c_hi: u32,
+        r_lo: u32,
+        r_hi: u32,
+        hmode: AxisMode,
+        vmode: AxisMode,
+    ) -> Option<(u32, u32, u32, u32)> {
+        Self::best_anchored_rect(c_lo, c_hi, r_lo, r_hi, hmode, vmode, |r, c| {
+            self.is_free(r, c)
+        })
     }
 
     /// the largest all-free cell rectangle anchored per the given axis modes,
@@ -785,30 +805,8 @@ impl OccupancyGrid {
             (false, true) => AxisMode::End,
             _ => AxisMode::Center,
         };
-        let band_rows = r_hi - r_lo;
-        let mut best: Option<(u32, u32, u32, u32, u32)> = None;
-        for h in 1..=band_rows {
-            let (r0, r1) = match vmode {
-                AxisMode::Start => (r_lo, r_lo + h),
-                AxisMode::End => (r_hi - h, r_hi),
-                AxisMode::Center => {
-                    let r0 = r_lo + (band_rows - h) / 2;
-                    (r0, r0 + h)
-                }
-            };
-            let col_free: Vec<bool> = (c_lo..c_hi)
-                .map(|c| (r0..r1).all(|r| free_allowed(r, c)))
-                .collect();
-            let (off, w) = run_for_mode(&col_free, hmode);
-            if w == 0 {
-                continue;
-            }
-            let area = w * h;
-            if best.is_none_or(|b| area > b.0) {
-                best = Some((area, r0, r1, c_lo + off, c_lo + off + w));
-            }
-        }
-        best.map(|(_, r0, r1, c0, c1)| self.cell_rect_to_pixels(r0, r1, c0, c1))
+        Self::best_anchored_rect(c_lo, c_hi, r_lo, r_hi, hmode, vmode, free_allowed)
+            .map(|(r0, r1, c0, c1)| self.cell_rect_to_pixels(r0, r1, c0, c1))
     }
 }
 

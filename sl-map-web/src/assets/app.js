@@ -580,6 +580,7 @@ function renderPreview(rect, waypoints) {
   if (sizeX <= 0 || sizeY <= 0) {
     $("preview-status").textContent =
       "Invalid rectangle: corners must be ordered.";
+    $("preview-region-info").textContent = "";
     return;
   }
   const z = pickPreviewZoom(sizeX, sizeY);
@@ -784,6 +785,11 @@ function renderPreview(rect, waypoints) {
     `Preview at zoom ${z} (${pixelsPerRegion(z)} px/region) — ` +
     `${tilesX * tilesY} tile${tilesX * tilesY === 1 ? "" : "s"}, ` +
     `${widthPx}×${heightPx} px.`;
+
+  // Region count of the selected area (the final-render rectangle, not the
+  // tile grid shown, which may extend past it to tile boundaries).
+  $("preview-region-info").textContent =
+    `Selected area: ${sizeX} × ${sizeY} regions (${sizeX * sizeY} total).`;
 
   // Auto-compute the free slots so the per-slot buttons appear with the tiles.
   findFreeSlots();

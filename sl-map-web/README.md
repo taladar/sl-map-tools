@@ -35,6 +35,8 @@ binary refuses to start if any of them is missing or invalid.
 | Variable | Purpose |
 |---|---|
 | `SL_MAP_WEB_CACHE_DIR` | tile / region cache directory shared with the CLI |
+| `SL_MAP_WEB_STORAGE_DIR` | directory for saved render images and uploaded logos (subdirectories are created on startup) |
+| `SL_MAP_WEB_FONTS_DIR` | directory of selectable `.ttf` fonts for text overlays (GLW labels/legend, region names, text labels); must exist and contain at least one `.ttf` at startup (the workspace ships `DejaVuSans.ttf`) |
 | `SL_MAP_WEB_LSL_REGISTRATION_BEARER_TOKEN` | pre-shared secret presented by the LSL registration object |
 | `SL_MAP_WEB_SESSION_SIGNING_KEY` | base64-encoded ≥ 64 bytes used to sign the session cookie |
 | `SL_MAP_WEB_PUBLIC_BASE_URL` | external base URL (e.g. `https://maps.example.org`) used to build set-password links |

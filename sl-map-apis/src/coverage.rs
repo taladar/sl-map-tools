@@ -202,7 +202,7 @@ impl PlacementSlot {
     /// `(horizontal_index, vertical_index)`, each in `0..3` with `0` against the
     /// low edge
     #[must_use]
-    const fn cell_3x3(self) -> (u8, u8) {
+    pub const fn cell(self) -> (u8, u8) {
         match self {
             Self::TopLeft => (0, 0),
             Self::TopCenter => (1, 0),
@@ -219,7 +219,7 @@ impl PlacementSlot {
     /// how this anchor is positioned along the horizontal axis
     #[must_use]
     const fn horizontal(self) -> AxisMode {
-        match self.cell_3x3().0 {
+        match self.cell().0 {
             0 => AxisMode::Start,
             1 => AxisMode::Center,
             _ => AxisMode::End,
@@ -229,7 +229,7 @@ impl PlacementSlot {
     /// how this anchor is positioned along the vertical axis
     #[must_use]
     const fn vertical(self) -> AxisMode {
-        match self.cell_3x3().1 {
+        match self.cell().1 {
             0 => AxisMode::Start,
             1 => AxisMode::Center,
             _ => AxisMode::End,
@@ -242,7 +242,7 @@ impl PlacementSlot {
     /// as the default alignment for text labels, overridable per axis.
     #[must_use]
     pub const fn default_alignment(self) -> (HAlign, VAlign) {
-        let (h, v) = self.cell_3x3();
+        let (h, v) = self.cell();
         let ha = match h {
             0 => HAlign::Left,
             1 => HAlign::Center,
@@ -276,15 +276,40 @@ impl PlacementSlot {
         (x, y)
     }
 
+    /// whether a set of slots forms a solid, axis-aligned rectangle in the 3x3
+    /// layout — i.e. their cells exactly fill a contiguous block of columns by
+    /// rows with no gaps. An L-shape or a diagonal pair is not a rectangle; an
+    /// empty or single-slot group trivially is. This is the rule that combined
+    /// (multi-slot) placements must satisfy, enforced by both the CLI and the
+    /// web server.
+    #[must_use]
+    pub fn slots_form_rectangle(slots: &[Self]) -> bool {
+        let mut cells: Vec<(u8, u8)> = slots.iter().map(|s| s.cell()).collect();
+        cells.sort_unstable();
+        cells.dedup();
+        if cells.len() <= 1 {
+            return true;
+        }
+        let c_min = cells.iter().map(|&(c, _)| c).min().unwrap_or(0);
+        let c_max = cells.iter().map(|&(c, _)| c).max().unwrap_or(0);
+        let r_min = cells.iter().map(|&(_, r)| r).min().unwrap_or(0);
+        let r_max = cells.iter().map(|&(_, r)| r).max().unwrap_or(0);
+        let width = u32::from(c_max - c_min) + 1;
+        let height = u32::from(r_max - r_min) + 1;
+        // distinct cells exactly filling the bounding box (count == area) is both
+        // necessary and sufficient for a gap-free, contiguous rectangle
+        u32::try_from(cells.len()).unwrap_or(u32::MAX) == width * height
+    }
+
     /// the anchors orthogonally adjacent to this one in the 3x3 layout (the
     /// up/down/left/right neighbours, never the diagonals)
     #[must_use]
     pub fn neighbours(self) -> Vec<Self> {
-        let (h, v) = self.cell_3x3();
+        let (h, v) = self.cell();
         Self::ALL
             .into_iter()
             .filter(|other| {
-                let (oh, ov) = other.cell_3x3();
+                let (oh, ov) = other.cell();
                 let dh = (i16::from(h) - i16::from(oh)).abs();
                 let dv = (i16::from(v) - i16::from(ov)).abs();
                 dh + dv == 1
@@ -579,7 +604,7 @@ impl OccupancyGrid {
         if self.cols == 0 || self.rows == 0 {
             return 0f32;
         }
-        let (hi, vi) = anchor.cell_3x3();
+        let (hi, vi) = anchor.cell();
         let (c0, c1) = self.col_band(u32::from(hi));
         let (r0, r1) = self.row_band(u32::from(vi));
         let mut total = 0u32;
@@ -682,7 +707,7 @@ impl OccupancyGrid {
         PlacementSlot::ALL
             .into_iter()
             .map(|anchor| {
-                let (h3, v3) = anchor.cell_3x3();
+                let (h3, v3) = anchor.cell();
                 let (c_lo, c_hi) = self.col_band(u32::from(h3));
                 let (r_lo, r_hi) = self.row_band(u32::from(v3));
                 let free = self.largest_free_rect_in(
@@ -757,7 +782,7 @@ impl OccupancyGrid {
         let (mut has_left, mut has_right, mut has_top, mut has_bottom) =
             (false, false, false, false);
         for &s in slots {
-            let (h3, v3) = s.cell_3x3();
+            let (h3, v3) = s.cell();
             match h3 {
                 0 => has_left = true,
                 2 => has_right = true,
@@ -976,6 +1001,44 @@ mod test {
                 .contains(&PlacementSlot::MiddleLeft)
         );
         Ok(())
+    }
+
+    #[test]
+    fn slots_form_rectangle_accepts_solid_blocks_only() {
+        use PlacementSlot::{
+            BottomCenter, BottomLeft, BottomRight, Center, MiddleLeft, TopCenter, TopLeft, TopRight,
+        };
+        // trivial cases
+        assert!(PlacementSlot::slots_form_rectangle(&[]));
+        assert!(PlacementSlot::slots_form_rectangle(&[TopLeft]));
+        // a full top row, an adjacent column pair and a 2x2 block are rectangles
+        assert!(PlacementSlot::slots_form_rectangle(&[
+            TopLeft, TopCenter, TopRight
+        ]));
+        assert!(PlacementSlot::slots_form_rectangle(&[TopLeft, MiddleLeft]));
+        assert!(PlacementSlot::slots_form_rectangle(&[
+            TopLeft, TopCenter, MiddleLeft, Center
+        ]));
+        // the whole 3x3 grid, and the full left column
+        assert!(PlacementSlot::slots_form_rectangle(&PlacementSlot::ALL));
+        assert!(PlacementSlot::slots_form_rectangle(&[
+            TopLeft, MiddleLeft, BottomLeft
+        ]));
+        // duplicates collapse to a single cell
+        assert!(PlacementSlot::slots_form_rectangle(&[TopLeft, TopLeft]));
+        // a diagonal pair, an L-shape and a gapped column are not rectangles
+        assert!(!PlacementSlot::slots_form_rectangle(&[
+            TopLeft,
+            BottomRight
+        ]));
+        assert!(!PlacementSlot::slots_form_rectangle(&[
+            TopLeft, TopCenter, MiddleLeft
+        ]));
+        assert!(!PlacementSlot::slots_form_rectangle(&[TopLeft, BottomLeft]));
+        assert!(!PlacementSlot::slots_form_rectangle(&[
+            TopLeft,
+            BottomCenter
+        ]));
     }
 
     #[test]

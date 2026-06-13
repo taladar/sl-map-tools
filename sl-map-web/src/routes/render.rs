@@ -887,14 +887,22 @@ fn parse_groups(
                     "a placement group must not be empty".to_owned(),
                 ));
             }
-            g.iter()
+            let group = g
+                .iter()
                 .map(|name| {
                     name.parse::<sl_map_apis::coverage::PlacementSlot>()
                         .map_err(|err: sl_map_apis::coverage::ParsePlacementSlotError| {
                             Error::BadRequest(err.to_string())
                         })
                 })
-                .collect()
+                .collect::<Result<Vec<_>, _>>()?;
+            if !sl_map_apis::coverage::PlacementSlot::slots_form_rectangle(&group) {
+                return Err(Error::BadRequest(format!(
+                    "the combined slot group `{}` does not form a solid rectangle",
+                    g.join("+")
+                )));
+            }
+            Ok(group)
         })
         .collect()
 }
@@ -3134,6 +3142,16 @@ fn parse_slot_group(
     if !group.contains(&anchor) {
         group.push(anchor);
     }
+    if !sl_map_apis::coverage::PlacementSlot::slots_form_rectangle(&group) {
+        let joined = group
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("+");
+        return Err(Error::BadRequest(format!(
+            "the combined slot group `{joined}` does not form a solid rectangle"
+        )));
+    }
     Ok(group)
 }
 
@@ -4432,6 +4450,43 @@ mod label_tests {
         assert_eq!(g, vec![P::TopCenter, P::TopLeft]);
         assert_matches!(parse_slot_group(P::TopLeft, &["nope".to_owned()]), Err(_));
         Ok(())
+    }
+
+    #[test]
+    fn parse_slot_group_rejects_non_rectangular_groups() {
+        use sl_map_apis::coverage::PlacementSlot as P;
+        // an adjacent pair forming a 1x2 rectangle is accepted
+        assert_matches!(
+            parse_slot_group(P::TopLeft, &["top_center".to_owned()]),
+            Ok(_)
+        );
+        // a diagonal pair does not form a solid rectangle
+        assert_matches!(
+            parse_slot_group(P::TopLeft, &["bottom_right".to_owned()]),
+            Err(_)
+        );
+        // an L-shape (anchor appended) is rejected too
+        assert_matches!(
+            parse_slot_group(
+                P::TopLeft,
+                &["top_center".to_owned(), "middle_left".to_owned()],
+            ),
+            Err(_)
+        );
+    }
+
+    #[test]
+    fn parse_groups_rejects_non_rectangular_groups() {
+        // a contiguous row is accepted
+        assert_matches!(
+            parse_groups(&[vec!["top_left".to_owned(), "top_center".to_owned()]]),
+            Ok(_)
+        );
+        // a gapped column (top + bottom, missing middle) is rejected
+        assert_matches!(
+            parse_groups(&[vec!["top_left".to_owned(), "bottom_left".to_owned()]]),
+            Err(_)
+        );
     }
 }
 

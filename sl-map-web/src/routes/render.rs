@@ -34,11 +34,20 @@ use crate::storage;
 
 /// Maximum width or height of a rendered image in pixels. The renderer
 /// allocates roughly `4 * max_width * max_height` bytes for the output
-/// buffer, so 32 768 caps a single render at ~4 GiB on the extreme edge
-/// while leaving plenty of headroom for any realistic map. Beyond a sanity
-/// check it prevents an attacker-supplied `max_width` / `max_height` from
-/// driving the server out of memory.
+/// buffer. This per-side cap is paired with [`MAX_OUTPUT_AREA`] below, which
+/// bounds the actual allocation: alone, 32 768 per side would permit a
+/// ~4 GiB buffer. Beyond a sanity check it prevents an attacker-supplied
+/// `max_width` / `max_height` from driving the server out of memory.
 const MAX_OUTPUT_DIMENSION: u32 = 0x8000;
+
+/// Maximum area (`max_width * max_height`) of a rendered image in pixels.
+/// 16 384² ≈ 268 M pixels ≈ 1 GiB for the RGBA output buffer — far above any
+/// realistic map (the form default is 2048²) yet well below the ~4 GiB a
+/// 32 768² request would otherwise allocate. This is the real memory bound and
+/// applies on every render *and* read-only preview path (which, unlike the
+/// submit path, have no per-user concurrency cap), so a single request — or a
+/// burst of preview requests — cannot exhaust memory.
+const MAX_OUTPUT_AREA: u64 = 0x4000 * 0x4000;
 
 /// Maximum number of in-progress renders per user. The renderer is
 /// serialised on a single map-tile cache, so one user submitting many
@@ -2714,6 +2723,13 @@ fn validate_dimensions(max_width: u32, max_height: u32) -> Result<(), Error> {
     if max_width > MAX_OUTPUT_DIMENSION || max_height > MAX_OUTPUT_DIMENSION {
         return Err(Error::BadRequest(format!(
             "max_width and max_height must each be <= {MAX_OUTPUT_DIMENSION}"
+        )));
+    }
+    // The product is the real allocation bound; the per-side cap alone would
+    // still allow a ~4 GiB buffer. u64 so the multiply cannot overflow.
+    if u64::from(max_width).saturating_mul(u64::from(max_height)) > MAX_OUTPUT_AREA {
+        return Err(Error::BadRequest(format!(
+            "max_width * max_height must be <= {MAX_OUTPUT_AREA} pixels"
         )));
     }
     Ok(())

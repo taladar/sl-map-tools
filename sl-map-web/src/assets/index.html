@@ -489,11 +489,107 @@
       </div>
       <p id="preview-status" class="status"></p>
       <p id="placement-status" class="status"></p>
-      <div
-        id="preview-container"
-        class="map-container"
-        aria-hidden="true"
-      ></div>
+      <p class="note" id="dragzoom-hint" style="display: none">
+        Drag a rectangle on the map to zoom the selection into that part of the
+        current area.
+      </p>
+      <div id="preview-viewport-wrap" class="preview-viewport-wrap hidden">
+        <div class="extend-group corner">
+          <button
+            type="button"
+            class="icon-btn extend"
+            id="extend_all"
+            title="Expand all sides by one region"
+          >
+            ⤢
+          </button>
+          <button
+            type="button"
+            class="icon-btn shrink"
+            id="shrink_all"
+            title="Shrink all sides by one region"
+          >
+            ⤡
+          </button>
+        </div>
+        <div class="extend-group north">
+          <button
+            type="button"
+            class="icon-btn shrink"
+            id="shrink_n"
+            title="Shrink the north (+y) side by one region"
+          >
+            ▼
+          </button>
+          <button
+            type="button"
+            class="icon-btn extend"
+            id="extend_n"
+            title="Extend the north (+y) side by one region"
+          >
+            ▲
+          </button>
+        </div>
+        <div class="extend-group south">
+          <button
+            type="button"
+            class="icon-btn extend"
+            id="extend_s"
+            title="Extend the south (-y) side by one region"
+          >
+            ▼
+          </button>
+          <button
+            type="button"
+            class="icon-btn shrink"
+            id="shrink_s"
+            title="Shrink the south (-y) side by one region"
+          >
+            ▲
+          </button>
+        </div>
+        <div class="extend-group west">
+          <button
+            type="button"
+            class="icon-btn extend"
+            id="extend_w"
+            title="Extend the west (-x) side by one region"
+          >
+            ◀
+          </button>
+          <button
+            type="button"
+            class="icon-btn shrink"
+            id="shrink_w"
+            title="Shrink the west (-x) side by one region"
+          >
+            ▶
+          </button>
+        </div>
+        <div class="extend-group east">
+          <button
+            type="button"
+            class="icon-btn shrink"
+            id="shrink_e"
+            title="Shrink the east (+x) side by one region"
+          >
+            ◀
+          </button>
+          <button
+            type="button"
+            class="icon-btn extend"
+            id="extend_e"
+            title="Extend the east (+x) side by one region"
+          >
+            ▶
+          </button>
+        </div>
+        <div
+          id="preview-container"
+          class="map-container"
+          aria-hidden="true"
+        ></div>
+      </div>
     </section>
 
     <section class="render-area">

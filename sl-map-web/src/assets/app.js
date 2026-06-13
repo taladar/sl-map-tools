@@ -665,6 +665,13 @@ function renderPreview(rect, waypoints) {
   drawSlotsOverlay(viewport);
   lastPreviewRect = rect;
 
+  // The edge/corner extend-shrink controls only make sense once a preview
+  // exists; reveal them now. The drag-select hint is grid-rectangle-mode only.
+  const wrap = $("preview-viewport-wrap");
+  if (wrap) wrap.classList.remove("hidden");
+  const dragHint = $("dragzoom-hint");
+  if (dragHint) dragHint.style.display = activeTab() === "grid" ? "" : "none";
+
   $("preview-status").textContent =
     `Preview at zoom ${z} (${pixelsPerRegion(z)} px/region) — ` +
     `${tilesX * tilesY} tile${tilesX * tilesY === 1 ? "" : "s"}, ` +
@@ -863,6 +870,217 @@ $("preview_btn").addEventListener("click", () => {
   if (activeTab() === "notecard") previewNotecard();
   else previewGrid();
 });
+
+// --- extend / shrink the previewed area by one region ---
+
+const GRID_MIN = 0;
+const GRID_MAX = 65535;
+
+function clampInt(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+// Adjust the four grid-rectangle corner inputs. delta is +1 (extend outward) or
+// -1 (shrink inward). Shrinking is refused on an axis that would invert the
+// rectangle (the selection must stay at least one region wide/tall).
+function adjustGridRect(dir, delta) {
+  let llx = parseInt($("ll_x").value, 10);
+  let lly = parseInt($("ll_y").value, 10);
+  let urx = parseInt($("ur_x").value, 10);
+  let ury = parseInt($("ur_y").value, 10);
+  if (![llx, lly, urx, ury].every(Number.isFinite)) return;
+  const sides = dir === "all" ? ["north", "south", "east", "west"] : [dir];
+  for (const s of sides) {
+    if (s === "north") ury = clampInt(ury + delta, lly, GRID_MAX);
+    else if (s === "south") lly = clampInt(lly - delta, GRID_MIN, ury);
+    else if (s === "east") urx = clampInt(urx + delta, llx, GRID_MAX);
+    else if (s === "west") llx = clampInt(llx - delta, GRID_MIN, urx);
+  }
+  $("ll_x").value = String(llx);
+  $("ll_y").value = String(lly);
+  $("ur_x").value = String(urx);
+  $("ur_y").value = String(ury);
+  previewGrid();
+}
+
+// Adjust the USB-notecard borders. Borders extend the route's bare rectangle and
+// cannot be negative, so shrink clamps at 0 (it can never reach inside the
+// route). The uniform "All sides" field overrides the per-side fields, so we
+// first normalise it into the per-side fields and clear it, matching
+// NotecardForm::borders() precedence, then apply the delta.
+function adjustNotecardBorders(dir, delta) {
+  const b = readBorders();
+  const uniform = b.border_regions;
+  const eff = (perSide) => (uniform !== null ? uniform : (perSide ?? 0));
+  let north = eff(b.border_north);
+  let south = eff(b.border_south);
+  let east = eff(b.border_east);
+  let west = eff(b.border_west);
+  const bump = (v) => Math.max(0, v + delta);
+  const sides = dir === "all" ? ["north", "south", "east", "west"] : [dir];
+  for (const s of sides) {
+    if (s === "north") north = bump(north);
+    else if (s === "south") south = bump(south);
+    else if (s === "east") east = bump(east);
+    else if (s === "west") west = bump(west);
+  }
+  $("border_regions").value = "";
+  $("border_north").value = String(north);
+  $("border_south").value = String(south);
+  $("border_east").value = String(east);
+  $("border_west").value = String(west);
+  previewNotecard();
+}
+
+// dir ∈ {"north","south","east","west","all"}, delta ∈ {+1,-1}
+function adjustArea(dir, delta) {
+  if (activeTab() === "notecard") adjustNotecardBorders(dir, delta);
+  else adjustGridRect(dir, delta);
+}
+
+[
+  ["extend_n", "north", 1],
+  ["shrink_n", "north", -1],
+  ["extend_s", "south", 1],
+  ["shrink_s", "south", -1],
+  ["extend_e", "east", 1],
+  ["shrink_e", "east", -1],
+  ["extend_w", "west", 1],
+  ["shrink_w", "west", -1],
+  ["extend_all", "all", 1],
+  ["shrink_all", "all", -1],
+].forEach(([id, dir, delta]) => {
+  const el = $(id);
+  if (el) el.addEventListener("click", () => adjustArea(dir, delta));
+});
+
+// --- drag-select to zoom (grid rectangle mode only) ---
+
+// Map a pointer event to a region coordinate within the previewed rectangle,
+// using the bounds geometry stored on the viewport dataset. Returns null when
+// there is no current preview to map against.
+function eventToRegion(viewport, ev) {
+  const rect = lastPreviewRect;
+  if (!rect) return null;
+  const boundsX = parseFloat(viewport.dataset.boundsX);
+  const boundsY = parseFloat(viewport.dataset.boundsY);
+  const boundsW = parseFloat(viewport.dataset.boundsW);
+  const boundsH = parseFloat(viewport.dataset.boundsH);
+  if (![boundsX, boundsY, boundsW, boundsH].every(Number.isFinite)) return null;
+  const regionsX = rect.upper_right_x - rect.lower_left_x + 1;
+  const regionsY = rect.upper_right_y - rect.lower_left_y + 1;
+  const ppRegion = boundsW / regionsX;
+  if (!(ppRegion > 0)) return null;
+  const vpRect = viewport.getBoundingClientRect();
+  const scale = vpRect.width / parseFloat(viewport.dataset.intrinsicWidth);
+  const pixelX = (ev.clientX - vpRect.left) / scale;
+  const pixelY = (ev.clientY - vpRect.top) / scale;
+  let rx = rect.lower_left_x + Math.floor((pixelX - boundsX) / ppRegion);
+  // DOM y increases downward but SL y increases upward.
+  let ry = rect.upper_right_y - Math.floor((pixelY - boundsY) / ppRegion);
+  rx = clampInt(rx, rect.lower_left_x, rect.upper_right_x);
+  ry = clampInt(ry, rect.lower_left_y, rect.upper_right_y);
+  return { x: rx, y: ry };
+}
+
+(function wireDragZoom() {
+  const container = $("preview-container");
+  if (!container) return;
+  let dragging = false;
+  let startRegion = null;
+  let selEl = null;
+
+  function viewport() {
+    return container.querySelector(".viewport");
+  }
+
+  // Draw the selection rectangle, snapped to whole-region boundaries, for the
+  // span between the two region corners (inclusive on both ends).
+  function drawSelection(vp, a, b) {
+    const boundsX = parseFloat(vp.dataset.boundsX);
+    const boundsY = parseFloat(vp.dataset.boundsY);
+    const boundsW = parseFloat(vp.dataset.boundsW);
+    const rect = lastPreviewRect;
+    const regionsX = rect.upper_right_x - rect.lower_left_x + 1;
+    const ppRegion = boundsW / regionsX;
+    const minX = Math.min(a.x, b.x);
+    const maxX = Math.max(a.x, b.x);
+    const minY = Math.min(a.y, b.y);
+    const maxY = Math.max(a.y, b.y);
+    const left = boundsX + (minX - rect.lower_left_x) * ppRegion;
+    // top edge derives from the northern (max y) region; +1 region tall to
+    // cover that region in full.
+    const top = boundsY + (rect.upper_right_y - maxY) * ppRegion;
+    const w = (maxX - minX + 1) * ppRegion;
+    const h = (maxY - minY + 1) * ppRegion;
+    if (!selEl) {
+      selEl = document.createElement("div");
+      selEl.className = "selection-rect";
+      vp.appendChild(selEl);
+    }
+    selEl.style.left = `${left.toFixed(1)}px`;
+    selEl.style.top = `${top.toFixed(1)}px`;
+    selEl.style.width = `${w.toFixed(1)}px`;
+    selEl.style.height = `${h.toFixed(1)}px`;
+  }
+
+  function cleanup() {
+    dragging = false;
+    startRegion = null;
+    if (selEl) {
+      selEl.remove();
+      selEl = null;
+    }
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  }
+
+  function onMove(ev) {
+    if (!dragging) return;
+    const vp = viewport();
+    if (!vp) return;
+    const cur = eventToRegion(vp, ev);
+    if (!cur) return;
+    drawSelection(vp, startRegion, cur);
+  }
+
+  function onUp(ev) {
+    if (!dragging) return;
+    const vp = viewport();
+    const cur = vp ? eventToRegion(vp, ev) : null;
+    const start = startRegion;
+    cleanup();
+    if (!cur || !start) return;
+    const llx = Math.min(start.x, cur.x);
+    const urx = Math.max(start.x, cur.x);
+    const lly = Math.min(start.y, cur.y);
+    const ury = Math.max(start.y, cur.y);
+    // Require an actual drag; a click with no movement keeps the current area.
+    if (start.x === cur.x && start.y === cur.y) return;
+    $("ll_x").value = String(llx);
+    $("ll_y").value = String(lly);
+    $("ur_x").value = String(urx);
+    $("ur_y").value = String(ury);
+    previewGrid();
+  }
+
+  container.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0) return;
+    if (activeTab() !== "grid") return;
+    // Don't hijack clicks on the interactive slot controls.
+    if (ev.target.closest("button, input, .slot-buttons")) return;
+    const vp = viewport();
+    if (!vp) return;
+    const r = eventToRegion(vp, ev);
+    if (!r) return;
+    ev.preventDefault(); // suppress native tile-image dragging
+    dragging = true;
+    startRegion = r;
+    drawSelection(vp, r, r);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+})();
 
 // --- render handlers ---
 

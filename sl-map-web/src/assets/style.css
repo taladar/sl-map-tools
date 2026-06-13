@@ -244,6 +244,88 @@ button:disabled {
   min-height: 4rem;
 }
 
+/* Wrapper around the preview so the extend/shrink controls can be positioned
+   on the edges of the map box. The padding reserves room for the half-overlapping
+   edge buttons so they are not clipped by the surrounding layout. */
+.preview-viewport-wrap {
+  position: relative;
+  margin: 18px 18px 18px 18px;
+}
+
+/* A cluster of extend/shrink buttons anchored to one edge (or the corner) of
+   the preview box. */
+.preview-viewport-wrap .extend-group {
+  position: absolute;
+  display: flex;
+  gap: 2px;
+  z-index: 5;
+}
+
+.preview-viewport-wrap .extend-group.north {
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.preview-viewport-wrap .extend-group.south {
+  bottom: 0;
+  left: 50%;
+  transform: translate(-50%, 50%);
+}
+
+.preview-viewport-wrap .extend-group.west {
+  top: 50%;
+  left: 0;
+  flex-direction: column;
+  transform: translate(-50%, -50%);
+}
+
+.preview-viewport-wrap .extend-group.east {
+  top: 50%;
+  right: 0;
+  flex-direction: column;
+  transform: translate(50%, -50%);
+}
+
+.preview-viewport-wrap .extend-group.corner {
+  top: 0;
+  left: 0;
+  flex-direction: column;
+  transform: translate(-50%, -50%);
+}
+
+/* Match the icon-only buttons used on the slot overlay. */
+.preview-viewport-wrap .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  cursor: pointer;
+}
+
+.preview-viewport-wrap .icon-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* Drag-select rectangle drawn inside the viewport while choosing a zoom area
+   (grid rectangle mode only). Mirrors the dashed bounds-rect look. */
+.map-container .selection-rect {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px dashed #ff2d2d;
+  background: rgba(255, 45, 45, 0.18);
+  pointer-events: none;
+  z-index: 6;
+}
+
 .map-container .viewport {
   position: relative;
   /* the JS sets explicit width/height/transform; this only ensures

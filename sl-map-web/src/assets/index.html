@@ -128,6 +128,16 @@
       <h2>Grid rectangle</h2>
       <div class="row">
         <label
+          >Find region
+          <input type="text" id="region_search" placeholder="Region name" />
+        </label>
+        <button type="button" id="region_search_btn">
+          Set corners to region
+        </button>
+        <span id="region_search_status" class="status"></span>
+      </div>
+      <div class="row">
+        <label
           >Lower-left X
           <input type="number" id="ll_x" value="380" min="0" max="65535" />
         </label>

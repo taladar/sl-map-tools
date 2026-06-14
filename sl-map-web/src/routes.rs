@@ -12,6 +12,7 @@ pub mod logos;
 pub mod notecard;
 pub mod notecards;
 pub mod pages;
+pub mod region;
 pub mod render;
 pub mod renders;
 pub mod result;
@@ -119,6 +120,9 @@ pub fn build(state: AppState) -> Router {
             "/api/notecard/derive-rectangle",
             post(notecard::derive_rectangle),
         )
+        // resolve a region name to grid coordinates (same cached lookup the
+        // notecard resolution uses) for the grid rectangle search field
+        .route("/api/region/lookup", post(region::lookup))
         .route("/api/render/grid-rectangle", post(render::grid_rectangle))
         .route("/api/render/usb-notecard", post(render::usb_notecard))
         // read-only: where on the map (corners / side midpoints / centre) is

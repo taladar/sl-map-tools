@@ -1116,6 +1116,37 @@ function previewGrid() {
   renderPreview(rect, null);
 }
 
+// Resolve the region named in the search field to grid coordinates (via the
+// same cached lookup the notecard resolution uses) and set both rectangle
+// corners to it — a 1×1 selection covering just that region. On failure the
+// corner inputs are left untouched and the error is shown next to the field.
+async function lookupRegion() {
+  const name = $("region_search").value.trim();
+  const statusEl = $("region_search_status");
+  if (name === "") {
+    statusEl.textContent = "";
+    return;
+  }
+  statusEl.textContent = "Looking up…";
+  try {
+    const resp = await fetch("/api/region/lookup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ region_name: name }),
+    });
+    if (!resp.ok) throw new Error(await errorText(resp));
+    const { x, y } = await resp.json();
+    $("ll_x").value = String(x);
+    $("ll_y").value = String(y);
+    $("ur_x").value = String(x);
+    $("ur_y").value = String(y);
+    statusEl.textContent = `${name}: ${x}, ${y}`;
+    previewGrid();
+  } catch (err) {
+    statusEl.textContent = `Lookup failed: ${err.message}`;
+  }
+}
+
 // Populate a FormData with the notecard source fields for whichever
 // subtab is active. Throws if the relevant fields are empty.
 function appendNotecardSourceToForm(fd) {
@@ -1259,6 +1290,18 @@ function adjustArea(dir, delta) {
   const el = $(id);
   if (el) el.addEventListener("click", () => adjustArea(dir, delta));
 });
+
+// --- region-name search (grid rectangle tab) ---
+
+if (ON_RENDER_PAGE) {
+  $("region_search_btn").addEventListener("click", lookupRegion);
+  $("region_search").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      lookupRegion();
+    }
+  });
+}
 
 // --- drag-select to zoom (grid rectangle mode only) ---
 

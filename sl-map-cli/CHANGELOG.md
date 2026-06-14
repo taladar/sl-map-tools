@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.5.0 - 2026-06-14 13:43:00Z
+
+### 🚀 Features
+
+- *(glw)* Add sl-glw crate for GlobalWind overlays
+- *(cli)* Wire sl-glw overlay into sl-map-cli
+- *(web)* Show embedded TTF name in font dropdown
+- *(coverage)* Detect free placement slots before rendering
+- Legend slot selection and arbitrary text labels
+- *(web)* Add logo images to the library and map renders
+- *(web)* Drive placement from the preview overlay with per-slot buttons
+- *(text)* Align each line of a multi-line label individually
+- *(web)* Optional per-region rectangle/name/coordinate overlays
+- *(web)* Show region-name resolution progress in the render display
+- *(web)* Preview missing-region and missing-tile fills
+- *(sl-map-cli)* Reach render parity with sl-map-web
+
+### 🐛 Bug Fixes
+
+- *(map)* Handle degenerate USB notecard routes without divide-by-zero
+- *(coverage)* Confine each placement slot to its own third of the map
+- *(coverage)* Anchor a combined slot to the edges its group touches
+- *(sl-map-apis)* Ship the duplicate-waypoint test fixture inside the crate
+
+### 🚜 Refactor
+
+- *(sl-map-apis)* De-duplicate shared packing and line-height logic
+- *(sl-glw)* Drop dead error variants and make rendering infallible
+
+### 📚 Documentation
+
+- Fix rustdoc warnings for bare URL and private intra-doc links
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Release new version
+- *(release)* Release new version
+- *(release)* Release new version
+- *(release)* Release new version
+- *(dependencies)* Bump sl-types, sl-map-apis dependencies in sl-glw, sl-map-cli
+  and ls-map-web
+
 ## 0.4.0 - 2026-05-14 18:07:06Z
 
 ### 🚀 Features

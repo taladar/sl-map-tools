@@ -1,5 +1,90 @@
 # Changelog
 
+## 0.3.0 - 2026-06-14 13:43:01Z
+
+### 🚀 Features
+
+- *(glw)* Add sl-glw crate for GlobalWind overlays
+- *(web)* Wire sl-glw overlay into sl-map-web
+- *(web)* View and download saved GLW JSON in library
+- *(web)* Show embedded TTF name in font dropdown
+- *(web)* Use tabs for GLW source selection
+- *(web)* Prefill GLW style swatches with real render defaults
+- *(coverage)* Detect free placement slots before rendering
+- Legend slot selection and arbitrary text labels
+- *(web)* Add logo images to the library and map renders
+- *(web)* Mark final-image bounds in the tile preview
+- *(web)* Show the GLW overlay in the tile preview
+- *(web)* Exclude the legend from the preview GLW overlay and test it
+- *(web)* Show free placement slots as a toggleable preview overlay
+- *(web)* Show the GLW legend in the preview at its chosen slot
+- *(web)* Show labels & logos in the preview; fix render placement
+- *(web)* Move Preview button to the Preview panel and Generate to Render
+- *(web)* Drive placement from the preview overlay with per-slot buttons
+- *(web)* Add a 4x logo scale option
+- *(text)* Align each line of a multi-line label individually
+- *(web)* Rework the GLW overlay panel
+- *(web)* Show the full slot label on hover when it is clipped
+- *(web)* Render the preview route identically to the final output
+- *(web)* Allow uploading a logo from the Add-logo modal
+- *(web)* Split the library page into tabs with working cross-links
+- *(web)* Split the Add-logo modal into reuse / upload subtabs
+- *(web)* Edge extend/shrink buttons and drag-select zoom on the preview
+- *(web)* Optional per-region rectangle/name/coordinate overlays
+- *(web)* Show selected region count on the preview
+- *(web)* Show region-name resolution progress in the render display
+- *(web)* Stream region-name progress during the overlay preview
+- *(web)* Preview missing-region and missing-tile fills
+- *(web)* Add Metadata button to the finished-render view
+- *(sl-map-cli)* Reach render parity with sl-map-web
+- *(web)* Show profile dates in ISO 8601 with timezone
+- *(web)* Add region-name search to grid rectangle mode
+
+### 🐛 Bug Fixes
+
+- *(map)* Handle degenerate USB notecard routes without divide-by-zero
+- *(coverage)* Confine each placement slot to its own third of the map
+- *(web)* Allow blob: images in CSP so the GLW preview overlay loads
+- *(web)* Only offer to combine slots whose rectangles actually touch
+- *(web)* Only allow slot combinations that form a solid rectangle
+- *(web)* Don't let one overflowing placement blank the whole preview
+- *(web)* Clear stale overlay error when the preview auto-refreshes
+- *(coverage)* Anchor a combined slot to the edges its group touches
+- *(render)* Reject over-full placements before saving the render
+- *(web)* Hide the GLW legend slot button when GLW is disabled
+- *(web)* Decode region-overlay preview PNG without fetch (CSP)
+- *(web)* Authorize logo reads in the placement-preview endpoints
+- *(web)* Bound render/preview output by area, not just per-side dimension
+- *(web)* Fail the render row if logo linking fails after insert
+- *(web)* Enforce same-library scope for a render's saved GLW data
+- *(web)* Don't run render-form wiring on pages without the render form
+- *(web)* Revoke the logo-upload preview object URL when the modal closes
+- *(web)* Use the in-page promptModal for GLW/logo rename
+- *(web)* Swap default fill colors for missing map tiles vs regions
+- *(sl-map-apis)* Ship the duplicate-waypoint test fixture inside the crate
+- *(web)* Bound the glw_preview output image by area and dimension
+- *(web)* Add missing Profile link to the invitations page nav
+- *(web)* Avoid rustdoc private intra-doc link warning in glw_preview
+
+### 🚜 Refactor
+
+- *(sl-map-apis)* De-duplicate shared packing and line-height logic
+- *(sl-glw)* Drop dead error variants and make rendering infallible
+
+### 📚 Documentation
+
+- Fix rustdoc warnings for bare URL and private intra-doc links
+- *(web)* Explain that render-created GLW rows are not orphans
+- *(web)* Correct LogoPlacement::scale allowed values (1, 2 or 4)
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Release new version
+- *(release)* Release new version
+- *(release)* Release new version
+- *(dependencies)* Bump sl-types, sl-map-apis dependencies in sl-glw, sl-map-cli
+  and ls-map-web
+
 ## 0.2.1 - 2026-05-14 18:31:23Z
 
 ### 🐛 Bug Fixes

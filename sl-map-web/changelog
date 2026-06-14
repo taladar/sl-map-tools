@@ -1,3 +1,75 @@
+sl-map-web (0.3.0-1) unstable; urgency=medium
+
+  * Features - glw - Add sl-glw crate for GlobalWind overlays
+  * Features - web - Wire sl-glw overlay into sl-map-web
+  * Features - web - View and download saved GLW JSON in library
+  * Features - web - Show embedded TTF name in font dropdown
+  * Features - web - Use tabs for GLW source selection
+  * Features - web - Prefill GLW style swatches with real render defaults
+  * Features - coverage - Detect free placement slots before rendering
+  * Features Legend slot selection and arbitrary text labels
+  * Features - web - Add logo images to the library and map renders
+  * Features - web - Mark final-image bounds in the tile preview
+  * Features - web - Show the GLW overlay in the tile preview
+  * Features - web - Exclude the legend from the preview GLW overlay and test it
+  * Features - web - Show free placement slots as a toggleable preview overlay
+  * Features - web - Show the GLW legend in the preview at its chosen slot
+  * Features - web - Show labels & logos in the preview; fix render placement
+  * Features - web - Move Preview button to the Preview panel and Generate to Render
+  * Features - web - Drive placement from the preview overlay with per-slot buttons
+  * Features - web - Add a 4x logo scale option
+  * Features - text - Align each line of a multi-line label individually
+  * Features - web - Rework the GLW overlay panel
+  * Features - web - Show the full slot label on hover when it is clipped
+  * Features - web - Render the preview route identically to the final output
+  * Features - web - Allow uploading a logo from the Add-logo modal
+  * Features - web - Split the library page into tabs with working cross-links
+  * Features - web - Split the Add-logo modal into reuse / upload subtabs
+  * Features - web - Edge extend/shrink buttons and drag-select zoom on the preview
+  * Features - web - Optional per-region rectangle/name/coordinate overlays
+  * Features - web - Show selected region count on the preview
+  * Features - web - Show region-name resolution progress in the render display
+  * Features - web - Stream region-name progress during the overlay preview
+  * Features - web - Preview missing-region and missing-tile fills
+  * Features - web - Add Metadata button to the finished-render view
+  * Features - sl-map-cli - Reach render parity with sl-map-web
+  * Features - web - Show profile dates in ISO 8601 with timezone
+  * Features - web - Add region-name search to grid rectangle mode
+  * Bug fixes - map - Handle degenerate USB notecard routes without divide-by-zero
+  * Bug fixes - coverage - Confine each placement slot to its own third of the map
+  * Bug fixes - web - Allow blob: images in CSP so the GLW preview overlay loads
+  * Bug fixes - web - Only offer to combine slots whose rectangles actually touch
+  * Bug fixes - web - Only allow slot combinations that form a solid rectangle
+  * Bug fixes - web - Don't let one overflowing placement blank the whole preview
+  * Bug fixes - web - Clear stale overlay error when the preview auto-refreshes
+  * Bug fixes - coverage - Anchor a combined slot to the edges its group touches
+  * Bug fixes - render - Reject over-full placements before saving the render
+  * Bug fixes - web - Hide the GLW legend slot button when GLW is disabled
+  * Bug fixes - web - Decode region-overlay preview PNG without fetch (CSP)
+  * Bug fixes - web - Authorize logo reads in the placement-preview endpoints
+  * Bug fixes - web - Bound render/preview output by area, not just per-side dimension
+  * Bug fixes - web - Fail the render row if logo linking fails after insert
+  * Bug fixes - web - Enforce same-library scope for a render's saved GLW data
+  * Bug fixes - web - Don't run render-form wiring on pages without the render form
+  * Bug fixes - web - Revoke the logo-upload preview object URL when the modal closes
+  * Bug fixes - web - Use the in-page promptModal for GLW/logo rename
+  * Bug fixes - web - Swap default fill colors for missing map tiles vs regions
+  * Bug fixes - sl-map-apis - Ship the duplicate-waypoint test fixture inside the crate
+  * Bug fixes - web - Bound the glw_preview output image by area and dimension
+  * Bug fixes - web - Add missing Profile link to the invitations page nav
+  * Bug fixes - web - Avoid rustdoc private intra-doc link warning in glw_preview
+  * Refactor - sl-map-apis - De-duplicate shared packing and line-height logic
+  * Refactor - sl-glw - Drop dead error variants and make rendering infallible
+  * Documentation Fix rustdoc warnings for bare URL and private intra-doc links
+  * Documentation - web - Explain that render-created GLW rows are not orphans
+  * Documentation - web - Correct LogoPlacement::scale allowed values (1, 2 or 4)
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - dependencies - Bump sl-types, sl-map-apis dependencies in sl-glw, sl-map-cli and ls-map-web
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Sun, 14 Jun 2026 15:43:02 +0200
+
 sl-map-web (0.2.1-1) unstable; urgency=medium
 
   * Bug fixes - sl_map_web - Fix cliff.toml to include the github action path

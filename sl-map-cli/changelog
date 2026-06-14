@@ -1,3 +1,15 @@
+sl-map-cli (0.5.0-1) unstable; urgency=medium
+
+  * Features - cli - Wire sl-glw overlay into sl-map-cli
+  * Features Legend slot selection and arbitrary text labels
+  * Features - web - Show region-name resolution progress in the render display
+  * Features - sl-map-cli - Reach render parity with sl-map-web
+  * Refactor - sl-glw - Drop dead error variants and make rendering infallible
+  * Documentation Fix rustdoc warnings for bare URL and private intra-doc links
+  * Miscellaneous tasks - dependencies - Bump sl-types, sl-map-apis dependencies in sl-glw, sl-map-cli and ls-map-web
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Sun, 14 Jun 2026 15:43:01 +0200
+
 sl-map-cli (0.4.0-1) unstable; urgency=medium
 
   * Features - cli - Add border options to from-usb-notecard for expanding the auto-derived rectangle

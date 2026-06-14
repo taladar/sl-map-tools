@@ -3,7 +3,7 @@ name = "sl-map-web"
 description = "Web UI and JSON API for the SL map renderer"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2024"
 # assert_matches! (used in tests) was stabilized in Rust 1.96.0

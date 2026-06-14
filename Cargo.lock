@@ -3698,7 +3698,7 @@ dependencies = [
 
 [[package]]
 name = "sl-map-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ab_glyph",
  "clap",
@@ -3724,7 +3724,7 @@ dependencies = [
 
 [[package]]
 name = "sl-map-web"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "argon2",

@@ -24,23 +24,7 @@ use crate::auth::{self, CurrentUser, removal_cookie};
 use crate::error::Error;
 use crate::state::AppState;
 
-/// True if `s` is canonical `#rrggbb` — exactly one leading `#` and six
-/// ASCII hex digits. Used to validate the route-colour preference on
-/// the way in.
-fn is_canonical_hex_color(s: &str) -> bool {
-    let mut chars = s.chars();
-    if chars.next() != Some('#') {
-        return false;
-    }
-    let mut count = 0_usize;
-    for c in chars {
-        if !c.is_ascii_hexdigit() {
-            return false;
-        }
-        count = count.saturating_add(1);
-    }
-    count == 6
-}
+use crate::library::is_canonical_hex_color;
 
 /// Public view of a registered user, suitable for the profile page and
 /// for the creator/uploader link-throughs in the library and groups

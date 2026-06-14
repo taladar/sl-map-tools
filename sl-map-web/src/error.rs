@@ -158,6 +158,22 @@ pub fn is_fk_violation(err: &sqlx::Error) -> bool {
     db.message().contains("FOREIGN KEY")
 }
 
+/// Returns `true` when the given sqlx error wraps a SQLite uniqueness
+/// constraint violation. SQLite reports these as extended code 2067
+/// (`SQLITE_CONSTRAINT_UNIQUE`) or, for an `INTEGER PRIMARY KEY` clash,
+/// 1555 (`SQLITE_CONSTRAINT_PRIMARYKEY`). As with [`is_fk_violation`] we
+/// also fall back to a substring check of the error message.
+#[must_use]
+pub fn is_unique_violation(err: &sqlx::Error) -> bool {
+    let sqlx::Error::Database(db) = err else {
+        return false;
+    };
+    if matches!(db.code().as_deref(), Some("2067" | "1555")) {
+        return true;
+    }
+    db.message().contains("UNIQUE constraint failed")
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let status = match &self {

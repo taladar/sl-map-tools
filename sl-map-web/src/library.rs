@@ -142,6 +142,26 @@ pub fn sanitise_display_name(raw: &str, field: &str) -> Result<String, Error> {
     Ok(trimmed.to_owned())
 }
 
+/// True if `s` is canonical `#rrggbb` — exactly one leading `#` followed
+/// by exactly six ASCII hex digits (case-insensitive). Shared by every
+/// endpoint that validates a colour swatch on the way in (the route-colour
+/// preference, the saved-colour palette, and saved themes).
+#[must_use]
+pub fn is_canonical_hex_color(s: &str) -> bool {
+    let mut chars = s.chars();
+    if chars.next() != Some('#') {
+        return false;
+    }
+    let mut count = 0_usize;
+    for c in chars {
+        if !c.is_ascii_hexdigit() {
+            return false;
+        }
+        count = count.saturating_add(1);
+    }
+    count == 6
+}
+
 /// Public, serializable record of a saved notecard.
 #[derive(Debug, Clone, Serialize)]
 pub struct NotecardView {
@@ -1148,6 +1168,162 @@ pub async fn assert_can_delete_glw_data(
             } else {
                 Err(Error::Forbidden(
                     "must be a group owner to delete group glw data".to_owned(),
+                ))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// Saved themes (themes).
+//
+// A named bundle of the render page's presentation settings. Ownership uses
+// the same dual owner_user_id/owner_group_id XOR pattern as the other
+// library item types. The settings payload itself lives in `settings_json`
+// and is opaque at this layer (parsed by `routes::themes::ThemeSettings`).
+// ---------------------------------------------------------------------
+
+/// Raw row fields for a saved theme as fetched from the DB.
+#[derive(Debug, Clone)]
+pub struct ThemeRow {
+    /// the theme id.
+    pub theme_id: Uuid,
+    /// raw bytes of the personal owner column, if any.
+    pub owner_user_id: Option<Vec<u8>>,
+    /// raw bytes of the group owner column, if any.
+    pub owner_group_id: Option<Vec<u8>>,
+    /// the avatar that created the theme, or `None` if the creator has
+    /// since deleted their account (FK is `ON DELETE SET NULL`).
+    pub created_by: Option<Uuid>,
+    /// the human-supplied display name.
+    pub name: String,
+    /// the presentation settings as canonical JSON.
+    pub settings_json: String,
+    /// when the row was created.
+    pub created_at: DateTime<Utc>,
+    /// when the row was last renamed or its settings overwritten.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Column tuple shape returned by the theme row SELECT.
+type ThemeRowTuple = (
+    Option<Vec<u8>>, // owner_user_id
+    Option<Vec<u8>>, // owner_group_id
+    Option<Vec<u8>>, // created_by
+    String,          // name
+    String,          // settings_json
+    DateTime<Utc>,   // created_at
+    DateTime<Utc>,   // updated_at
+);
+
+/// Fetch a theme row by id; returns [`Error::NotFound`] if missing.
+async fn fetch_theme_row(db: &SqlitePool, theme_id: Uuid) -> Result<ThemeRow, Error> {
+    let row: Option<ThemeRowTuple> = sqlx::query_as(
+        "SELECT owner_user_id, owner_group_id, created_by, name, settings_json, \
+                created_at, updated_at \
+         FROM themes WHERE theme_id = ?1",
+    )
+    .bind(theme_id.as_bytes().to_vec())
+    .fetch_optional(db)
+    .await
+    .map_err(|err| {
+        tracing::error!("theme fetch failed: {err}");
+        Error::Database
+    })?;
+    let (
+        owner_user_id,
+        owner_group_id,
+        created_by_bytes,
+        name,
+        settings_json,
+        created_at,
+        updated_at,
+    ) = row.ok_or_else(|| Error::NotFound(format!("theme {theme_id}")))?;
+    let created_by = created_by_bytes
+        .as_deref()
+        .map(uuid_from_bytes)
+        .map(|opt| {
+            opt.ok_or_else(|| {
+                tracing::error!("bad created_by uuid in themes");
+                Error::Database
+            })
+        })
+        .transpose()?;
+    Ok(ThemeRow {
+        theme_id,
+        owner_user_id,
+        owner_group_id,
+        created_by,
+        name,
+        settings_json,
+        created_at,
+        updated_at,
+    })
+}
+
+/// Permission gate for reading a theme. Personal: must be the owner.
+/// Group: must be a member of the owning group.
+///
+/// # Errors
+///
+/// Returns [`Error::NotFound`] when the row is missing or invisible — the
+/// two cases are collapsed so an attacker cannot confirm existence by id.
+pub async fn assert_can_read_theme(
+    db: &SqlitePool,
+    current_user: Uuid,
+    theme_id: Uuid,
+) -> Result<ThemeRow, Error> {
+    let row = fetch_theme_row(db, theme_id).await?;
+    let destination =
+        destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
+    let visible = match destination {
+        Destination::Personal => {
+            row.owner_user_id.as_deref().and_then(uuid_from_bytes) == Some(current_user)
+        }
+        Destination::Group { group_id } => groups::lookup_role(db, group_id, current_user)
+            .await?
+            .is_some(),
+    };
+    if visible {
+        Ok(row)
+    } else {
+        Err(Error::NotFound(format!("theme {theme_id}")))
+    }
+}
+
+/// Permission gate for modifying (renaming / overwriting / deleting) a
+/// theme. Personal: must be the owner. Group: must be an owner of the
+/// group. Mirrors [`assert_can_delete_glw_data`].
+///
+/// # Errors
+///
+/// Returns [`Error::Forbidden`] if the user lacks write permission;
+/// [`Error::NotFound`] if the row does not exist.
+pub async fn assert_can_modify_theme(
+    db: &SqlitePool,
+    current_user: Uuid,
+    theme_id: Uuid,
+) -> Result<ThemeRow, Error> {
+    let row = fetch_theme_row(db, theme_id).await?;
+    let destination =
+        destination_from_columns(row.owner_user_id.clone(), row.owner_group_id.clone())?;
+    match destination {
+        Destination::Personal => {
+            let owner = row.owner_user_id.as_deref().and_then(uuid_from_bytes);
+            if owner == Some(current_user) {
+                Ok(row)
+            } else {
+                Err(Error::Forbidden(format!(
+                    "not allowed to modify theme {theme_id}"
+                )))
+            }
+        }
+        Destination::Group { group_id } => {
+            if groups::lookup_role(db, group_id, current_user).await? == Some(GroupRole::Owner) {
+                Ok(row)
+            } else {
+                Err(Error::Forbidden(
+                    "must be a group owner to modify a group theme".to_owned(),
                 ))
             }
         }

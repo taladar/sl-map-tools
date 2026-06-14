@@ -155,6 +155,28 @@ input[type="color"] {
   border-radius: 2px;
 }
 
+/* Save/load themes panel. */
+.themes > summary {
+  cursor: pointer;
+}
+
+#theme_status {
+  display: inline-block;
+  margin-top: 0.25rem;
+  color: var(--muted, #888);
+}
+
+/* Read-only theme settings table in the library's View modal. */
+.theme-detail td:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+  padding-right: 1rem;
+}
+
+.theme-detail code {
+  vertical-align: middle;
+}
+
 button,
 .button {
   cursor: pointer;

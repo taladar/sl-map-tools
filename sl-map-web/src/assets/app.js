@@ -354,6 +354,242 @@ if (ON_RENDER_PAGE) {
   });
 }
 
+// --- saved themes ---
+//
+// A theme is a named bundle of this page's presentation settings (fill
+// colours + enable toggles, the region-overlay options + label font, the
+// GLW style overrides + font, and the route colour). Themes live in the
+// user's personal library or in a group (`/api/themes`); group themes are
+// applied by every member but written only by owners. `readThemeSettings`
+// captures the current form into the wire shape and `applyTheme` writes a
+// stored theme back onto the form — reusing the same per-section helpers the
+// Regenerate flow uses so the two stay in lock-step.
+
+// Capture the current presentation settings into the `ThemeSettings` shape.
+// Colour inputs always hold a canonical `#rrggbb`, so the colour fields are
+// sent verbatim; the server validates them on the way in.
+function readThemeSettings() {
+  const overlay = readRegionOverlay();
+  const glwStyle = { margin_band: $("glw_margin_band").checked };
+  for (const { key, id } of GLW_COLOR_FIELDS) {
+    const el = $(id);
+    if (el) glwStyle[key] = el.value;
+  }
+  return {
+    version: 1,
+    missing_map_tile_enabled: $("missing_map_tile_enabled").checked,
+    missing_map_tile_color: $("missing_map_tile_color").value,
+    missing_region_enabled: $("missing_region_enabled").checked,
+    missing_region_color: $("missing_region_color").value,
+    draw_region_rectangles: overlay.draw_region_rectangles,
+    draw_region_names: overlay.draw_region_names,
+    draw_region_coordinates: overlay.draw_region_coordinates,
+    region_label_font_id: overlay.region_label_font_id,
+    glw_style: glwStyle,
+    glw_font_id: $("glw_font_id").value || null,
+    route_color: $("route_color").value || null,
+  };
+}
+
+// Apply a stored theme onto the form. Note this deliberately does NOT touch
+// the GLW enable/source/legend state — it only restores the GLW *style* and
+// font, so applying a theme never turns the GLW overlay on or off.
+function applyTheme(s) {
+  if (!s) return;
+  const mtEnabled = !!s.missing_map_tile_enabled;
+  $("missing_map_tile_enabled").checked = mtEnabled;
+  $("missing_map_tile_color").disabled = !mtEnabled;
+  if (s.missing_map_tile_color)
+    $("missing_map_tile_color").value = s.missing_map_tile_color;
+  const mrEnabled = !!s.missing_region_enabled;
+  $("missing_region_enabled").checked = mrEnabled;
+  $("missing_region_color").disabled = !mrEnabled;
+  if (s.missing_region_color)
+    $("missing_region_color").value = s.missing_region_color;
+
+  applyRegionOverlaySettings(s);
+
+  if (s.glw_style) {
+    if ("margin_band" in s.glw_style)
+      $("glw_margin_band").checked = !!s.glw_style.margin_band;
+    for (const { key, id } of GLW_COLOR_FIELDS) {
+      const el = $(id);
+      if (el && s.glw_style[key]) el.value = s.glw_style[key];
+    }
+  }
+  if (s.glw_font_id) populateFontSelect($("glw_font_id"), s.glw_font_id);
+  if (s.route_color && ROUTE_COLOR_RE.test(s.route_color))
+    $("route_color").value = s.route_color;
+}
+
+function selectedThemeScope() {
+  return $("theme_scope").value;
+}
+
+function selectedThemeId() {
+  return $("theme_select").value;
+}
+
+// True when the currently chosen scope is writable by the user (personal, or
+// a group they own). Mirrors the server's owner-only rule for group writes.
+function themeScopeIsWritable() {
+  const opt = $("theme_scope").selectedOptions[0];
+  return Boolean(opt && opt.dataset.writable === "true");
+}
+
+function setThemeStatus(msg) {
+  const el = $("theme_status");
+  if (el) el.textContent = msg;
+}
+
+// Enable/disable the action buttons to match the selected scope and whether a
+// theme is selected. The write actions are gated client-side as a courtesy;
+// the server enforces the same rules regardless.
+function refreshThemeButtons() {
+  const writable = themeScopeIsWritable();
+  const hasSelection = Boolean(selectedThemeId());
+  $("theme_apply").disabled = !hasSelection;
+  $("theme_save_new").disabled = !writable;
+  $("theme_overwrite").disabled = !writable || !hasSelection;
+}
+
+// Replace the theme dropdown with the themes in `scope`. Quiet on failure.
+async function loadThemesForScope(scope) {
+  const sel = $("theme_select");
+  if (!sel) return;
+  sel.replaceChildren();
+  try {
+    const r = await fetch(`/api/themes?scope=${encodeURIComponent(scope)}`);
+    if (r.ok) {
+      const data = await r.json();
+      for (const t of data.themes || []) {
+        const o = document.createElement("option");
+        o.value = t.theme_id;
+        o.textContent = t.name;
+        sel.appendChild(o);
+      }
+    }
+  } catch (_err) {
+    // ignore — the theme list is a convenience.
+  }
+  refreshThemeButtons();
+}
+
+// Populate the scope dropdown with Personal + every group the user can see,
+// tagging each option with whether the user may write to it.
+async function loadThemeScopes() {
+  const scopeSel = $("theme_scope");
+  if (!scopeSel) return;
+  const personal = document.createElement("option");
+  personal.value = "personal";
+  personal.textContent = "Personal";
+  personal.dataset.writable = "true";
+  scopeSel.appendChild(personal);
+  let groups = { groups: [] };
+  try {
+    const r = await fetch("/api/groups");
+    if (r.ok) groups = await r.json();
+  } catch (_err) {
+    // leave empty — personal scope is always available.
+  }
+  for (const g of groups.groups || []) {
+    const o = document.createElement("option");
+    o.value = `group:${g.group_id}`;
+    o.textContent = `Group: ${g.name}`;
+    o.dataset.writable = g.my_role === "owner" ? "true" : "false";
+    scopeSel.appendChild(o);
+  }
+  scopeSel.addEventListener("change", () => {
+    loadThemesForScope(scopeSel.value).catch(() => {});
+  });
+  await loadThemesForScope(scopeSel.value);
+}
+
+if (ON_RENDER_PAGE) {
+  $("theme_select").addEventListener("change", refreshThemeButtons);
+
+  $("theme_apply").addEventListener("click", async () => {
+    const id = selectedThemeId();
+    if (!id) return;
+    setThemeStatus("Applying…");
+    try {
+      const r = await fetch(`/api/themes/${id}`);
+      if (!r.ok) {
+        await showError(r);
+        setThemeStatus("");
+        return;
+      }
+      const data = await r.json();
+      applyTheme(data.theme.settings);
+      setThemeStatus(`Applied "${data.theme.name}".`);
+    } catch (_err) {
+      setThemeStatus("Could not apply the theme.");
+    }
+  });
+
+  $("theme_save_new").addEventListener("click", async () => {
+    const name = $("theme_name").value.trim();
+    if (!name) {
+      setThemeStatus("Enter a name for the new theme.");
+      return;
+    }
+    const scope = selectedThemeScope();
+    setThemeStatus("Saving…");
+    try {
+      const r = await fetch("/api/themes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scope, name, settings: readThemeSettings() }),
+      });
+      if (!r.ok) {
+        await showError(r);
+        setThemeStatus("");
+        return;
+      }
+      const data = await r.json();
+      $("theme_name").value = "";
+      await loadThemesForScope(scope);
+      $("theme_select").value = data.theme.theme_id;
+      refreshThemeButtons();
+      setThemeStatus(`Saved "${data.theme.name}".`);
+    } catch (_err) {
+      setThemeStatus("Could not save the theme.");
+    }
+  });
+
+  $("theme_overwrite").addEventListener("click", async () => {
+    const id = selectedThemeId();
+    if (!id) return;
+    const ok = await confirmModal({
+      title: "Overwrite theme",
+      message:
+        "Replace the selected theme's saved settings with the current settings?",
+      okText: "Overwrite",
+    });
+    if (!ok) return;
+    setThemeStatus("Saving…");
+    try {
+      const r = await fetch(`/api/themes/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ settings: readThemeSettings() }),
+      });
+      if (!r.ok) {
+        await showError(r);
+        setThemeStatus("");
+        return;
+      }
+      setThemeStatus("Theme updated.");
+    } catch (_err) {
+      setThemeStatus("Could not update the theme.");
+    }
+  });
+
+  document.addEventListener("DOMContentLoaded", () => {
+    loadThemeScopes().catch(() => {});
+  });
+}
+
 // --- destination + saved-notecard pickers ---
 
 async function loadGroupsAndNotecards() {

@@ -237,7 +237,8 @@ function td(text) {
   return el;
 }
 
-// Switch the library to one of its tabs (notecards | renders | glw | logos).
+// Switch the library to one of its tabs (notecards | renders | glw | logos |
+// themes).
 // Mirrors the tab toggling app.js does on click, but lets us drive it
 // programmatically for cross-references between tabs.
 function activateLibraryTab(name) {
@@ -496,6 +497,22 @@ async function refresh() {
   } catch (err) {
     $("logos-status").textContent = `Failed to load logos: ${err.message}`;
   }
+
+  try {
+    const themes = await fetchJSON(
+      `/api/themes?scope=${encodeURIComponent(scope)}`,
+    );
+    const themesBody = $("themes-tbody");
+    themesBody.replaceChildren();
+    if ((themes.themes || []).length === 0) {
+      $("themes-status").textContent = "No themes in this scope.";
+    } else {
+      $("themes-status").textContent = "";
+      for (const t of themes.themes) themesBody.appendChild(themeRow(t));
+    }
+  } catch (err) {
+    $("themes-status").textContent = `Failed to load themes: ${err.message}`;
+  }
 }
 
 function glwRow(g) {
@@ -633,6 +650,143 @@ function logoRow(l) {
     });
     if (!ok) return;
     const resp = await fetch(`/api/logos/${l.logo_id}`, {
+      method: "DELETE",
+    });
+    if (!resp.ok) {
+      await showError(resp);
+      return;
+    }
+    refresh();
+  });
+  actions.appendChild(del);
+  tr.appendChild(actions);
+  return tr;
+}
+
+function fmtBool(b) {
+  return b ? "On" : "Off";
+}
+
+// A two-cell `<tr>` for the theme detail modal: a label and either a plain
+// text value or, when `colorValue` is given, a colour swatch + hex code.
+function themeDetailRow(label, value, colorValue) {
+  const tr = document.createElement("tr");
+  tr.appendChild(td(label));
+  const valTd = document.createElement("td");
+  if (colorValue) {
+    const chip = document.createElement("span");
+    chip.className = "saved-color-chip";
+    chip.style.backgroundColor = colorValue;
+    const code = document.createElement("code");
+    code.textContent = colorValue;
+    valTd.appendChild(chip);
+    valTd.append(" ");
+    valTd.appendChild(code);
+  } else {
+    valTd.textContent = value;
+  }
+  tr.appendChild(valTd);
+  return tr;
+}
+
+// Read-only view of a theme's settings, rendered as a labelled table with
+// colour swatches. The full settings come back in the list response, so no
+// extra fetch is needed.
+async function showThemeModal(theme) {
+  const s = theme.settings || {};
+  const glw = s.glw_style || {};
+  await infoModal({
+    title: theme.name ? `Theme — ${theme.name}` : "Theme",
+    build: (dialog) => {
+      const table = document.createElement("table");
+      table.className = "library-table theme-detail";
+      const tbody = document.createElement("tbody");
+      const add = (label, value, color) =>
+        tbody.appendChild(themeDetailRow(label, value, color));
+
+      add("Fill missing map tiles", fmtBool(s.missing_map_tile_enabled));
+      if (s.missing_map_tile_color)
+        add("Missing map tile colour", null, s.missing_map_tile_color);
+      add("Fill missing regions", fmtBool(s.missing_region_enabled));
+      if (s.missing_region_color)
+        add("Missing region colour", null, s.missing_region_color);
+      add("Region rectangles", fmtBool(s.draw_region_rectangles));
+      add("Region names", fmtBool(s.draw_region_names));
+      add("Region coordinates", fmtBool(s.draw_region_coordinates));
+      add("Region label font", s.region_label_font_id || "(default)");
+      add("GLW margin band", fmtBool(glw.margin_band));
+      const glwColors = [
+        ["GLW area outline", glw.area_outline_color],
+        ["GLW circle outline", glw.circle_outline_color],
+        ["GLW margin outline", glw.margin_outline_color],
+        ["GLW wind colour", glw.wind_color],
+        ["GLW current colour", glw.current_color],
+        ["GLW wave colour", glw.wave_color],
+        ["GLW label colour", glw.label_color],
+      ];
+      for (const [label, color] of glwColors) {
+        if (color) add(label, null, color);
+      }
+      add("GLW font", s.glw_font_id || "(default)");
+      if (s.route_color) add("Route colour", null, s.route_color);
+
+      table.appendChild(tbody);
+      dialog.appendChild(table);
+    },
+  });
+}
+
+function themeRow(t) {
+  const tr = document.createElement("tr");
+  tr.dataset.themeId = t.theme_id;
+  tr.appendChild(td(t.name || ""));
+  tr.appendChild(profileLinkCell(t.created_by, t.created_by_legacy_name));
+  tr.appendChild(td(fmtDate(t.created_at)));
+  tr.appendChild(td(fmtDate(t.updated_at)));
+  const actions = document.createElement("td");
+  const view = document.createElement("button");
+  view.type = "button";
+  view.textContent = "View";
+  view.className = "row-action";
+  view.addEventListener("click", () => showThemeModal(t));
+  actions.appendChild(view);
+  const rename = document.createElement("button");
+  rename.type = "button";
+  rename.textContent = "Rename";
+  rename.className = "row-action";
+  rename.addEventListener("click", async () => {
+    const next = await promptModal({
+      title: "Rename theme",
+      message: "New name for this theme:",
+      default: t.name || "",
+      okText: "Rename",
+    });
+    if (!next || !next.trim()) return;
+    const resp = await fetch(`/api/themes/${t.theme_id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: next.trim() }),
+    });
+    if (!resp.ok) {
+      await showError(resp);
+      return;
+    }
+    refresh();
+  });
+  actions.appendChild(rename);
+  const del = document.createElement("button");
+  del.type = "button";
+  del.textContent = "Delete";
+  del.className = "row-action danger";
+  del.addEventListener("click", async () => {
+    const ok = await confirmModal({
+      title: "Delete theme",
+      message: `Delete theme "${t.name}"?`,
+      danger: true,
+      okText: "Delete",
+    });
+    if (!ok) return;
+    const resp = await fetch(`/api/themes/${t.theme_id}`, {
       method: "DELETE",
     });
     if (!resp.ok) {

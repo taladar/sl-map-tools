@@ -17,6 +17,7 @@ pub mod render;
 pub mod renders;
 pub mod result;
 pub mod text;
+pub mod themes;
 pub mod users;
 
 use axum::Router;
@@ -242,6 +243,15 @@ pub fn build(state: AppState) -> Router {
             get(glw::get).patch(glw::rename).delete(glw::delete),
         )
         .route("/api/glw/{id}/payload", get(glw::payload))
+        // saved themes — named bundles of the render page's presentation
+        // settings, personal or group-scoped
+        .route("/api/themes", get(themes::list).post(themes::create))
+        .route(
+            "/api/themes/{id}",
+            get(themes::get)
+                .patch(themes::update)
+                .delete(themes::delete),
+        )
         // saved logos. The upload route raises the body limit above the
         // global default so a 5 MiB image fits; the GET shares the limit
         // harmlessly.

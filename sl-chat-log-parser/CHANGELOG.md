@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.1 - 2026-06-14 13:15:46Z
+
+### 🚀 Features
+
+- *(glw)* Add sl-glw crate for GlobalWind overlays
+- *(web)* Show embedded TTF name in font dropdown
+- Legend slot selection and arbitrary text labels
+- *(sl-map-cli)* Reach render parity with sl-map-web
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Release new version
+- *(release)* Release new version
+
 ## 0.3.0 - 2026-05-14 18:07:06Z
 
 ### 🚀 Features

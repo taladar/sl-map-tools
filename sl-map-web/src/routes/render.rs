@@ -1066,7 +1066,7 @@ pub struct GlwPreviewRequest {
 /// The overlay draws the geographic GLW content — shapes and their per-shape
 /// labels — at the preview's zoom level rather than the final render's, so the
 /// returned PNG is small and aligns with the preview tiles. The base legend is
-/// deliberately omitted: like [`apply_glw_overlay_readonly`] it is a candidate
+/// deliberately omitted: like `apply_glw_overlay_readonly` it is a candidate
 /// placement element handled separately by the placement-slot logic, not part
 /// of the geographic overlay. When the GLW event cannot be resolved the
 /// response is a fully transparent PNG, leaving the tiles unchanged.

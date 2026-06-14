@@ -10,7 +10,31 @@ function $(id) {
 function fmtDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  if (Number.isNaN(d.getTime())) return iso;
+  // ISO 8601 in local time, with a space instead of the "T" separator,
+  // followed by the local UTC offset (and the timezone abbreviation).
+  const pad = (n) => String(n).padStart(2, "0");
+  // getTimezoneOffset() is minutes behind UTC, so a positive value means a
+  // negative offset (e.g. -05:00). Invert it to render the ISO offset.
+  const offMin = -d.getTimezoneOffset();
+  const sign = offMin >= 0 ? "+" : "-";
+  const absMin = Math.abs(offMin);
+  const offset = `${sign}${pad(Math.floor(absMin / 60))}:${pad(absMin % 60)}`;
+  let tzName = "";
+  try {
+    const parts = new Intl.DateTimeFormat(undefined, {
+      timeZoneName: "short",
+    }).formatToParts(d);
+    const tz = parts.find((p) => p.type === "timeZoneName");
+    if (tz) tzName = ` (${tz.value})`;
+  } catch (_) {
+    // Intl unavailable; fall back to just the numeric offset.
+  }
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ` +
+    `${offset}${tzName}`
+  );
 }
 
 // Pull the user id from the URL path. /profile → null (means "me");

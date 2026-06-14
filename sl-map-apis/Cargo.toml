@@ -13,21 +13,21 @@ categories = ["api-bindings"]
 exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 
 [dependencies]
-ab_glyph = "0.2.29"
+ab_glyph = "0.2.32"
 derive_more = { version = "2.1.1", features = ["debug"] }
-http = "1.4.0"
+http = "1.4.2"
 http-cache-semantics = { version = "3.0.0", features = ["reqwest"] }
 image = { version = "0.25.10", default-features = false, features = [
   "jpeg",
   "png",
   "rayon"
 ] }
-imageproc = "0.26.2"
+imageproc = "0.27.0"
 lru = "0.18.0"
 ratelimit = "2.0.0"
 redb = "4.1.0"
-reqwest = { version = "0.13.3", features = ["native-tls-vendored"] }
-serde_json = "1.0.149"
+reqwest = { version = "0.13.4", features = ["native-tls-vendored"] }
+serde_json = "1.0.150"
 sl-types = { path = "../sl-types", version = "0.3.0" }
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["full"] }

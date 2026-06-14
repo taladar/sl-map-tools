@@ -13,10 +13,10 @@ categories = ["parser-implementations"]
 exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 
 [dependencies]
-bytesize = "2.3.1"
+bytesize = "2.4.0"
 chumsky = "0.13.0"
 sl-types = { path = "../sl-types", version = "0.3.0", features = ["chumsky"] }
-time = { version = "0.3.47", features = ["formatting", "macros", "parsing"] }
+time = { version = "0.3.49", features = ["formatting", "macros", "parsing"] }
 
 [dev-dependencies]
 ariadne = { version = "0.6.0", features = ["auto-color"] }

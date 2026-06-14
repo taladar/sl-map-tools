@@ -35,7 +35,7 @@ buildflags = ["--release"]
 sl_map_cli = { path = "/usr/bin/sl_map_cli" }
 
 [dependencies]
-ab_glyph = "0.2.29"
+ab_glyph = "0.2.32"
 clap = { version = "4.6.1", features = ["cargo", "derive"] }
 fs-err = "3.3.0"
 hex_color = "3.0.0"
@@ -44,7 +44,7 @@ indicatif = "0.18"
 log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 ratelimit = "2.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 sl-glw = { path = "../sl-glw", version = "0.1.0" }
 sl-map-apis = { path = "../sl-map-apis", version = "0.4.0" }
 sl-types = { path = "../sl-types", version = "0.3.0" }

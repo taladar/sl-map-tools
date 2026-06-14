@@ -47,13 +47,13 @@ assets = [
 ]
 
 [dependencies]
-ab_glyph = "0.2.29"
+ab_glyph = "0.2.32"
 argon2 = "0.5.3"
 axum = { version = "0.8", features = ["multipart", "macros"] }
 axum-extra = { version = "0.12.6", features = ["cookie", "cookie-signed", "typed-header"] }
 base64 = "0.22.1"
 bytes = "1.11.1"
-chrono = { version = "0.4.44", features = ["serde"] }
+chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.1", features = ["cargo", "derive", "env"] }
 fs-err = "3.3.0"
 futures = "0.3.32"
@@ -68,29 +68,29 @@ ipnet = "2.12.0"
 log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 rand = "0.10.1"
 ratelimit = "2.0.0"
-reqwest = { version = "0.13.3", default-features = false, features = ["blocking", "json", "native-tls-vendored"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "native-tls-vendored"] }
 secrecy = "0.10"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 sha2 = "0.11.0"
 sl-glw = { path = "../sl-glw", version = "0.1.0" }
 sl-map-apis = { path = "../sl-map-apis", version = "0.4.0" }
 sl-types = { path = "../sl-types", version = "0.3.0" }
-sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 subtle = "2.6.1"
 thiserror = "2.0.18"
-time = "0.3.47"
+time = "0.3.49"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tower = "0.5.3"
-tower-http = { version = "0.6.10", features = ["trace", "compression-gzip", "set-header"] }
+tower-http = { version = "0.6.11", features = ["trace", "compression-gzip", "set-header"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = [
   "env-filter",
   "tracing-log",
 ] }
-uuid = { version = "1.23.1", features = ["serde", "v4"] }
+uuid = { version = "1.23.3", features = ["serde", "v4"] }
 zeroize = "1"
 
 [dev-dependencies]

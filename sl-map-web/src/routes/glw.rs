@@ -443,7 +443,9 @@ async fn fetch_glw_data_for(
     }
     sql.push_str("ORDER BY g.fetched_at DESC");
 
-    let mut query = sqlx::query_as::<_, GlwDataListRow>(&sql);
+    // The SQL is assembled from string literals only; all user-supplied
+    // values are passed via bind parameters below, so the assertion holds.
+    let mut query = sqlx::query_as::<_, GlwDataListRow>(sqlx::AssertSqlSafe(sql));
     match destination {
         Destination::Personal => {
             query = query.bind(current_user.as_bytes().to_vec());

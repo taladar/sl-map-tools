@@ -116,6 +116,45 @@ input[type="color"] {
   width: 3rem;
 }
 
+/* Shared saved-colour palette panel. */
+.saved-colors-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.saved-colors-list:empty::before {
+  content: "No saved colours yet.";
+  color: var(--muted, #888);
+  font-style: italic;
+}
+
+.saved-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+}
+
+.saved-color-chip {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 2px;
+}
+
+.saved-color-remove {
+  padding: 0 0.4rem;
+  line-height: 1.4;
+  background: transparent;
+  color: inherit;
+  border-radius: 2px;
+}
+
 button,
 .button {
   cursor: pointer;

@@ -264,6 +264,16 @@ pub fn build(state: AppState) -> Router {
             "/api/users/me/preferences",
             patch(users::update_preferences),
         )
+        // per-user saved-colour palette, shared across every colour picker
+        // on the renderer page
+        .route(
+            "/api/users/me/colors",
+            get(users::list_colors).post(users::add_color),
+        )
+        .route(
+            "/api/users/me/colors/{color}",
+            axum::routing::delete(users::delete_color),
+        )
         .route("/api/users/{id}", get(users::get))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

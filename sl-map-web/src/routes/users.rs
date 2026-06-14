@@ -211,3 +211,136 @@ pub async fn update_preferences(
         })?;
     Ok((ReqwestStatusCode::NO_CONTENT, "").into_response())
 }
+
+/// Response body for `GET /api/users/me/colors`: the caller's saved-colour
+/// palette as canonical `#rrggbb` strings, oldest first.
+#[derive(Debug, Serialize)]
+pub struct SavedColors {
+    /// the saved colours, ordered by save time (oldest first).
+    pub colors: Vec<String>,
+}
+
+/// `GET /api/users/me/colors` — list the calling user's saved custom
+/// colours. These are shared across every colour picker on the renderer
+/// page (surfaced as a single `<datalist>` of preset swatches).
+///
+/// # Errors
+///
+/// Returns [`Error::Database`] on any underlying query failure.
+pub async fn list_colors(
+    user: CurrentUser,
+    State(state): State<AppState>,
+) -> Result<Json<SavedColors>, Error> {
+    let colors: Vec<String> = sqlx::query_scalar(
+        "SELECT color FROM saved_colors WHERE user_id = ?1 ORDER BY created_at, color",
+    )
+    .bind(user.user_id.as_bytes().to_vec())
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| {
+        tracing::error!("list saved colors failed: {err}");
+        Error::Database
+    })?;
+    Ok(Json(SavedColors { colors }))
+}
+
+/// JSON body for `POST /api/users/me/colors`.
+#[derive(Debug, Deserialize)]
+pub struct AddColor {
+    /// the colour to save, as canonical `#rrggbb`.
+    pub color: String,
+}
+
+/// `POST /api/users/me/colors` — add a colour to the calling user's saved
+/// palette. Idempotent: re-saving an existing colour is a no-op (the
+/// `(user_id, color)` primary key absorbs the duplicate via
+/// `INSERT OR IGNORE`).
+///
+/// # Errors
+///
+/// Returns [`Error::BadRequest`] if `color` is not canonical `#rrggbb`;
+/// [`Error::Database`] on underlying query failure.
+pub async fn add_color(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Json(req): Json<AddColor>,
+) -> Result<Response, Error> {
+    if !is_canonical_hex_color(&req.color) {
+        return Err(Error::BadRequest(format!(
+            "color must be canonical `#rrggbb`, got {:?}",
+            req.color
+        )));
+    }
+    sqlx::query(
+        "INSERT OR IGNORE INTO saved_colors (user_id, color, created_at) VALUES (?1, ?2, ?3)",
+    )
+    .bind(user.user_id.as_bytes().to_vec())
+    .bind(&req.color)
+    .bind(Utc::now())
+    .execute(&state.db)
+    .await
+    .map_err(|err| {
+        tracing::error!("add saved color failed: {err}");
+        Error::Database
+    })?;
+    Ok((ReqwestStatusCode::NO_CONTENT, "").into_response())
+}
+
+/// `DELETE /api/users/me/colors/{color}` — remove a colour from the
+/// calling user's saved palette. `{color}` is the bare six hex digits
+/// **without** the leading `#` (which would otherwise be read as a URL
+/// fragment); the handler re-prefixes it before validating and deleting.
+/// Deleting a colour that is not in the palette succeeds as a no-op.
+///
+/// # Errors
+///
+/// Returns [`Error::BadRequest`] if the path segment is not six hex
+/// digits; [`Error::Database`] on underlying query failure.
+pub async fn delete_color(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path(color): Path<String>,
+) -> Result<Response, Error> {
+    let canonical = format!("#{color}");
+    if !is_canonical_hex_color(&canonical) {
+        return Err(Error::BadRequest(format!(
+            "color path segment must be six hex digits, got {color:?}"
+        )));
+    }
+    sqlx::query("DELETE FROM saved_colors WHERE user_id = ?1 AND color = ?2")
+        .bind(user.user_id.as_bytes().to_vec())
+        .bind(&canonical)
+        .execute(&state.db)
+        .await
+        .map_err(|err| {
+            tracing::error!("delete saved color failed: {err}");
+            Error::Database
+        })?;
+    Ok((ReqwestStatusCode::NO_CONTENT, "").into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_canonical_hex_color;
+
+    #[test]
+    fn accepts_canonical_six_digit_hex() {
+        assert!(is_canonical_hex_color("#ff0000"));
+        assert!(is_canonical_hex_color("#FF00aa"));
+        assert!(is_canonical_hex_color("#000000"));
+    }
+
+    #[test]
+    fn rejects_non_canonical() {
+        assert!(!is_canonical_hex_color("ff0000"), "missing leading #");
+        assert!(
+            !is_canonical_hex_color("#fff"),
+            "shorthand is not canonical"
+        );
+        assert!(!is_canonical_hex_color("#ff00000"), "too many digits");
+        assert!(!is_canonical_hex_color("#ff00gg"), "non-hex digit");
+        assert!(!is_canonical_hex_color("#ff 000"), "embedded space");
+        assert!(!is_canonical_hex_color(""), "empty string");
+        assert!(!is_canonical_hex_color("#"), "hash only");
+    }
+}

@@ -68,6 +68,7 @@
             type="color"
             id="missing_map_tile_color"
             value="#19485a"
+            list="saved_colors"
             disabled
           />
         </label>
@@ -78,6 +79,7 @@
             type="color"
             id="missing_region_color"
             value="#000000"
+            list="saved_colors"
             disabled
           />
         </label>
@@ -87,6 +89,27 @@
         because each region inside an existing map tile has to be checked
         individually against the upstream server.
       </p>
+      <details class="saved-colors">
+        <summary>Saved colours</summary>
+        <p class="note">
+          Colours you save here appear as preset swatches in every colour picker
+          on this page. They are stored on your account, so they follow you
+          across browsers and devices.
+        </p>
+        <div id="saved_colors_list" class="saved-colors-list"></div>
+        <div class="row">
+          <label
+            >Add a colour
+            <input type="color" id="saved_color_new" value="#ff0000" />
+          </label>
+          <button type="button" id="saved_color_add">Add</button>
+        </div>
+      </details>
+      <!-- Shared datalist of saved colours, referenced by every
+           `<input type="color" list="saved_colors">` on the page (including
+           the cloned label editors). Populated by app.js from
+           `GET /api/users/me/colors`. -->
+      <datalist id="saved_colors"></datalist>
       <div class="row">
         <label class="checkbox">
           <input type="checkbox" id="draw_region_rectangles" />
@@ -222,13 +245,9 @@
             type="color"
             id="route_color"
             value="#ff0000"
-            list="route_color_presets"
+            list="saved_colors"
           />
         </label>
-        <datalist id="route_color_presets">
-          <option value="#ff0000"></option>
-          <option value="#00ff00"></option>
-        </datalist>
         <label class="checkbox">
           <input type="checkbox" id="save_without_route" />
           Also save a copy without the route
@@ -352,27 +371,43 @@
           <summary>Style overrides</summary>
           <div class="row">
             <label
-              >Wind colour <input type="color" id="glw_wind_color"
+              >Wind colour
+              <input type="color" id="glw_wind_color" list="saved_colors"
             /></label>
             <label
-              >Current colour <input type="color" id="glw_current_color"
+              >Current colour
+              <input type="color" id="glw_current_color" list="saved_colors"
             /></label>
             <label
-              >Wave colour <input type="color" id="glw_wave_color"
+              >Wave colour
+              <input type="color" id="glw_wave_color" list="saved_colors"
             /></label>
             <label
-              >Label text colour <input type="color" id="glw_label_color"
+              >Label text colour
+              <input type="color" id="glw_label_color" list="saved_colors"
             /></label>
           </div>
           <div class="row">
             <label
-              >Area outline <input type="color" id="glw_area_outline_color"
+              >Area outline
+              <input
+                type="color"
+                id="glw_area_outline_color"
+                list="saved_colors"
             /></label>
             <label
-              >Circle outline <input type="color" id="glw_circle_outline_color"
+              >Circle outline
+              <input
+                type="color"
+                id="glw_circle_outline_color"
+                list="saved_colors"
             /></label>
             <label
-              >Margin outline <input type="color" id="glw_margin_outline_color"
+              >Margin outline
+              <input
+                type="color"
+                id="glw_margin_outline_color"
+                list="saved_colors"
             /></label>
             <label class="checkbox-inline">
               <input type="checkbox" id="glw_margin_band" />
@@ -403,7 +438,12 @@
           </label>
           <label
             >Colour
-            <input type="color" class="lm-color" value="#ffffff" />
+            <input
+              type="color"
+              class="lm-color"
+              value="#ffffff"
+              list="saved_colors"
+            />
           </label>
         </div>
         <div class="row">

@@ -258,6 +258,102 @@ if (ON_RENDER_PAGE)
     }
   });
 
+// --- shared saved-colour palette ---
+//
+// A per-user set of favourite colours, persisted on the account via
+// `/api/users/me/colors` and shared across every `<input type="color">`
+// on the page through the single `#saved_colors` datalist. The "Saved
+// colours" panel lets the user add (a colour picker + Add button) and
+// remove (a "×" on each swatch) entries; both refresh the datalist so the
+// change is immediately visible in every picker's preset list.
+
+// Rebuild the shared datalist and the management panel from the given
+// list of `#rrggbb` strings.
+function renderSavedColors(colors) {
+  const datalist = $("saved_colors");
+  if (datalist) {
+    datalist.replaceChildren(
+      ...colors.map((c) => {
+        const opt = document.createElement("option");
+        opt.value = c;
+        return opt;
+      }),
+    );
+  }
+  const list = $("saved_colors_list");
+  if (list) {
+    list.replaceChildren(
+      ...colors.map((c) => {
+        const swatch = document.createElement("span");
+        swatch.className = "saved-color";
+        const chip = document.createElement("span");
+        chip.className = "saved-color-chip";
+        chip.style.backgroundColor = c;
+        const label = document.createElement("code");
+        label.textContent = c;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "saved-color-remove";
+        remove.dataset.color = c;
+        remove.title = `Remove ${c}`;
+        remove.setAttribute("aria-label", `Remove ${c}`);
+        remove.textContent = "×";
+        swatch.append(chip, label, remove);
+        return swatch;
+      }),
+    );
+  }
+}
+
+// Fetch the saved palette and render it. Quiet on failure — the pickers
+// still work without their preset swatches.
+async function loadSavedColors() {
+  try {
+    const resp = await fetch("/api/users/me/colors");
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (Array.isArray(data.colors)) renderSavedColors(data.colors);
+  } catch (_err) {
+    // ignore — the preset swatches are a convenience, not required.
+  }
+}
+
+if (ON_RENDER_PAGE) {
+  $("saved_color_add").addEventListener("click", async () => {
+    const value = $("saved_color_new").value;
+    if (!ROUTE_COLOR_RE.test(value)) return;
+    try {
+      const resp = await fetch("/api/users/me/colors", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ color: value }),
+      });
+      if (resp.ok) await loadSavedColors();
+    } catch (_err) {
+      // ignore — cosmetic; the picker value still applies to renders.
+    }
+  });
+  // Delegated remove: the "×" buttons are rebuilt on every refresh, so a
+  // single listener on the container outlives them.
+  $("saved_colors_list").addEventListener("click", async (e) => {
+    const btn = e.target.closest(".saved-color-remove");
+    if (!btn) return;
+    const value = btn.dataset.color;
+    if (!ROUTE_COLOR_RE.test(value)) return;
+    try {
+      const resp = await fetch(`/api/users/me/colors/${value.slice(1)}`, {
+        method: "DELETE",
+      });
+      if (resp.ok) await loadSavedColors();
+    } catch (_err) {
+      // ignore — cosmetic.
+    }
+  });
+  document.addEventListener("DOMContentLoaded", () => {
+    loadSavedColors().catch(() => {});
+  });
+}
+
 // --- destination + saved-notecard pickers ---
 
 async function loadGroupsAndNotecards() {

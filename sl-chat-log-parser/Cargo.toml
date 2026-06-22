@@ -15,7 +15,7 @@ exclude = [".env", "tarpaulin-report.html", "tarpaulin-report.json"]
 [dependencies]
 bytesize = "2.4.0"
 chumsky = "0.13.0"
-sl-types = { path = "../sl-types", version = "0.3.1", features = ["chumsky"] }
+sl-types = { path = "../sl-types", version = "0.4.0", features = ["chumsky"] }
 time = { version = "0.3.49", features = ["formatting", "macros", "parsing"] }
 
 [dev-dependencies]

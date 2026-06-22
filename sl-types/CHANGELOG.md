@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 - 2026-06-22 11:59:34Z
+
+### 🚀 Features
+
+- *(sl-types)* Copy/Hash + uuid()/From<Uuid> on all key newtypes
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Release new version
+- *(release)* Release new version
+- *(release)* Release new version
+
+## 0.3.2 - 2026-06-22 11:55:02Z
+
+### 🚀 Features
+
+- *(sl-types)* Copy/Hash + uuid()/From<Uuid> on all key newtypes
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Release new version
+- *(release)* Release new version
+- *(release)* Release new version
+
 ## 0.3.1 - 2026-06-14 13:09:49Z
 
 ### 🚀 Features

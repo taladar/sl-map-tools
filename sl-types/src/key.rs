@@ -57,7 +57,7 @@ pub fn uuid_parser<'src>()
 
 /// represents a general Second Life key without any knowledge about the type
 /// of entity this represents
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Key(pub Uuid);
 
 impl std::fmt::Display for Key {
@@ -90,7 +90,7 @@ pub const NULL_KEY: Key = Key(uuid!("00000000-0000-0000-0000-000000000000"));
 pub const COMBAT_LOG_ID: Key = Key(uuid!("45e0fcfa-2268-4490-a51c-3e51bdfe80d1"));
 
 /// represents a Second Life key for an agent (avatar)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -142,7 +142,7 @@ pub fn app_agent_uri_as_agent_key_parser<'src>()
 }
 
 /// represents a Second Life key for a classified ad
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -175,7 +175,7 @@ pub fn classified_key_parser<'src>()
 }
 
 /// represents a Second Life key for an event
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -207,7 +207,7 @@ pub fn event_key_parser<'src>()
 }
 
 /// represents a Second Life key for an experience
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -240,7 +240,7 @@ pub fn experience_key_parser<'src>()
 }
 
 /// represents a Second Life key for an agent who is a friend
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -278,7 +278,7 @@ pub fn friend_key_parser<'src>()
 }
 
 /// represents a Second Life key for a group
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -330,7 +330,7 @@ pub fn app_group_uri_as_group_key_parser<'src>()
 }
 
 /// represents a Second Life key for an inventory item
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -363,7 +363,7 @@ pub fn inventory_key_parser<'src>()
 }
 
 /// represents a Second Life key for an object
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -395,7 +395,7 @@ pub fn object_key_parser<'src>()
 }
 
 /// represents a Second Life key for a parcel
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -427,7 +427,7 @@ pub fn parcel_key_parser<'src>()
 }
 
 /// represents a Second Life key for a texture
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -459,7 +459,7 @@ pub fn texture_key_parser<'src>()
 }
 
 /// represents a Second Life key for an inventory folder
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -495,7 +495,7 @@ pub fn inventory_folder_key_parser<'src>() -> impl Parser<
 }
 
 /// represents s Second Life key for an owner (e.g. of an object)
-#[derive(Debug, Clone, PartialEq, Eq, strum::EnumIs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -580,4 +580,184 @@ pub fn app_agent_or_group_uri_as_owner_key_parser<'src>()
     app_agent_uri_as_agent_key_parser()
         .map(OwnerKey::Agent)
         .or(app_group_uri_as_group_key_parser().map(OwnerKey::Group))
+}
+
+impl Key {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0
+    }
+}
+
+impl From<Uuid> for Key {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl AgentKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for AgentKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl ClassifiedKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for ClassifiedKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl EventKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for EventKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl ExperienceKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for ExperienceKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl FriendKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for FriendKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl GroupKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for GroupKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl InventoryKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for InventoryKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl ObjectKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for ObjectKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl ParcelKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for ParcelKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl TextureKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for TextureKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl InventoryFolderKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for InventoryFolderKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+impl OwnerKey {
+    /// The wrapped raw UUID, regardless of whether the owner is an agent or a
+    /// group.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        match self {
+            Self::Agent(agent_key) => agent_key.0.0,
+            Self::Group(group_key) => group_key.0.0,
+        }
+    }
 }

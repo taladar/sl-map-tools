@@ -125,7 +125,7 @@ pub enum ViewerUri {
     /// open a floater describing the classified ad
     ClassifiedAbout(crate::key::ClassifiedKey),
     /// open a floater describing the event
-    EventAbout(crate::key::EventKey),
+    EventAbout(crate::search::EventId),
     /// open a floater describing the experience
     ExperienceProfile(crate::key::ExperienceKey),
     /// open the group profile
@@ -378,8 +378,8 @@ impl std::fmt::Display for ViewerUri {
             Self::ClassifiedAbout(classified_key) => {
                 write!(f, "secondlife:///app/classified/{classified_key}/about")
             }
-            Self::EventAbout(event_key) => {
-                write!(f, "secondlife:///app/event/{event_key}/about")
+            Self::EventAbout(event_id) => {
+                write!(f, "secondlife:///app/event/{event_id}/about")
             }
             Self::ExperienceProfile(experience_key) => {
                 write!(f, "secondlife:///app/experience/{experience_key}/profile")
@@ -851,7 +851,7 @@ pub fn viewer_app_event_uri_parser<'src>()
 -> impl Parser<'src, &'src str, ViewerUri, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
     just("secondlife:///app/event/")
         .ignore_then(
-            crate::key::event_key_parser()
+            crate::search::event_id_parser()
                 .then_ignore(just("/about"))
                 .map(ViewerUri::EventAbout),
         )

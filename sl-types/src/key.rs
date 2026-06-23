@@ -174,38 +174,6 @@ pub fn classified_key_parser<'src>()
     key_parser().map(ClassifiedKey)
 }
 
-/// represents a Second Life key for an event
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[expect(
-    clippy::module_name_repetitions,
-    reason = "the type is going to be used outside this module"
-)]
-pub struct EventKey(pub Key);
-
-impl std::fmt::Display for EventKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<EventKey> for Key {
-    fn from(val: EventKey) -> Self {
-        val.0
-    }
-}
-
-/// parse an EventKey
-///
-/// # Errors
-///
-/// returns an error if the string could not be parsed
-#[cfg(feature = "chumsky")]
-#[must_use]
-pub fn event_key_parser<'src>()
--> impl Parser<'src, &'src str, EventKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
-    key_parser().map(EventKey)
-}
-
 /// represents a Second Life key for an experience
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
@@ -624,20 +592,6 @@ impl From<Uuid> for ClassifiedKey {
     }
 }
 
-impl EventKey {
-    /// The wrapped raw UUID.
-    #[must_use]
-    pub const fn uuid(&self) -> Uuid {
-        self.0.0
-    }
-}
-
-impl From<Uuid> for EventKey {
-    fn from(value: Uuid) -> Self {
-        Self(Key(value))
-    }
-}
-
 impl ExperienceKey {
     /// The wrapped raw UUID.
     #[must_use]
@@ -758,6 +712,239 @@ impl OwnerKey {
         match self {
             Self::Agent(agent_key) => agent_key.0.0,
             Self::Group(group_key) => group_key.0.0,
+        }
+    }
+}
+
+/// represents a Second Life key for a *role* within a group (e.g. the "Owners"
+/// role, or the nil-keyed default "Everyone" role), as distinct from the
+/// group's own [`GroupKey`]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
+pub struct GroupRoleKey(pub Key);
+
+impl std::fmt::Display for GroupRoleKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<GroupRoleKey> for Key {
+    fn from(val: GroupRoleKey) -> Self {
+        val.0
+    }
+}
+
+impl GroupRoleKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for GroupRoleKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+/// parse a GroupRoleKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn group_role_key_parser<'src>()
+-> impl Parser<'src, &'src str, GroupRoleKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    key_parser().map(GroupRoleKey)
+}
+
+/// represents a Second Life key for a *mesh* asset — the UUID of a mesh asset,
+/// as carried in the sculpt/mesh block of a prim whose shape comes from a mesh
+/// rather than a sculpt texture. A mesh asset is emphatically not a
+/// [`TextureKey`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
+pub struct MeshKey(pub Key);
+
+impl std::fmt::Display for MeshKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<MeshKey> for Key {
+    fn from(val: MeshKey) -> Self {
+        val.0
+    }
+}
+
+impl MeshKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for MeshKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+/// parse a MeshKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn mesh_key_parser<'src>()
+-> impl Parser<'src, &'src str, MeshKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    key_parser().map(MeshKey)
+}
+
+/// a key that is either an **agent** ([`AgentKey`]) or an in-world **object**
+/// ([`ObjectKey`]), as selected by a separate source-type discriminator (an
+/// avatar or a prim can be the source of chat, sounds, effects, …)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
+pub enum AgentOrObjectKey {
+    /// the key is an agent
+    Agent(AgentKey),
+    /// the key is an in-world object
+    Object(ObjectKey),
+}
+
+impl AgentOrObjectKey {
+    /// The wrapped raw UUID, regardless of whether the key is an agent or an
+    /// object.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        match self {
+            Self::Agent(agent_key) => agent_key.0.0,
+            Self::Object(object_key) => object_key.0.0,
+        }
+    }
+}
+
+impl std::fmt::Display for AgentOrObjectKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Agent(agent_key) => write!(f, "{agent_key}"),
+            Self::Object(object_key) => write!(f, "{object_key}"),
+        }
+    }
+}
+
+impl From<AgentOrObjectKey> for Key {
+    fn from(val: AgentOrObjectKey) -> Self {
+        match val {
+            AgentOrObjectKey::Agent(agent_key) => agent_key.into(),
+            AgentOrObjectKey::Object(object_key) => object_key.into(),
+        }
+    }
+}
+
+/// a key that is either an inventory **item** ([`InventoryKey`]) or a whole
+/// inventory **folder/category** ([`InventoryFolderKey`]), as selected by a
+/// separate asset-type discriminator
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
+pub enum InventoryItemOrFolderKey {
+    /// the key refers to a single inventory item
+    Item(InventoryKey),
+    /// the key refers to a whole inventory folder/category
+    Folder(InventoryFolderKey),
+}
+
+impl InventoryItemOrFolderKey {
+    /// The wrapped raw UUID, regardless of whether it refers to an item or a
+    /// folder.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        match self {
+            Self::Item(item_key) => item_key.0.0,
+            Self::Folder(folder_key) => folder_key.0.0,
+        }
+    }
+}
+
+impl std::fmt::Display for InventoryItemOrFolderKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Item(item_key) => write!(f, "{item_key}"),
+            Self::Folder(folder_key) => write!(f, "{folder_key}"),
+        }
+    }
+}
+
+impl From<InventoryItemOrFolderKey> for Key {
+    fn from(val: InventoryItemOrFolderKey) -> Self {
+        match val {
+            InventoryItemOrFolderKey::Item(item_key) => item_key.into(),
+            InventoryItemOrFolderKey::Folder(folder_key) => folder_key.into(),
+        }
+    }
+}
+
+/// the asset backing a prim's sculpt/mesh shape: either a sculpt **texture**
+/// ([`TextureKey`]) or a **mesh** asset ([`MeshKey`]), as selected by the prim's
+/// sculpt-type discriminator
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
+pub enum SculptOrMeshKey {
+    /// the prim is a sculpty: the key is a sculpt texture
+    Sculpt(TextureKey),
+    /// the prim is a mesh: the key is a mesh asset
+    Mesh(MeshKey),
+}
+
+impl SculptOrMeshKey {
+    /// The wrapped raw UUID, regardless of whether it is a sculpt texture or a
+    /// mesh asset.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        match self {
+            Self::Sculpt(texture_key) => texture_key.0.0,
+            Self::Mesh(mesh_key) => mesh_key.0.0,
+        }
+    }
+}
+
+impl std::fmt::Display for SculptOrMeshKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sculpt(texture_key) => write!(f, "{texture_key}"),
+            Self::Mesh(mesh_key) => write!(f, "{mesh_key}"),
+        }
+    }
+}
+
+impl From<SculptOrMeshKey> for Key {
+    fn from(val: SculptOrMeshKey) -> Self {
+        match val {
+            SculptOrMeshKey::Sculpt(texture_key) => texture_key.into(),
+            SculptOrMeshKey::Mesh(mesh_key) => mesh_key.into(),
         }
     }
 }

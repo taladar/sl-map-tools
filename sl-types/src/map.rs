@@ -9,12 +9,27 @@ use chumsky::{
 
 #[cfg(feature = "chumsky")]
 use crate::utils::{
-    f32_parser, i16_parser, i32_parser, u8_parser, u16_parser, url_text_component_parser,
+    f32_parser, i16_parser, i32_parser, u8_parser, u16_parser, u32_parser,
+    url_text_component_parser,
 };
 
 /// represents a Second Life distance in meters
 #[derive(Debug, Clone, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct Distance(f64);
+
+impl Distance {
+    /// creates a distance from a value in meters
+    #[must_use]
+    pub const fn new(meters: f64) -> Self {
+        Self(meters)
+    }
+
+    /// the distance in meters
+    #[must_use]
+    pub const fn meters(&self) -> f64 {
+        self.0
+    }
+}
 
 impl std::fmt::Display for Distance {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -181,6 +196,83 @@ pub fn distance_parser<'src>()
         .then_ignore(whitespace().or_not())
         .then_ignore(just('m'))
         .map(Distance)
+}
+
+/// A Second Life land area, in **square metres** — the unit SL measures parcels
+/// and land-tier accounting in (a member's group land contribution, a parcel's
+/// actual/billable area, an avatar's land credit/commitment, …).
+///
+/// This is deliberately **not** an [`LindenAmount`](crate::money::LindenAmount):
+/// land areas occupy the same signed-32-bit integer slots prices use, and the
+/// two are trivially confusable as raw integers. Wrapping area in its own
+/// newtype makes "passed a land area where an L$ price was expected" (and
+/// vice-versa) a compile error. A land area is non-negative by construction.
+#[derive(
+    Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct LandArea(pub u32);
+
+impl LandArea {
+    /// A zero land area.
+    pub const ZERO: Self = Self(0);
+
+    /// The wrapped count of square metres.
+    #[must_use]
+    pub const fn get(&self) -> u32 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for LandArea {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self(value) = self;
+        write!(f, "{value} m²")
+    }
+}
+
+impl std::ops::Add for LandArea {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let Self(lhs) = self;
+        let Self(rhs) = rhs;
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "the same overflow behaviour as the underlying integer addition, which is what a caller summing areas expects"
+        )]
+        Self(lhs + rhs)
+    }
+}
+
+impl std::ops::Sub for LandArea {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let Self(lhs) = self;
+        let Self(rhs) = rhs;
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "the same underflow behaviour as the underlying integer subtraction, which is what a caller differencing areas expects"
+        )]
+        Self(lhs - rhs)
+    }
+}
+
+/// parse a land area
+///
+/// "1024 m²"
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn land_area_parser<'src>()
+-> impl Parser<'src, &'src str, LandArea, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    u32_parser()
+        .then_ignore(whitespace().or_not())
+        .then_ignore(just("m²"))
+        .map(LandArea)
 }
 
 /// Grid coordinates for the position of a region on the map

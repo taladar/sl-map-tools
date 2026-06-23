@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 - 2026-06-23 19:43:37Z
+
+### 🚀 Features
+
+- *(sl-types)* [**breaking**] Adopt value types migrated from sl-client
+
 ## 0.4.0 - 2026-06-22 11:59:34Z
 
 ### 🚀 Features

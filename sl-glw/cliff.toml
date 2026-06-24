@@ -11,7 +11,7 @@ header = """# Changelog
 # See https://keats.github.io/tera/docs/#introduction
 body = """
 {% if version %}\
-## {{ version | trim_start_matches(pat="sl_glw_") }} - {{ timestamp | date(format="%Y-%m-%d %H:%M:%SZ") }}
+    ## {{ version | trim_start_matches(pat="sl-glw_") }} - {{ timestamp | date(format="%Y-%m-%d %H:%M:%SZ") }}
 {% else %}\
     ## Unreleased changes
 {% endif %}\
@@ -40,7 +40,7 @@ postprocessors = [
 # output = "test.md"
 
 [git]
-tag_pattern = "^sl_glw_[0-9.]*$"
+tag_pattern = "^sl-glw_[0-9.]*$"
 # Parse commits according to the conventional commits specification.
 # See https://www.conventionalcommits.org
 conventional_commits = true

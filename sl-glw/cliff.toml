@@ -96,3 +96,11 @@ topo_order_commits = true
 sort_commits = "oldest"
 # Process submodules commits
 recurse_submodules = false
+# include dependencies and top-level files
+include_paths = [
+  "sl-glw/**",
+  "sl-map-apis/**",
+  "Cargo.lock",
+  "deny.toml",
+  "sl-types/**",
+]

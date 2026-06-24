@@ -1,3 +1,16 @@
+sl-map-web (0.4.0-1) unstable; urgency=medium
+
+  * Features - sl-map-web - Add a shared per-user saved-colour palette
+  * Features - sl-map-web - Add save/load themes for render presentation settings
+  * Features - sl-types - Copy/Hash + uuid()/From<Uuid> on all key newtypes
+  * Features - sl-types - [**breaking**] Adopt value types migrated from sl-client
+  * Features - sl-types - [**breaking**] Widen GridRectangle to u32 and migrate more value types from sl-client
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - dependencies - Upgrade dependencies
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Wed, 24 Jun 2026 20:49:11 +0200
+
 sl-map-web (0.3.0-1) unstable; urgency=medium
 
   * Features - glw - Add sl-glw crate for GlobalWind overlays

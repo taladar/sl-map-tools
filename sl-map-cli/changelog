@@ -1,3 +1,11 @@
+sl-map-cli (0.6.0-1) unstable; urgency=medium
+
+  * Features - sl-types - [**breaking**] Widen GridRectangle to u32 and migrate more value types from sl-client
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - dependencies - Upgrade dependencies
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Wed, 24 Jun 2026 20:49:10 +0200
+
 sl-map-cli (0.5.0-1) unstable; urgency=medium
 
   * Features - cli - Wire sl-glw overlay into sl-map-cli

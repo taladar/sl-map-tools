@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 - 2026-06-24 18:49:10Z
+
+### 🚀 Features
+
+- *(sl-types)* [**breaking**] Widen GridRectangle to u32 and migrate more value
+  types from sl-client
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Upgrade dependencies
+
 ## 0.5.0 - 2026-06-23 19:43:37Z
 
 ### 🚀 Features

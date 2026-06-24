@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.0 - 2026-06-24 18:49:10Z
+
+### 🚀 Features
+
+- *(sl-types)* Copy/Hash + uuid()/From<Uuid> on all key newtypes
+- *(sl-types)* [**breaking**] Adopt value types migrated from sl-client
+- *(sl-types)* [**breaking**] Widen GridRectangle to u32 and migrate more value
+  types from sl-client
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Release new version
+- *(release)* Release new version
+- *(dependencies)* Upgrade dependencies
+
 ## 0.5.0 - 2026-06-14 13:43:00Z
 
 ### 🚀 Features

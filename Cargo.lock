@@ -3598,7 +3598,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "sl-chat-log-parser"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "ariadne",
  "bytesize",
@@ -3619,7 +3619,7 @@ dependencies = [
 
 [[package]]
 name = "sl-glw"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ab_glyph",
  "fs-err",
@@ -3646,7 +3646,7 @@ dependencies = [
 
 [[package]]
 name = "sl-map-apis"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "ab_glyph",
  "derive_more",
@@ -3672,7 +3672,7 @@ dependencies = [
 
 [[package]]
 name = "sl-map-cli"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "ab_glyph",
  "clap",
@@ -3698,7 +3698,7 @@ dependencies = [
 
 [[package]]
 name = "sl-map-web"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ab_glyph",
  "argon2",
@@ -3743,7 +3743,7 @@ dependencies = [
 
 [[package]]
 name = "sl-types"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "chumsky",
  "nutype",

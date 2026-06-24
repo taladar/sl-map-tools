@@ -129,7 +129,7 @@ fn draw_glw_event_modifies_image() -> Result<(), Box<dyn std::error::Error>> {
     // projection covers 352×352 px — pick that as the image size so
     // grid math stays in-bounds.
     let zoom = ZoomLevel::try_new(4)?;
-    let image_size: u32 = u32::from(grid.size_x()) * u32::from(zoom.pixels_per_region());
+    let image_size: u32 = grid.size_x() * u32::from(zoom.pixels_per_region());
     let mut map = TestMap {
         image: image::DynamicImage::ImageRgba8(image::ImageBuffer::from_pixel(
             image_size,

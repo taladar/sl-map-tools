@@ -18,9 +18,9 @@ use crate::types::{
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
 struct GridCoordRaw {
     /// Sim x grid coordinate.
-    x: u16,
+    x: u32,
     /// Sim y grid coordinate.
-    y: u16,
+    y: u32,
 }
 
 /// Raw `{ "x": f32, "y": f32 }` pair used for the `centerPoint` of a

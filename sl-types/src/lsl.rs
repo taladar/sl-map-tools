@@ -97,3 +97,42 @@ pub fn rotation_parser<'src>()
         .then_ignore(just('>'))
         .map(|(((x, y), z), s)| Rotation { x, y, z, s })
 }
+
+/// The permissions an in-world script may request via `llRequestPermissions`, a
+/// bitfield shared by the `ScriptQuestion` (request) and `ScriptAnswerYes`
+/// (grant) messages. The flag values match the LSL `PERMISSION_*` constants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ScriptPermissions(pub i32);
+
+impl ScriptPermissions {
+    /// Debit the agent's account (`PERMISSION_DEBIT`).
+    pub const DEBIT: i32 = 1 << 1;
+    /// Take control inputs (`PERMISSION_TAKE_CONTROLS`).
+    pub const TAKE_CONTROLS: i32 = 1 << 2;
+    /// Trigger animations on the agent (`PERMISSION_TRIGGER_ANIMATION`).
+    pub const TRIGGER_ANIMATION: i32 = 1 << 4;
+    /// Attach to the agent (`PERMISSION_ATTACH`).
+    pub const ATTACH: i32 = 1 << 5;
+    /// Change link-set membership (`PERMISSION_CHANGE_LINKS`).
+    pub const CHANGE_LINKS: i32 = 1 << 7;
+    /// Track the agent's camera (`PERMISSION_TRACK_CAMERA`).
+    pub const TRACK_CAMERA: i32 = 1 << 10;
+    /// Control the agent's camera (`PERMISSION_CONTROL_CAMERA`).
+    pub const CONTROL_CAMERA: i32 = 1 << 11;
+    /// Teleport the agent (`PERMISSION_TELEPORT`).
+    pub const TELEPORT: i32 = 1 << 12;
+    /// Participate in an experience (`PERMISSION_EXPERIENCE`).
+    pub const EXPERIENCE: i32 = 1 << 13;
+    /// Silently manage estate access (`PERMISSION_SILENT_ESTATE_MANAGEMENT`).
+    pub const SILENT_ESTATE_MANAGEMENT: i32 = 1 << 14;
+    /// Override the agent's animations (`PERMISSION_OVERRIDE_ANIMATIONS`).
+    pub const OVERRIDE_ANIMATIONS: i32 = 1 << 15;
+    /// Return objects (`PERMISSION_RETURN_OBJECTS`).
+    pub const RETURN_OBJECTS: i32 = 1 << 16;
+
+    /// Whether all of the bits in `mask` are granted/requested.
+    #[must_use]
+    pub const fn contains(self, mask: i32) -> bool {
+        self.0 & mask == mask
+    }
+}

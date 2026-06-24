@@ -765,6 +765,102 @@ pub fn group_role_key_parser<'src>()
     key_parser().map(GroupRoleKey)
 }
 
+/// represents a Second Life key for a profile **pick** (the viewer's
+/// `LLPickData::mPickID`) — a profile-listed place. The picks-side parallel of
+/// [`ClassifiedKey`], kept distinct so the two cannot be transposed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
+pub struct PickKey(pub Key);
+
+impl std::fmt::Display for PickKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<PickKey> for Key {
+    fn from(val: PickKey) -> Self {
+        val.0
+    }
+}
+
+impl PickKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for PickKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+/// parse a PickKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn pick_key_parser<'src>()
+-> impl Parser<'src, &'src str, PickKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>> {
+    key_parser().map(PickKey)
+}
+
+/// represents a Second Life key for a group **notice** (the viewer's group-notice
+/// `mNoticeID`) — one posting in a group's notice list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the type is going to be used outside this module"
+)]
+pub struct GroupNoticeKey(pub Key);
+
+impl std::fmt::Display for GroupNoticeKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<GroupNoticeKey> for Key {
+    fn from(val: GroupNoticeKey) -> Self {
+        val.0
+    }
+}
+
+impl GroupNoticeKey {
+    /// The wrapped raw UUID.
+    #[must_use]
+    pub const fn uuid(&self) -> Uuid {
+        self.0.0
+    }
+}
+
+impl From<Uuid> for GroupNoticeKey {
+    fn from(value: Uuid) -> Self {
+        Self(Key(value))
+    }
+}
+
+/// parse a GroupNoticeKey
+///
+/// # Errors
+///
+/// returns an error if the string could not be parsed
+#[cfg(feature = "chumsky")]
+#[must_use]
+pub fn group_notice_key_parser<'src>()
+-> impl Parser<'src, &'src str, GroupNoticeKey, chumsky::extra::Err<chumsky::error::Rich<'src, char>>>
+{
+    key_parser().map(GroupNoticeKey)
+}
+
 /// represents a Second Life key for a *mesh* asset — the UUID of a mesh asset,
 /// as carried in the sculpt/mesh block of a prim whose shape comes from a mesh
 /// rather than a sculpt texture. A mesh asset is emphatically not a

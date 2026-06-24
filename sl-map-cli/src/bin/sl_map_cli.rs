@@ -117,16 +117,16 @@ impl From<sl_map_apis::text::FontError> for Error {
 pub struct FromGridRectangle {
     /// the x coordinate of the lower left corner of the grid rectangle
     #[clap(long)]
-    pub lower_left_x: u16,
+    pub lower_left_x: u32,
     /// the y coordinate of the lower left corner of the grid rectangle
     #[clap(long)]
-    pub lower_left_y: u16,
+    pub lower_left_y: u32,
     /// the x coordinate of the upper right corner of the grid rectangle
     #[clap(long)]
-    pub upper_right_x: u16,
+    pub upper_right_x: u32,
     /// the y coordinate of the upper right corner of the grid rectangle
     #[clap(long)]
-    pub upper_right_y: u16,
+    pub upper_right_y: u32,
     /// the fill color for missing map tiles, default is not to
     /// fill which results in black
     #[clap(long, value_parser = parse_color)]
@@ -672,16 +672,16 @@ pub struct PlacementSlots {
     /// the four corner flags, or --usb-notecard, to choose the area)
     #[clap(long, requires_all = ["lower_left_y", "upper_right_x", "upper_right_y"],
            conflicts_with = "usb_notecard")]
-    pub lower_left_x: Option<u16>,
+    pub lower_left_x: Option<u32>,
     /// the y coordinate of the lower left corner of the grid rectangle
     #[clap(long)]
-    pub lower_left_y: Option<u16>,
+    pub lower_left_y: Option<u32>,
     /// the x coordinate of the upper right corner of the grid rectangle
     #[clap(long)]
-    pub upper_right_x: Option<u16>,
+    pub upper_right_x: Option<u32>,
     /// the y coordinate of the upper right corner of the grid rectangle
     #[clap(long)]
-    pub upper_right_y: Option<u16>,
+    pub upper_right_y: Option<u32>,
     /// a USB notecard whose route defines the area (and is drawn onto the
     /// occupancy map). Mutually exclusive with the grid-rectangle corners.
     #[clap(long)]
@@ -760,7 +760,7 @@ fn output_metadata(
         "The aspect ratio of the image is {}:{} ({})",
         grid_rectangle.size_x(),
         grid_rectangle.size_y(),
-        f32::from(grid_rectangle.size_x()) / f32::from(grid_rectangle.size_y())
+        f64::from(grid_rectangle.size_x()) / f64::from(grid_rectangle.size_y())
     );
     let note =
         "You can use this to edit e.g. the PPS HUD to have the correct ratio of width and height";
@@ -1089,7 +1089,9 @@ async fn apply_region_overlay(
         return Ok(());
     }
     let pixels_per_region = map.pixels_per_region();
-    let region_count = usize::from(map.size_x()).saturating_mul(usize::from(map.size_y()));
+    let region_count =
+        usize::try_from(u64::from(map.size_x()).saturating_mul(u64::from(map.size_y())))
+            .unwrap_or(usize::MAX);
     let run_loop = opts.any_text() && region_text_overlay_allowed(pixels_per_region, region_count);
     if !run_loop {
         if opts.any_text() {

@@ -153,7 +153,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         GridCoordinates::new(1140, 1055),
     );
     let zoom = ZoomLevel::try_new(2)?;
-    let image_size: u32 = u32::from(grid.size_x()) * u32::from(zoom.pixels_per_region());
+    let image_size: u32 = grid.size_x() * u32::from(zoom.pixels_per_region());
 
     // Mid-blue background so the white arrows / green outlines stand
     // out without needing real map tiles for the demo.

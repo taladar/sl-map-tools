@@ -285,31 +285,35 @@ pub struct GridCoordinates {
     /// the x coordinate of the region, this is basically the horizontal
     /// position of the region on the map increasing from west to east
     ///
-    /// common values are between roughly 395 and 1358
-    x: u16,
+    /// common values are between roughly 395 and 1358; the type is `u32` (not
+    /// `u16`) because the Second Life whole-grid map layer reports rectangle
+    /// bounds that can exceed `u16::MAX`
+    x: u32,
     /// the y coordinate of the region, this is basically the vertical
     /// position of the region on the map increasing from south to north
     ///
-    /// common values are between roughly 479 and 1430
-    y: u16,
+    /// common values are between roughly 479 and 1430; the type is `u32` (not
+    /// `u16`) because the Second Life whole-grid map layer reports rectangle
+    /// bounds that can exceed `u16::MAX`
+    y: u32,
 }
 
 impl GridCoordinates {
     /// Create a new `GridCoordinates`
     #[must_use]
-    pub const fn new(x: u16, y: u16) -> Self {
+    pub const fn new(x: u32, y: u32) -> Self {
         Self { x, y }
     }
 
     /// The x coordinate of the region
     #[must_use]
-    pub const fn x(&self) -> u16 {
+    pub const fn x(&self) -> u32 {
         self.x
     }
 
     /// The y coordinate of the region
     #[must_use]
-    pub const fn y(&self) -> u16 {
+    pub const fn y(&self) -> u32 {
         self.y
     }
 }
@@ -348,12 +352,12 @@ impl std::ops::Add<GridCoordinateOffset> for GridCoordinates {
 
     fn add(self, rhs: GridCoordinateOffset) -> Self::Output {
         Self::new(
-            (<u16 as Into<i32>>::into(self.x).saturating_add(rhs.x))
+            (i64::from(self.x).saturating_add(i64::from(rhs.x)))
                 .try_into()
-                .unwrap_or(if rhs.x > 0 { u16::MAX } else { u16::MIN }),
-            (<u16 as Into<i32>>::into(self.y).saturating_add(rhs.y))
+                .unwrap_or(if rhs.x > 0 { u32::MAX } else { u32::MIN }),
+            (i64::from(self.y).saturating_add(i64::from(rhs.y)))
                 .try_into()
-                .unwrap_or(if rhs.y > 0 { u16::MAX } else { u16::MIN }),
+                .unwrap_or(if rhs.y > 0 { u32::MAX } else { u32::MIN }),
         )
     }
 }
@@ -362,9 +366,17 @@ impl std::ops::Sub<Self> for GridCoordinates {
     type Output = GridCoordinateOffset;
 
     fn sub(self, rhs: Self) -> Self::Output {
+        /// Saturates the `i64` difference of two `u32` coordinates into the
+        /// `i32` an offset holds (real grid differences never approach `i32`'s
+        /// range, but the conversion must still be total).
+        fn saturate_to_i32(difference: i64) -> i32 {
+            difference
+                .try_into()
+                .unwrap_or(if difference > 0 { i32::MAX } else { i32::MIN })
+        }
         GridCoordinateOffset::new(
-            <u16 as Into<i32>>::into(self.x).saturating_sub(<u16 as Into<i32>>::into(rhs.x)),
-            <u16 as Into<i32>>::into(self.y).saturating_sub(<u16 as Into<i32>>::into(rhs.y)),
+            saturate_to_i32(i64::from(self.x).saturating_sub(i64::from(rhs.x))),
+            saturate_to_i32(i64::from(self.y).saturating_sub(i64::from(rhs.y))),
         )
     }
 }
@@ -401,7 +413,7 @@ impl GridRectangle {
     #[must_use]
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "GridCoordinates + GridCoordinateOffset saturates at u16::MIN/u16::MAX"
+        reason = "GridCoordinates + GridCoordinateOffset saturates at u32::MIN/u32::MAX"
     )]
     pub fn expanded_west(&self, by: u16) -> Self {
         Self::new(
@@ -412,11 +424,11 @@ impl GridRectangle {
 
     /// returns a new `GridRectangle` extended by `by` regions on the east (+x) side
     ///
-    /// Saturates at the eastern edge of the grid (x = `u16::MAX`).
+    /// Saturates at the eastern edge of the grid (x = `u32::MAX`).
     #[must_use]
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "GridCoordinates + GridCoordinateOffset saturates at u16::MIN/u16::MAX"
+        reason = "GridCoordinates + GridCoordinateOffset saturates at u32::MIN/u32::MAX"
     )]
     pub fn expanded_east(&self, by: u16) -> Self {
         Self::new(
@@ -431,7 +443,7 @@ impl GridRectangle {
     #[must_use]
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "GridCoordinates + GridCoordinateOffset saturates at u16::MIN/u16::MAX"
+        reason = "GridCoordinates + GridCoordinateOffset saturates at u32::MIN/u32::MAX"
     )]
     pub fn expanded_south(&self, by: u16) -> Self {
         Self::new(
@@ -442,11 +454,11 @@ impl GridRectangle {
 
     /// returns a new `GridRectangle` extended by `by` regions on the north (+y) side
     ///
-    /// Saturates at the northern edge of the grid (y = `u16::MAX`).
+    /// Saturates at the northern edge of the grid (y = `u32::MAX`).
     #[must_use]
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "GridCoordinates + GridCoordinateOffset saturates at u16::MIN/u16::MAX"
+        reason = "GridCoordinates + GridCoordinateOffset saturates at u32::MIN/u32::MAX"
     )]
     pub fn expanded_north(&self, by: u16) -> Self {
         Self::new(
@@ -495,25 +507,25 @@ pub trait GridRectangleLike {
 
     /// the size of the map like image in regions in the x direction (width)
     #[must_use]
-    fn size_x(&self) -> u16 {
+    fn size_x(&self) -> u32 {
         self.grid_rectangle().size_x()
     }
 
     /// the size of the map like image in regions in the y direction (width)
     #[must_use]
-    fn size_y(&self) -> u16 {
+    fn size_y(&self) -> u32 {
         self.grid_rectangle().size_y()
     }
 
     /// returns a range for the region x coordinates of this rectangle
     #[must_use]
-    fn x_range(&self) -> std::ops::RangeInclusive<u16> {
+    fn x_range(&self) -> std::ops::RangeInclusive<u32> {
         self.lower_left_corner().x()..=self.upper_right_corner().x()
     }
 
     /// returns a range for the region y coordinates of this rectangle
     #[must_use]
-    fn y_range(&self) -> std::ops::RangeInclusive<u16> {
+    fn y_range(&self) -> std::ops::RangeInclusive<u32> {
         self.lower_left_corner().y()..=self.upper_right_corner().y()
     }
 
@@ -533,10 +545,10 @@ pub trait GridRectangleLike {
     where
         O: GridRectangleLike,
     {
-        let self_x_range: ranges::GenericRange<u16> = self.x_range().into();
-        let self_y_range: ranges::GenericRange<u16> = self.y_range().into();
-        let other_x_range: ranges::GenericRange<u16> = other.x_range().into();
-        let other_y_range: ranges::GenericRange<u16> = other.y_range().into();
+        let self_x_range: ranges::GenericRange<u32> = self.x_range().into();
+        let self_y_range: ranges::GenericRange<u32> = self.y_range().into();
+        let other_x_range: ranges::GenericRange<u32> = other.x_range().into();
+        let other_y_range: ranges::GenericRange<u32> = other.y_range().into();
         let x_intersection = self_x_range.intersect(other_x_range);
         let y_intersection = self_y_range.intersect(other_y_range);
         match (x_intersection, y_intersection) {
@@ -580,16 +592,19 @@ pub trait GridRectangleLike {
     /// calibration.
     #[must_use]
     fn pps_hud_config(&self) -> String {
-        let lower_left_corner_x = 256f32 * f32::from(self.lower_left_corner().x());
-        let lower_left_corner_y = 256f32 * f32::from(self.lower_left_corner().y());
-        // this is basically the lower left corner as an LSL vector of meters from the grid coordinate origin
+        // the lower left corner as an LSL vector of metres from the grid
+        // coordinate origin (`<256 * grid_x, 256 * grid_y, 0>`)
+        let lower_left_corner = GlobalCoordinates::from_grid_corner(self.lower_left_corner());
+        // this is the lower left corner as an LSL vector of meters from the grid coordinate origin
         // followed by the width and height of the map in regions
         // and a 0/1 for the locked state of the HUD
         // each of those is separated from the next by a slash character
         format!(
-            "<{lower_left_corner_x},{lower_left_corner_y},0>/{}/{}/1",
-            f32::from(self.size_x()),
-            f32::from(self.size_y())
+            "<{},{},0>/{}/{}/1",
+            lower_left_corner.x(),
+            lower_left_corner.y(),
+            f64::from(self.size_x()),
+            f64::from(self.size_y())
         )
     }
 }
@@ -607,25 +622,25 @@ impl GridRectangleLike for GridRectangle {
         self.upper_right_corner.to_owned()
     }
 
-    fn size_x(&self) -> u16 {
+    fn size_x(&self) -> u32 {
         self.upper_right_corner
             .x()
             .saturating_sub(self.lower_left_corner().x())
             .saturating_add(1)
     }
 
-    fn size_y(&self) -> u16 {
+    fn size_y(&self) -> u32 {
         self.upper_right_corner
             .y()
             .saturating_sub(self.lower_left_corner().y())
             .saturating_add(1)
     }
 
-    fn x_range(&self) -> std::ops::RangeInclusive<u16> {
+    fn x_range(&self) -> std::ops::RangeInclusive<u32> {
         self.lower_left_corner.x()..=self.upper_right_corner.x()
     }
 
-    fn y_range(&self) -> std::ops::RangeInclusive<u16> {
+    fn y_range(&self) -> std::ops::RangeInclusive<u32> {
         self.lower_left_corner.y()..=self.upper_right_corner.y()
     }
 }
@@ -637,11 +652,11 @@ impl GridRectangleLike for MapTileDescriptor {
             GridCoordinates::new(
                 self.lower_left_corner
                     .x()
-                    .saturating_add(self.zoom_level.tile_size())
+                    .saturating_add(u32::from(self.zoom_level.tile_size()))
                     .saturating_sub(1),
                 self.lower_left_corner
                     .y()
-                    .saturating_add(self.zoom_level.tile_size())
+                    .saturating_add(u32::from(self.zoom_level.tile_size()))
                     .saturating_sub(1),
             ),
         )
@@ -663,7 +678,7 @@ impl GridCoordinatesExt for Vec<GridCoordinates> {
         if self.is_empty() {
             return None;
         }
-        let (xs, ys): (Vec<u16>, Vec<u16>) = self.iter().map(|gc| (gc.x(), gc.y())).unzip();
+        let (xs, ys): (Vec<u32>, Vec<u32>) = self.iter().map(|gc| (gc.x(), gc.y())).unzip();
         // unwrap is okay in these cases because we checked above that the container is non-empty
         #[expect(
             clippy::unwrap_used,
@@ -773,6 +788,316 @@ impl From<crate::lsl::Vector> for RegionCoordinates {
             y: value.y,
             z: value.z,
         }
+    }
+}
+
+/// The number of metres along one axis of a region; a grid-index step.
+const REGION_SIZE_METERS: f64 = 256.0;
+
+/// A 3-D facing direction — the direction an avatar faces, as carried by the
+/// various `look_at` fields (the viewer's agent/camera *at*-axis). It is a
+/// direction, **not** a position: the wire stores three `f32`s and the viewer
+/// uses the full 3-D vector (including any vertical component) as the forward
+/// axis. It is conventionally a unit vector, but the wire does not enforce
+/// normalisation, so the raw components are preserved verbatim for byte-identical
+/// round-trips.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Direction {
+    /// The x component of the facing direction.
+    x: f32,
+    /// The y component of the facing direction.
+    y: f32,
+    /// The z component of the facing direction.
+    z: f32,
+}
+
+impl Direction {
+    /// A zero direction (the wire `(0, 0, 0)` sentinel the viewer replaces with
+    /// the current camera axis).
+    pub const ZERO: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+
+    /// Creates a direction from its raw components, without normalising.
+    #[must_use]
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { x, y, z }
+    }
+
+    /// The x component of the facing direction.
+    #[must_use]
+    pub const fn x(&self) -> f32 {
+        self.x
+    }
+
+    /// The y component of the facing direction.
+    #[must_use]
+    pub const fn y(&self) -> f32 {
+        self.y
+    }
+
+    /// The z component of the facing direction.
+    #[must_use]
+    pub const fn z(&self) -> f32 {
+        self.z
+    }
+
+    /// The Euclidean length (magnitude) of the direction vector.
+    #[must_use]
+    pub fn length(&self) -> f32 {
+        self.z
+            .mul_add(self.z, self.x.mul_add(self.x, self.y * self.y))
+            .sqrt()
+    }
+
+    /// The unit-length direction, or `None` when the vector has (near-)zero
+    /// length and a direction is therefore undefined.
+    #[must_use]
+    pub fn normalized(&self) -> Option<Self> {
+        let length = self.length();
+        if length > f32::EPSILON {
+            Some(Self::new(self.x / length, self.y / length, self.z / length))
+        } else {
+            None
+        }
+    }
+}
+
+/// A grid-global position in metres — the viewer's `LLVector3d` "global" frame,
+/// where the value along an axis is `region_grid_index * 256 + region_local`.
+/// Held as `f64` to match the wire's double-precision global vectors (the
+/// directory/event/pick replies carry `LLVector3d`); the few replies that send
+/// a single-precision global position widen to `f64` at the codec boundary.
+///
+/// `sl-types` also has region-local ([`RegionCoordinates`]) and region-index
+/// ([`GridCoordinates`]) coordinates; this is the global-metre coordinate that
+/// relates the two.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GlobalCoordinates {
+    /// The global x coordinate, in metres (west→east).
+    x: f64,
+    /// The global y coordinate, in metres (south→north).
+    y: f64,
+    /// The global z coordinate, in metres (altitude).
+    z: f64,
+}
+
+impl GlobalCoordinates {
+    /// Creates global coordinates from their raw metre components.
+    #[must_use]
+    pub const fn new(x: f64, y: f64, z: f64) -> Self {
+        Self { x, y, z }
+    }
+
+    /// The global x coordinate, in metres.
+    #[must_use]
+    pub const fn x(&self) -> f64 {
+        self.x
+    }
+
+    /// The global y coordinate, in metres.
+    #[must_use]
+    pub const fn y(&self) -> f64 {
+        self.y
+    }
+
+    /// The global z coordinate, in metres.
+    #[must_use]
+    pub const fn z(&self) -> f64 {
+        self.z
+    }
+
+    /// Combines a region's grid index and a region-local position into a global
+    /// position (`grid_index * 256 + region_local`). The inverse of
+    /// [`split`](Self::split).
+    #[must_use]
+    pub fn from_grid_and_region(grid: GridCoordinates, region: RegionCoordinates) -> Self {
+        Self {
+            x: f64::from(grid.x()).mul_add(REGION_SIZE_METERS, f64::from(region.x())),
+            y: f64::from(grid.y()).mul_add(REGION_SIZE_METERS, f64::from(region.y())),
+            z: f64::from(region.z()),
+        }
+    }
+
+    /// The grid-global position of a region's south-west **corner** — its
+    /// `grid_index * 256` origin at zero altitude. This is the corner the PPS
+    /// HUD config uses (`<256 * grid_x, 256 * grid_y, 0>`); it avoids
+    /// constructing a throwaway all-zero [`RegionCoordinates`] just to reach
+    /// [`from_grid_and_region`](Self::from_grid_and_region).
+    #[must_use]
+    pub fn from_grid_corner(grid: GridCoordinates) -> Self {
+        Self {
+            x: f64::from(grid.x()) * REGION_SIZE_METERS,
+            y: f64::from(grid.y()) * REGION_SIZE_METERS,
+            z: 0.0,
+        }
+    }
+
+    /// Splits a global position into the containing region's grid index and the
+    /// region-local position within it. The inverse of
+    /// [`from_grid_and_region`](Self::from_grid_and_region).
+    ///
+    /// Returns `None` when the global position falls outside the representable
+    /// grid (a negative or out-of-`u32`-range region index), which never
+    /// happens for a position the grid actually sent.
+    #[must_use]
+    pub fn split(&self) -> Option<(GridCoordinates, RegionCoordinates)> {
+        let grid_x = region_index(self.x)?;
+        let grid_y = region_index(self.y)?;
+        let local_x = f64::from(grid_x).mul_add(-REGION_SIZE_METERS, self.x);
+        let local_y = f64::from(grid_y).mul_add(-REGION_SIZE_METERS, self.y);
+        Some((
+            GridCoordinates::new(grid_x, grid_y),
+            RegionCoordinates::new(narrow(local_x), narrow(local_y), narrow(self.z)),
+        ))
+    }
+}
+
+impl From<(GridCoordinates, RegionCoordinates)> for GlobalCoordinates {
+    fn from((grid, region): (GridCoordinates, RegionCoordinates)) -> Self {
+        Self::from_grid_and_region(grid, region)
+    }
+}
+
+impl From<GridCoordinates> for GlobalCoordinates {
+    /// Builds the south-west corner of the region (see
+    /// [`from_grid_corner`](Self::from_grid_corner)).
+    fn from(grid: GridCoordinates) -> Self {
+        Self::from_grid_corner(grid)
+    }
+}
+
+/// The region grid index containing a global-metre coordinate, or `None` when
+/// it falls outside the `0..=u32::MAX` grid range (including a non-finite or
+/// negative input).
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the floored index is checked finite and within u32 range before the cast"
+)]
+fn region_index(meters: f64) -> Option<u32> {
+    let index = (meters / REGION_SIZE_METERS).floor();
+    if index.is_finite() && index >= 0.0 && index <= f64::from(u32::MAX) {
+        Some(index as u32)
+    } else {
+        None
+    }
+}
+
+/// Narrows a region-local-metre `f64` to the `f32` a region-local coordinate
+/// uses. A region-local offset is a small (0..256) in-range metre value, so the
+/// narrowing is exact for the values the grid sends.
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    reason = "a region-local offset is a small (0..256) in-range metre value"
+)]
+const fn narrow(meters: f64) -> f32 {
+    meters as f32
+}
+
+/// A 3-axis **scale factor** (X/Y/Z) — a dimensionless multiplier per axis,
+/// **not** a size in metres. Its one wire user is the water normal-map
+/// "Reflection Wavelet Scale" (the viewer's `normal_scale`: three per-axis
+/// multipliers applied to the wavelet normal-map sampling). A scale is not a
+/// position or a direction (it has no origin and need not be a unit vector), so
+/// it gets its own type.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Scale {
+    /// The x-axis scale factor.
+    x: f32,
+    /// The y-axis scale factor.
+    y: f32,
+    /// The z-axis scale factor.
+    z: f32,
+}
+
+impl Scale {
+    /// Creates a scale from its per-axis factors.
+    #[must_use]
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { x, y, z }
+    }
+
+    /// The x-axis scale factor.
+    #[must_use]
+    pub const fn x(&self) -> f32 {
+        self.x
+    }
+
+    /// The y-axis scale factor.
+    #[must_use]
+    pub const fn y(&self) -> f32 {
+        self.y
+    }
+
+    /// The z-axis scale factor.
+    #[must_use]
+    pub const fn z(&self) -> f32 {
+        self.z
+    }
+}
+
+/// The flags describing how and why a teleport happened, carried by
+/// `TeleportFinish` (and `TeleportProgress`) as the `TeleportFlags` U32
+/// bitfield. Mirrors the reference viewer's `TELEPORT_FLAGS_*`
+/// (`indra/llmessage/llteleportflags.h`).
+///
+/// Note: OpenSim collapses the flags it sends on `TeleportFinish` to
+/// [`VIA_LOCATION`](Self::VIA_LOCATION) (plus [`IS_FLYING`](Self::IS_FLYING)),
+/// so the full set of `VIA_*` reasons is only observable on the Second Life
+/// grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TeleportFlags(pub u32);
+
+impl TeleportFlags {
+    /// Set the agent's home to the teleport target (`SET_HOME_TO_TARGET`, a
+    /// newbie leaving the prelude).
+    pub const SET_HOME_TO_TARGET: u32 = 1 << 0;
+    /// Set the agent's last location to the target (`SET_LAST_TO_TARGET`).
+    pub const SET_LAST_TO_TARGET: u32 = 1 << 1;
+    /// Teleport via a lure / teleport offer (`VIA_LURE`).
+    pub const VIA_LURE: u32 = 1 << 2;
+    /// Teleport via a landmark (`VIA_LANDMARK`).
+    pub const VIA_LANDMARK: u32 = 1 << 3;
+    /// Teleport via an explicit location (`VIA_LOCATION`).
+    pub const VIA_LOCATION: u32 = 1 << 4;
+    /// Teleport to the agent's home (`VIA_HOME`).
+    pub const VIA_HOME: u32 = 1 << 5;
+    /// Teleport via a telehub (`VIA_TELEHUB`).
+    pub const VIA_TELEHUB: u32 = 1 << 6;
+    /// Teleport as part of logging in (`VIA_LOGIN`).
+    pub const VIA_LOGIN: u32 = 1 << 7;
+    /// Teleport via a godlike lure (`VIA_GODLIKE_LURE`).
+    pub const VIA_GODLIKE_LURE: u32 = 1 << 8;
+    /// The teleport was performed with god powers (`GODLIKE`).
+    pub const GODLIKE: u32 = 1 << 9;
+    /// An emergency ("911") teleport (`FLAGS_911`).
+    pub const NINE_ONE_ONE: u32 = 1 << 10;
+    /// Cancelling the teleport is disabled (`DISABLE_CANCEL`, used by
+    /// `llTeleportAgentHome`).
+    pub const DISABLE_CANCEL: u32 = 1 << 11;
+    /// Teleport via a region id (`VIA_REGION_ID`).
+    pub const VIA_REGION_ID: u32 = 1 << 12;
+    /// The agent was flying when the teleport started (`IS_FLYING`).
+    pub const IS_FLYING: u32 = 1 << 13;
+    /// Show the reset-home UI on arrival (`SHOW_RESET_HOME`).
+    pub const SHOW_RESET_HOME: u32 = 1 << 14;
+    /// Force a redirect to some location (`FORCE_REDIRECT`, used when kicking
+    /// someone from land).
+    pub const FORCE_REDIRECT: u32 = 1 << 15;
+    /// Teleport via global coordinates (`VIA_GLOBAL_COORDS`).
+    pub const VIA_GLOBAL_COORDS: u32 = 1 << 16;
+    /// The teleport stays within the same region (`WITHIN_REGION`).
+    pub const WITHIN_REGION: u32 = 1 << 17;
+
+    /// Whether all of the bits in `mask` are set.
+    #[must_use]
+    pub const fn contains(self, mask: u32) -> bool {
+        self.0 & mask == mask
     }
 }
 
@@ -1310,7 +1635,7 @@ impl ZoomLevel {
     /// given by the grid coordinates
     #[must_use]
     pub fn map_tile_corner(&self, GridCoordinates { x, y }: &GridCoordinates) -> GridCoordinates {
-        let tile_size = self.tile_size();
+        let tile_size = u32::from(self.tile_size());
         #[expect(
             clippy::arithmetic_side_effects,
             reason = "remainder should not have any side-effects since tile_size is never 0 (no division by zero issues) or negative (no issues with x or y being e.g. i16::MIN which overflows when the sign is flipped)"
@@ -1349,8 +1674,8 @@ impl ZoomLevel {
     /// impossible if the algorithm is correct) case that ZoomLevel::try_new()
     /// returns an error on the calculated value
     pub fn max_zoom_level_to_fit_regions_into_output_image(
-        region_x: u16,
-        region_y: u16,
+        region_x: u32,
+        region_y: u32,
         output_x: u32,
         output_y: u32,
     ) -> Result<Self, ZoomFitError> {
@@ -1366,8 +1691,8 @@ impl ZoomLevel {
         if output_y == 0 {
             return Err(ZoomFitError::OutputSizeYZero);
         }
-        let output_pixels_per_region_x: u32 = output_x.div_ceil(region_x.into());
-        let output_pixels_per_region_y: u32 = output_y.div_ceil(region_y.into());
+        let output_pixels_per_region_x: u32 = output_x.div_ceil(region_x);
+        let output_pixels_per_region_y: u32 = output_y.div_ceil(region_y);
         let max_zoom_level_x: u8 = 9u8.saturating_sub(std::cmp::min(
             8,
             output_pixels_per_region_x
@@ -1448,11 +1773,11 @@ impl MapTileDescriptor {
             GridCoordinates::new(
                 self.lower_left_corner
                     .x()
-                    .saturating_add(self.zoom_level.tile_size())
+                    .saturating_add(u32::from(self.zoom_level.tile_size()))
                     .saturating_sub(1),
                 self.lower_left_corner
                     .y()
-                    .saturating_add(self.zoom_level.tile_size())
+                    .saturating_add(u32::from(self.zoom_level.tile_size()))
                     .saturating_sub(1),
             ),
         )
@@ -1744,13 +2069,13 @@ mod test {
         );
         let near_edge = GridRectangle::new(
             GridCoordinates::new(10, 10),
-            GridCoordinates::new(u16::MAX - 2, 20),
+            GridCoordinates::new(u32::MAX - 2, 20),
         );
         assert_eq!(
             near_edge.expanded_east(5),
             GridRectangle::new(
                 GridCoordinates::new(10, 10),
-                GridCoordinates::new(u16::MAX, 20),
+                GridCoordinates::new(u32::MAX, 20),
             ),
         );
     }
@@ -1781,13 +2106,13 @@ mod test {
         );
         let near_edge = GridRectangle::new(
             GridCoordinates::new(10, 10),
-            GridCoordinates::new(20, u16::MAX - 2),
+            GridCoordinates::new(20, u32::MAX - 2),
         );
         assert_eq!(
             near_edge.expanded_north(5),
             GridRectangle::new(
                 GridCoordinates::new(10, 10),
-                GridCoordinates::new(20, u16::MAX),
+                GridCoordinates::new(20, u32::MAX),
             ),
         );
     }

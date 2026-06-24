@@ -318,13 +318,13 @@ pub struct GlwRenderOptions {
 #[derive(Debug, Clone, Deserialize)]
 pub struct GridRectangleRequest {
     /// lower-left x grid coordinate.
-    pub lower_left_x: u16,
+    pub lower_left_x: u32,
     /// lower-left y grid coordinate.
-    pub lower_left_y: u16,
+    pub lower_left_y: u32,
     /// upper-right x grid coordinate.
-    pub upper_right_x: u16,
+    pub upper_right_x: u32,
     /// upper-right y grid coordinate.
-    pub upper_right_y: u16,
+    pub upper_right_y: u32,
     /// max output width in pixels.
     pub max_width: u32,
     /// max output height in pixels.
@@ -417,13 +417,13 @@ pub enum SavedRenderSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedGridRectangleSettings {
     /// lower-left x grid coordinate.
-    pub lower_left_x: u16,
+    pub lower_left_x: u32,
     /// lower-left y grid coordinate.
-    pub lower_left_y: u16,
+    pub lower_left_y: u32,
     /// upper-right x grid coordinate.
-    pub upper_right_x: u16,
+    pub upper_right_x: u32,
     /// upper-right y grid coordinate.
-    pub upper_right_y: u16,
+    pub upper_right_y: u32,
     /// max output width in pixels.
     pub max_width: u32,
     /// max output height in pixels.
@@ -1042,13 +1042,13 @@ pub async fn free_placement_slots_usb_notecard(
 #[derive(Debug, Clone, Deserialize)]
 pub struct GlwPreviewRequest {
     /// lower-left x grid coordinate of the final-image rectangle.
-    pub lower_left_x: u16,
+    pub lower_left_x: u32,
     /// lower-left y grid coordinate of the final-image rectangle.
-    pub lower_left_y: u16,
+    pub lower_left_y: u32,
     /// upper-right x grid coordinate of the final-image rectangle.
-    pub upper_right_x: u16,
+    pub upper_right_x: u32,
     /// upper-right y grid coordinate of the final-image rectangle.
-    pub upper_right_y: u16,
+    pub upper_right_y: u32,
     /// zoom level (1–8) the client is compositing the preview tiles at. The
     /// overlay is rasterised at this same zoom so its shapes line up 1:1 with
     /// the displayed tiles once the PNG is dropped into the final-image
@@ -1095,8 +1095,8 @@ pub async fn glw_preview(
     // request (e.g. the full grid at zoom 1) would otherwise drive an enormous
     // `RgbaImage` allocation. Reproduce `Map::blank`'s sizing to check it.
     let pixels_per_region = u32::from(zoom.pixels_per_region());
-    let width = pixels_per_region.saturating_mul(u32::from(rect.size_x()));
-    let height = pixels_per_region.saturating_mul(u32::from(rect.size_y()));
+    let width = pixels_per_region.saturating_mul(rect.size_x());
+    let height = pixels_per_region.saturating_mul(rect.size_y());
     validate_dimensions(width, height)?;
     let mut map = Map::blank(rect, zoom);
     // Resolve the font first so a missing-font request fails fast.
@@ -1193,9 +1193,9 @@ pub async fn glw_legend_preview(
 #[derive(Debug, Clone, Deserialize)]
 pub struct RoutePreviewWaypoint {
     /// resolved x grid coordinate of the region.
-    pub region_x: u16,
+    pub region_x: u32,
     /// resolved y grid coordinate of the region.
-    pub region_y: u16,
+    pub region_y: u32,
     /// in-region x coordinate of the waypoint (metres).
     pub x: f32,
     /// in-region y coordinate of the waypoint (metres).
@@ -1206,13 +1206,13 @@ pub struct RoutePreviewWaypoint {
 #[derive(Debug, Clone, Deserialize)]
 pub struct RoutePreviewRequest {
     /// lower-left x grid coordinate of the final-image rectangle.
-    pub lower_left_x: u16,
+    pub lower_left_x: u32,
     /// lower-left y grid coordinate of the final-image rectangle.
-    pub lower_left_y: u16,
+    pub lower_left_y: u32,
     /// upper-right x grid coordinate of the final-image rectangle.
-    pub upper_right_x: u16,
+    pub upper_right_x: u32,
     /// upper-right y grid coordinate of the final-image rectangle.
-    pub upper_right_y: u16,
+    pub upper_right_y: u32,
     /// final-image fit width in pixels (so the route is rasterised at the same
     /// resolution the real render uses).
     pub max_width: u32,
@@ -1287,13 +1287,13 @@ pub async fn route_preview(
 #[derive(Debug, Clone, Deserialize)]
 pub struct RegionOverlayPreviewRequest {
     /// lower-left x grid coordinate of the final-image rectangle.
-    pub lower_left_x: u16,
+    pub lower_left_x: u32,
     /// lower-left y grid coordinate of the final-image rectangle.
-    pub lower_left_y: u16,
+    pub lower_left_y: u32,
     /// upper-right x grid coordinate of the final-image rectangle.
-    pub upper_right_x: u16,
+    pub upper_right_x: u32,
     /// upper-right y grid coordinate of the final-image rectangle.
-    pub upper_right_y: u16,
+    pub upper_right_y: u32,
     /// final-image fit width in pixels (so the overlay is rasterised at the
     /// same resolution — and thus the same per-region pixel size — the real
     /// render uses, keeping the size gate consistent between preview and final).
@@ -2354,7 +2354,9 @@ async fn apply_region_overlay(
     // into thousands of lookups. When the gate fails the per-region loop is
     // skipped entirely; rectangles (which need no loop) are still drawn below.
     let pixels_per_region = map.pixels_per_region();
-    let region_count = usize::from(map.size_x()).saturating_mul(usize::from(map.size_y()));
+    let region_count =
+        usize::try_from(u64::from(map.size_x()).saturating_mul(u64::from(map.size_y())))
+            .unwrap_or(usize::MAX);
     let run_loop = opts.any_text() && region_text_overlay_allowed(pixels_per_region, region_count);
     if !run_loop {
         if opts.any_text() {
@@ -2687,7 +2689,7 @@ async fn forward_events(job: Arc<JobState>, mut rx: tokio::sync::mpsc::Receiver<
 fn build_metadata(rect: &GridRectangle) -> Metadata {
     let aspect_x = rect.size_x();
     let aspect_y = rect.size_y();
-    let aspect_ratio = f32::from(aspect_x) / f32::from(aspect_y);
+    let aspect_ratio = f64::from(aspect_x) / f64::from(aspect_y);
     Metadata {
         aspect_x,
         aspect_y,
@@ -3935,7 +3937,7 @@ mod route_preview_tests {
 
     /// Convert one resolved waypoint `(region_x, region_y, x, y)` to pixel
     /// coordinates exactly as the `route_preview` handler does.
-    fn pixel_for(map: &Map, rx: u16, ry: u16, x: f32, y: f32) -> Option<(f32, f32)> {
+    fn pixel_for(map: &Map, rx: u32, ry: u32, x: f32, y: f32) -> Option<(f32, f32)> {
         let (px, py) = map.pixel_coordinates_for_coordinates(
             &GridCoordinates::new(rx, ry),
             &RegionCoordinates::new(x, y, 0f32),

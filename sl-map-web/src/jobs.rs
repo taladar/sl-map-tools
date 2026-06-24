@@ -33,18 +33,18 @@ pub enum ProgressDto {
         /// zoom level of the tile.
         zoom: u8,
         /// lower-left x grid coordinate of the tile.
-        x: u16,
+        x: u32,
         /// lower-left y grid coordinate of the tile.
-        y: u16,
+        y: u32,
     },
     /// processing of a tile has finished.
     TileFinished {
         /// zoom level of the tile.
         zoom: u8,
         /// lower-left x grid coordinate of the tile.
-        x: u16,
+        x: u32,
         /// lower-left y grid coordinate of the tile.
-        y: u16,
+        y: u32,
         /// where the tile came from (memory, disk, network, missing).
         outcome: &'static str,
     },
@@ -58,9 +58,9 @@ pub enum ProgressDto {
     /// a region's existence has been determined.
     RegionChecked {
         /// x grid coordinate of the region.
-        x: u16,
+        x: u32,
         /// y grid coordinate of the region.
-        y: u16,
+        y: u32,
         /// whether the region exists.
         exists: bool,
     },
@@ -155,7 +155,7 @@ impl From<MapProgressEvent> for ProgressDto {
 }
 
 /// Extract `(zoom, x, y)` from a `MapTileDescriptor` for JSON output.
-fn split_descriptor(descriptor: &MapTileDescriptor) -> (u8, u16, u16) {
+fn split_descriptor(descriptor: &MapTileDescriptor) -> (u8, u32, u32) {
     let zoom = (*descriptor.zoom_level()).into_inner();
     let corner = descriptor.lower_left_corner();
     (zoom, corner.x(), corner.y())
@@ -176,11 +176,11 @@ const fn outcome_str(outcome: TileOutcome) -> &'static str {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metadata {
     /// the x size of the rendered grid rectangle (in regions).
-    pub aspect_x: u16,
+    pub aspect_x: u32,
     /// the y size of the rendered grid rectangle (in regions).
-    pub aspect_y: u16,
+    pub aspect_y: u32,
     /// width / height as a float.
-    pub aspect_ratio: f32,
+    pub aspect_ratio: f64,
     /// the PPS HUD config string (suitable for the dot prim description).
     pub pps_hud_config: String,
 }

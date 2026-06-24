@@ -19,9 +19,9 @@ pub struct ResolvedWaypoint {
     /// the region the waypoint refers to.
     pub region_name: String,
     /// resolved x grid coordinate of the region.
-    pub region_x: u16,
+    pub region_x: u32,
     /// resolved y grid coordinate of the region.
-    pub region_y: u16,
+    pub region_y: u32,
     /// in-region x coordinate of the waypoint (metres).
     pub x: f32,
     /// in-region y coordinate of the waypoint (metres).
@@ -34,13 +34,13 @@ pub struct ResolvedWaypoint {
 #[derive(Debug, Clone, Serialize)]
 pub struct DeriveResponse {
     /// lower-left x grid coordinate (after border expansion).
-    pub lower_left_x: u16,
+    pub lower_left_x: u32,
     /// lower-left y grid coordinate (after border expansion).
-    pub lower_left_y: u16,
+    pub lower_left_y: u32,
     /// upper-right x grid coordinate (after border expansion).
-    pub upper_right_x: u16,
+    pub upper_right_x: u32,
     /// upper-right y grid coordinate (after border expansion).
-    pub upper_right_y: u16,
+    pub upper_right_y: u32,
     /// the resolved waypoints.
     pub waypoints: Vec<ResolvedWaypoint>,
 }

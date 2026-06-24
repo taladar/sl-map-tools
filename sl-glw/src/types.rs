@@ -1037,9 +1037,9 @@ enum GridCorner {
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 struct SimCoord {
     /// Sim x grid coordinate.
-    x: u16,
+    x: u32,
     /// Sim y grid coordinate.
-    y: u16,
+    y: u32,
 }
 
 impl SimCoord {

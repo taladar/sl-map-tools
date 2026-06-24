@@ -423,9 +423,9 @@ pub enum MapProgressEvent {
     /// a region's existence has been determined
     RegionChecked {
         /// x grid coordinate of the region
-        x: u16,
+        x: u32,
         /// y grid coordinate of the region
-        y: u16,
+        y: u32,
         /// whether the region was found on at least one zoom level
         exists: bool,
     },
@@ -1205,10 +1205,10 @@ impl Map {
             x,
             y,
         )?;
-        let actual_x = <u16 as Into<u32>>::into(zoom_level.pixels_per_region())
-            * <u16 as Into<u32>>::into(grid_rectangle.size_x());
-        let actual_y = <u16 as Into<u32>>::into(zoom_level.pixels_per_region())
-            * <u16 as Into<u32>>::into(grid_rectangle.size_y());
+        let actual_x =
+            <u16 as Into<u32>>::into(zoom_level.pixels_per_region()) * grid_rectangle.size_x();
+        let actual_y =
+            <u16 as Into<u32>>::into(zoom_level.pixels_per_region()) * grid_rectangle.size_y();
         tracing::debug!(
             "Determined max zoom level for map of size ({x}, {y}) for {grid_rectangle:?} to be {zoom_level:?}, actual map size will be ({actual_x}, {actual_y})"
         );
@@ -1249,8 +1249,7 @@ impl Map {
             // actual count can be lower if some primary tiles turn out to
             // be missing (those regions get the missing-tile colour instead
             // of an individual check).
-            let total_regions: u32 =
-                u32::from(result.size_x()).saturating_mul(u32::from(result.size_y()));
+            let total_regions: u32 = result.size_x().saturating_mul(result.size_y());
             emit_progress(
                 progress,
                 MapProgressEvent::RegionCheckPlanned { total_regions },
@@ -1364,10 +1363,8 @@ impl Map {
                             &RegionCoordinates::new(0f32, 256f32, 0f32),
                         )
                         .ok_or(MapError::MapCoordinateError)?;
-                    let pixel_size_x =
-                        u32::from(overlap.size_x()) * u32::from(zoom_level.pixels_per_region());
-                    let pixel_size_y =
-                        u32::from(overlap.size_y()) * u32::from(zoom_level.pixels_per_region());
+                    let pixel_size_x = overlap.size_x() * u32::from(zoom_level.pixels_per_region());
+                    let pixel_size_y = overlap.size_y() * u32::from(zoom_level.pixels_per_region());
                     for x in replace_x..replace_x + pixel_size_x {
                         for y in replace_y..replace_y + pixel_size_y {
                             <Self as image::GenericImage>::put_pixel(&mut result, x, y, fill_color);
@@ -1643,10 +1640,10 @@ impl Map {
     /// this blank map yields exactly the same pixel positions as the real render.
     #[must_use]
     pub fn blank(grid_rectangle: GridRectangle, zoom_level: ZoomLevel) -> Self {
-        let width = <u16 as Into<u32>>::into(zoom_level.pixels_per_region())
-            * <u16 as Into<u32>>::into(grid_rectangle.size_x());
-        let height = <u16 as Into<u32>>::into(zoom_level.pixels_per_region())
-            * <u16 as Into<u32>>::into(grid_rectangle.size_y());
+        let width =
+            <u16 as Into<u32>>::into(zoom_level.pixels_per_region()) * grid_rectangle.size_x();
+        let height =
+            <u16 as Into<u32>>::into(zoom_level.pixels_per_region()) * grid_rectangle.size_y();
         Self {
             zoom_level,
             grid_rectangle,
@@ -1971,12 +1968,14 @@ mod test {
             None,
         )
         .await?;
-        for region_offset_x in 0..=1 {
-            for region_offset_y in 0..=1 {
-                for in_region_x in 0..=256 {
-                    for in_region_y in 0..=256 {
-                        let grid_coordinates =
-                            GridCoordinates::new(1136 + region_offset_x, 1074 + region_offset_y);
+        for region_offset_x in 0u16..=1 {
+            for region_offset_y in 0u16..=1 {
+                for in_region_x in 0u16..=256 {
+                    for in_region_y in 0u16..=256 {
+                        let grid_coordinates = GridCoordinates::new(
+                            u32::from(1136 + region_offset_x),
+                            u32::from(1074 + region_offset_y),
+                        );
                         let region_coordinates = RegionCoordinates::new(
                             f32::from(in_region_x),
                             f32::from(in_region_y),
@@ -2068,10 +2067,10 @@ mod test {
         )
         .await?;
         tracing::debug!("Dimensions of map are {:?}", map.dimensions());
-        for region_offset_x in 0..=1 {
-            for region_offset_y in 0..=1 {
-                for in_region_x in 0..=256 {
-                    for in_region_y in 0..=256 {
+        for region_offset_x in 0u16..=1 {
+            for region_offset_y in 0u16..=1 {
+                for in_region_x in 0u16..=256 {
+                    for in_region_y in 0u16..=256 {
                         let pixel_x = u32::from(region_offset_x * 256 + in_region_x);
                         let pixel_y = u32::from(512 - (region_offset_y * 256 + in_region_y));
                         tracing::debug!("Now checking ({pixel_x}, {pixel_y})");
@@ -2079,8 +2078,14 @@ mod test {
                             map.coordinates_for_pixel_coordinates(pixel_x, pixel_y,),
                             Some((
                                 GridCoordinates::new(
-                                    1136 + region_offset_x + if in_region_x == 256 { 1 } else { 0 },
-                                    1074 + region_offset_y + if in_region_y == 256 { 1 } else { 0 }
+                                    u32::from(
+                                        1136 + region_offset_x
+                                            + if in_region_x == 256 { 1 } else { 0 }
+                                    ),
+                                    u32::from(
+                                        1074 + region_offset_y
+                                            + if in_region_y == 256 { 1 } else { 0 }
+                                    )
                                 ),
                                 RegionCoordinates::new(
                                     f32::from(in_region_x % 256),

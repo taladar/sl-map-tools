@@ -101,10 +101,10 @@ pub async fn region_name_to_grid_coordinates(
         ));
     };
     let x = x
-        .parse::<u16>()
+        .parse::<u32>()
         .map_err(|err| RegionNameToGridCoordinatesError::X(x.to_string(), err))?;
     let y = y
-        .parse::<u16>()
+        .parse::<u32>()
         .map_err(|err| RegionNameToGridCoordinatesError::Y(y.to_string(), err))?;
     let grid_coordinates = GridCoordinates::new(x, y);
     tracing::debug!("Received response: {:?}", grid_coordinates);
@@ -247,12 +247,16 @@ pub enum CacheError {
 }
 
 /// describes the redb table to store region names and grid coordinates
-const GRID_COORDINATE_CACHE_TABLE: redb::TableDefinition<String, (u16, u16)> =
-    redb::TableDefinition::new("grid_coordinates");
+///
+/// the `_v2` table name reflects the widening of the grid-coordinate components
+/// from `u16` to `u32`; an existing `u16`-typed cache file is left untouched and
+/// a fresh table is created (the cache is regenerated from the grid on demand)
+const GRID_COORDINATE_CACHE_TABLE: redb::TableDefinition<String, (u32, u32)> =
+    redb::TableDefinition::new("grid_coordinates_v2");
 
 /// describes the redb table to store grid coordinates and region names
-const REGION_NAME_CACHE_TABLE: redb::TableDefinition<(u16, u16), String> =
-    redb::TableDefinition::new("region_name");
+const REGION_NAME_CACHE_TABLE: redb::TableDefinition<(u32, u32), String> =
+    redb::TableDefinition::new("region_name_v2");
 
 /// describes the redb table to store the `http_cache_semantics::CachePolicy`
 /// serialized as JSON for a region name to grid coordinate lookup
@@ -261,7 +265,24 @@ const GRID_COORDINATE_CACHE_POLICY_TABLE: redb::TableDefinition<String, String> 
 
 /// describes the redb table to store the `http_cache_semantics::CachePolicy`
 /// serialized as JSON for a grid coordinate to region name lookup
-const REGION_NAME_CACHE_POLICY_TABLE: redb::TableDefinition<(u16, u16), String> =
+const REGION_NAME_CACHE_POLICY_TABLE: redb::TableDefinition<(u32, u32), String> =
+    redb::TableDefinition::new("region_name_cache_policy_v2");
+
+/// the pre-`u32` (`u16`-coordinate) cache tables, retained only so they can be
+/// dropped on open — they are pure caches (regenerated from the grid), so there
+/// is no migration, only reclaiming the space they occupied. Deletion is by
+/// table name, so the phantom value/key types here are irrelevant.
+const LEGACY_GRID_COORDINATE_CACHE_TABLE: redb::TableDefinition<String, (u16, u16)> =
+    redb::TableDefinition::new("grid_coordinates");
+
+/// the pre-`u32` grid-coordinate-to-region-name cache table (see
+/// [`LEGACY_GRID_COORDINATE_CACHE_TABLE`])
+const LEGACY_REGION_NAME_CACHE_TABLE: redb::TableDefinition<(u16, u16), String> =
+    redb::TableDefinition::new("region_name");
+
+/// the pre-`u32` grid-coordinate-to-region-name cache-policy table (see
+/// [`LEGACY_GRID_COORDINATE_CACHE_TABLE`])
+const LEGACY_REGION_NAME_CACHE_POLICY_TABLE: redb::TableDefinition<(u16, u16), String> =
     redb::TableDefinition::new("region_name_cache_policy");
 
 impl RegionNameToGridCoordinatesCache {
@@ -273,6 +294,16 @@ impl RegionNameToGridCoordinatesCache {
     pub fn new(cache_directory: std::path::PathBuf) -> Result<Self, CacheError> {
         let client = reqwest::Client::new();
         let db = redb::Database::create(cache_directory.join("region_name.redb"))?;
+        // drop the pre-`u32` (`u16`-coordinate) cache tables if an older cache
+        // file still carries them — they are superseded by the `_v2` tables and
+        // would otherwise just waste space (deleting a missing table is a no-op)
+        {
+            let write_txn = db.begin_write()?;
+            write_txn.delete_table(LEGACY_GRID_COORDINATE_CACHE_TABLE)?;
+            write_txn.delete_table(LEGACY_REGION_NAME_CACHE_TABLE)?;
+            write_txn.delete_table(LEGACY_REGION_NAME_CACHE_POLICY_TABLE)?;
+            write_txn.commit()?;
+        }
         let grid_coordinate_cache = lru::LruCache::unbounded();
         let region_name_cache = lru::LruCache::unbounded();
         Ok(Self {

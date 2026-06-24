@@ -26,9 +26,9 @@ pub struct LookupRequest {
 #[derive(Debug, Serialize)]
 pub struct LookupResponse {
     /// resolved x grid coordinate of the region.
-    pub x: u16,
+    pub x: u32,
     /// resolved y grid coordinate of the region.
-    pub y: u16,
+    pub y: u32,
 }
 
 /// `POST /api/region/lookup` — resolve a region name to its grid coordinates.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1 - 2026-06-27 12:54:02Z
+
+### 🚀 Features
+
+- *(sl-types)* Derive Ord/PartialOrd on key types
+
 ## 0.6.0 - 2026-06-24 18:49:10Z
 
 ### 🚀 Features

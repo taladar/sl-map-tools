@@ -28,7 +28,7 @@ ratelimit = "2.0.0"
 redb = "4.1.0"
 reqwest = { version = "0.13.4", features = ["native-tls-vendored"] }
 serde_json = "1.0.150"
-sl-types = { path = "../sl-types", version = "0.6.0" }
+sl-types = { path = "../sl-types", version = "0.6.1" }
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"

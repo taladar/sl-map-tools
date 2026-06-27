@@ -57,7 +57,7 @@ pub fn uuid_parser<'src>()
 
 /// represents a general Second Life key without any knowledge about the type
 /// of entity this represents
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Key(pub Uuid);
 
 impl std::fmt::Display for Key {
@@ -90,7 +90,7 @@ pub const NULL_KEY: Key = Key(uuid!("00000000-0000-0000-0000-000000000000"));
 pub const COMBAT_LOG_ID: Key = Key(uuid!("45e0fcfa-2268-4490-a51c-3e51bdfe80d1"));
 
 /// represents a Second Life key for an agent (avatar)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -142,7 +142,7 @@ pub fn app_agent_uri_as_agent_key_parser<'src>()
 }
 
 /// represents a Second Life key for a classified ad
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -175,7 +175,7 @@ pub fn classified_key_parser<'src>()
 }
 
 /// represents a Second Life key for an experience
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -208,7 +208,7 @@ pub fn experience_key_parser<'src>()
 }
 
 /// represents a Second Life key for an agent who is a friend
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -246,7 +246,7 @@ pub fn friend_key_parser<'src>()
 }
 
 /// represents a Second Life key for a group
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -298,7 +298,7 @@ pub fn app_group_uri_as_group_key_parser<'src>()
 }
 
 /// represents a Second Life key for an inventory item
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -331,7 +331,7 @@ pub fn inventory_key_parser<'src>()
 }
 
 /// represents a Second Life key for an object
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -363,7 +363,7 @@ pub fn object_key_parser<'src>()
 }
 
 /// represents a Second Life key for a parcel
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -395,7 +395,7 @@ pub fn parcel_key_parser<'src>()
 }
 
 /// represents a Second Life key for a texture
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -427,7 +427,7 @@ pub fn texture_key_parser<'src>()
 }
 
 /// represents a Second Life key for an inventory folder
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -473,6 +473,21 @@ pub enum OwnerKey {
     Agent(AgentKey),
     /// the owner is a group
     Group(GroupKey),
+}
+
+// Order by the underlying UUID, not by variant, so the two owner kinds
+// interleave in a single key space (an `Agent` and a `Group` sort purely by id,
+// matching how the wire treats the raw key). `uuid()` is defined further down.
+impl PartialOrd for OwnerKey {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OwnerKey {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.uuid().cmp(&other.uuid())
+    }
 }
 
 impl std::fmt::Display for OwnerKey {
@@ -719,7 +734,7 @@ impl OwnerKey {
 /// represents a Second Life key for a *role* within a group (e.g. the "Owners"
 /// role, or the nil-keyed default "Everyone" role), as distinct from the
 /// group's own [`GroupKey`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -768,7 +783,7 @@ pub fn group_role_key_parser<'src>()
 /// represents a Second Life key for a profile **pick** (the viewer's
 /// `LLPickData::mPickID`) — a profile-listed place. The picks-side parallel of
 /// [`ClassifiedKey`], kept distinct so the two cannot be transposed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -815,7 +830,7 @@ pub fn pick_key_parser<'src>()
 
 /// represents a Second Life key for a group **notice** (the viewer's group-notice
 /// `mNoticeID`) — one posting in a group's notice list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -865,7 +880,7 @@ pub fn group_notice_key_parser<'src>()
 /// as carried in the sculpt/mesh block of a prim whose shape comes from a mesh
 /// rather than a sculpt texture. A mesh asset is emphatically not a
 /// [`TextureKey`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -937,6 +952,20 @@ impl AgentOrObjectKey {
     }
 }
 
+// Order by the underlying UUID, not by variant, so agents and objects share one
+// key space.
+impl PartialOrd for AgentOrObjectKey {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for AgentOrObjectKey {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.uuid().cmp(&other.uuid())
+    }
+}
+
 impl std::fmt::Display for AgentOrObjectKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -982,6 +1011,20 @@ impl InventoryItemOrFolderKey {
     }
 }
 
+// Order by the underlying UUID, not by variant, so items and folders share one
+// key space.
+impl PartialOrd for InventoryItemOrFolderKey {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for InventoryItemOrFolderKey {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.uuid().cmp(&other.uuid())
+    }
+}
+
 impl std::fmt::Display for InventoryItemOrFolderKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -1024,6 +1067,20 @@ impl SculptOrMeshKey {
             Self::Sculpt(texture_key) => texture_key.0.0,
             Self::Mesh(mesh_key) => mesh_key.0.0,
         }
+    }
+}
+
+// Order by the underlying UUID, not by variant, so sculpt textures and mesh
+// assets share one key space.
+impl PartialOrd for SculptOrMeshKey {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SculptOrMeshKey {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.uuid().cmp(&other.uuid())
     }
 }
 

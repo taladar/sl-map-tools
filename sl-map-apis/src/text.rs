@@ -60,22 +60,21 @@ pub fn display_name_from_file_name(file_name: &str) -> String {
 /// back to [`display_name_from_file_name`]).
 #[must_use]
 pub fn embedded_font_name(bytes: &[u8]) -> Option<String> {
-    let face = ttf_parser::Face::parse(bytes, 0).ok()?;
-    let names = face.names();
+    use skrifa::MetadataProvider as _;
+    let font = skrifa::FontRef::new(bytes).ok()?;
     // Name IDs from the OpenType `name` table, in display preference.
-    for want in [4u16, 16, 1] {
-        for i in 0..names.len() {
-            let Some(name) = names.get(i) else { continue };
-            if name.name_id != want || !name.is_unicode() {
-                continue;
-            }
-            // `to_string` decodes Windows/Unicode UTF-16BE records and
-            // returns `None` for encodings it cannot handle.
-            if let Some(decoded) = name.to_string() {
-                let trimmed = decoded.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_owned());
-                }
+    for want in [
+        skrifa::string::StringId::FULL_NAME,
+        skrifa::string::StringId::TYPOGRAPHIC_FAMILY_NAME,
+        skrifa::string::StringId::FAMILY_NAME,
+    ] {
+        // `localized_strings` decodes the platform/encoding records and yields
+        // only those it can turn into Unicode.
+        for record in font.localized_strings(want) {
+            let decoded: String = record.chars().collect();
+            let trimmed = decoded.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_owned());
             }
         }
     }

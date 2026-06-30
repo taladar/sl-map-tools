@@ -43,7 +43,7 @@ const fn default_version() -> u32 {
     reason = "this is a flat presentation-settings record; each bool maps directly to one independent checkbox in the render form"
 )]
 pub struct ThemeSettings {
-    /// payload schema version (see [`THEME_SETTINGS_VERSION`]).
+    /// payload schema version (see `THEME_SETTINGS_VERSION`).
     #[serde(default = "default_version")]
     pub version: u32,
     /// whether the "fill missing map tiles" option is enabled.

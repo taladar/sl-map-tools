@@ -4,7 +4,18 @@
 use chumsky::{Parser, prelude::just};
 
 /// represents a Second Life area of significance
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, strum::EnumIs)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    strum::EnumIs,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Area {
     /// chat range
     ChatRange,

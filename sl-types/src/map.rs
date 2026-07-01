@@ -1,5 +1,7 @@
 //! Map-related data types
 
+use crate::serde_helpers::impl_bitfield_serde;
+
 #[cfg(feature = "chumsky")]
 use chumsky::{
     IterParser as _, Parser,
@@ -319,7 +321,7 @@ impl GridCoordinates {
 }
 
 /// an offset between two `GridCoordinates`
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GridCoordinateOffset {
     /// the offset in the x direction
     x: i32,
@@ -383,7 +385,7 @@ impl std::ops::Sub<Self> for GridCoordinates {
 
 /// represents a rectangle of regions defined by the lower left (minimum coordinates)
 /// and upper right (maximum coordinates) corners in `GridCoordinates`
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GridRectangle {
     /// the lower left (minimum coordinates) corner of the rectangle
     lower_left_corner: GridCoordinates,
@@ -1101,6 +1103,29 @@ impl TeleportFlags {
     }
 }
 
+impl_bitfield_serde!(
+    TeleportFlags,
+    u32,
+    "SET_HOME_TO_TARGET" => TeleportFlags::SET_HOME_TO_TARGET,
+    "SET_LAST_TO_TARGET" => TeleportFlags::SET_LAST_TO_TARGET,
+    "VIA_LURE" => TeleportFlags::VIA_LURE,
+    "VIA_LANDMARK" => TeleportFlags::VIA_LANDMARK,
+    "VIA_LOCATION" => TeleportFlags::VIA_LOCATION,
+    "VIA_HOME" => TeleportFlags::VIA_HOME,
+    "VIA_TELEHUB" => TeleportFlags::VIA_TELEHUB,
+    "VIA_LOGIN" => TeleportFlags::VIA_LOGIN,
+    "VIA_GODLIKE_LURE" => TeleportFlags::VIA_GODLIKE_LURE,
+    "GODLIKE" => TeleportFlags::GODLIKE,
+    "NINE_ONE_ONE" => TeleportFlags::NINE_ONE_ONE,
+    "DISABLE_CANCEL" => TeleportFlags::DISABLE_CANCEL,
+    "VIA_REGION_ID" => TeleportFlags::VIA_REGION_ID,
+    "IS_FLYING" => TeleportFlags::IS_FLYING,
+    "SHOW_RESET_HOME" => TeleportFlags::SHOW_RESET_HOME,
+    "FORCE_REDIRECT" => TeleportFlags::FORCE_REDIRECT,
+    "VIA_GLOBAL_COORDS" => TeleportFlags::VIA_GLOBAL_COORDS,
+    "WITHIN_REGION" => TeleportFlags::WITHIN_REGION,
+);
+
 /// The name of a region
 #[nutype::nutype(
     sanitize(trim),
@@ -1785,7 +1810,7 @@ impl MapTileDescriptor {
 }
 
 /// A waypoint in the Universal Sailor Buddy (USB) notecard format
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct USBWaypoint {
     /// the location of the waypoint
     location: Location,
@@ -1852,7 +1877,7 @@ impl std::str::FromStr for USBWaypoint {
 }
 
 /// An Universal Sailor Buddy (USB) notecard
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct USBNotecard {
     /// the waypoints in the notecard
     waypoints: Vec<USBWaypoint>,

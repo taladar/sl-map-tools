@@ -6,7 +6,17 @@ use chumsky::Parser;
 /// Pathfinding types
 ///
 /// see <https://wiki.secondlife.com/wiki/Category:LSL_Pathfinding_Types>
-#[derive(Debug, Clone, Hash, PartialEq, Eq, strum::FromRepr, strum::EnumIs)]
+#[derive(
+    Debug,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    strum::FromRepr,
+    strum::EnumIs,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[repr(i8)]
 #[expect(
     clippy::module_name_repetitions,

@@ -7,7 +7,17 @@ use chumsky::{
 };
 
 /// avatar attachment points
-#[derive(Debug, Clone, Hash, PartialEq, Eq, strum::FromRepr, strum::EnumIs)]
+#[derive(
+    Debug,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    strum::FromRepr,
+    strum::EnumIs,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum AvatarAttachmentPoint {
     /// Skull
     Skull = 2,
@@ -529,7 +539,17 @@ pub fn avatar_attachment_point_parser<'src>() -> impl Parser<
 }
 
 /// HUD attachment point
-#[derive(Debug, Clone, Hash, PartialEq, Eq, strum::FromRepr, strum::EnumIs)]
+#[derive(
+    Debug,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    strum::FromRepr,
+    strum::EnumIs,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum HudAttachmentPoint {
     /// HUD Center 2
     Center2 = 31,
@@ -649,7 +669,7 @@ pub fn hud_attachment_point_parser<'src>() -> impl Parser<
 }
 
 /// avatar and HUD attachment points
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside of the module"

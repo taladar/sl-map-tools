@@ -1,5 +1,7 @@
 //! LSL types and parsers/printers to use LSL format for them
 
+use crate::serde_helpers::impl_bitfield_serde;
+
 #[cfg(feature = "chumsky")]
 use chumsky::{Parser, prelude::just, text::whitespace};
 
@@ -7,7 +9,7 @@ use chumsky::{Parser, prelude::just, text::whitespace};
 use crate::utils::f32_parser;
 
 /// LSL Vector of 3 float components
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Vector {
     /// x component
     pub x: f32,
@@ -55,7 +57,7 @@ impl From<crate::map::RegionCoordinates> for Vector {
 }
 
 /// LSL Rotation (quaternion) of 4 float components
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Rotation {
     /// x component
     pub x: f32,
@@ -136,3 +138,20 @@ impl ScriptPermissions {
         self.0 & mask == mask
     }
 }
+
+impl_bitfield_serde!(
+    ScriptPermissions,
+    i32,
+    "DEBIT" => ScriptPermissions::DEBIT,
+    "TAKE_CONTROLS" => ScriptPermissions::TAKE_CONTROLS,
+    "TRIGGER_ANIMATION" => ScriptPermissions::TRIGGER_ANIMATION,
+    "ATTACH" => ScriptPermissions::ATTACH,
+    "CHANGE_LINKS" => ScriptPermissions::CHANGE_LINKS,
+    "TRACK_CAMERA" => ScriptPermissions::TRACK_CAMERA,
+    "CONTROL_CAMERA" => ScriptPermissions::CONTROL_CAMERA,
+    "TELEPORT" => ScriptPermissions::TELEPORT,
+    "EXPERIENCE" => ScriptPermissions::EXPERIENCE,
+    "SILENT_ESTATE_MANAGEMENT" => ScriptPermissions::SILENT_ESTATE_MANAGEMENT,
+    "OVERRIDE_ANIMATIONS" => ScriptPermissions::OVERRIDE_ANIMATIONS,
+    "RETURN_OBJECTS" => ScriptPermissions::RETURN_OBJECTS,
+);

@@ -13,5 +13,6 @@ pub mod parcel;
 pub mod pathfinding;
 pub mod radar;
 pub mod search;
+mod serde_helpers;
 pub mod utils;
 pub mod viewer_uri;

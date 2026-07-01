@@ -4,7 +4,18 @@
 use chumsky::{Parser, prelude::just};
 
 /// Search categories
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, strum::EnumIs)]
+#[derive(
+    Debug,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    strum::EnumIs,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is used outside this module"
@@ -115,7 +126,19 @@ impl std::str::FromStr for SearchCategory {
 /// events-directory messages carry it as a `U32`). It is a newtype rather than a
 /// bare `u32` so an events-directory id can't be transposed with any other
 /// 32-bit field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct EventId(pub u32);
 
 impl EventId {
@@ -243,6 +266,27 @@ impl std::fmt::Display for ClassifiedCategory {
             Self::Personal => write!(f, "personal"),
             Self::Unknown(value) => write!(f, "{value}"),
         }
+    }
+}
+
+impl serde::Serialize for ClassifiedCategory {
+    /// Serialized as its raw `u32` wire value, which keeps unrecognised
+    /// categories ([`ClassifiedCategory::Unknown`]) lossless across a round
+    /// trip.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u32(self.to_u32())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ClassifiedCategory {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self::from_u32(u32::deserialize(deserializer)?))
     }
 }
 

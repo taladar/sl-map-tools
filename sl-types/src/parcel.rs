@@ -1,5 +1,7 @@
 //! Parcel value types: access-list flags and object-return classifications.
 
+use crate::serde_helpers::impl_bitfield_serde;
+
 /// The per-entry classification flags on a parcel access (allow) or ban list.
 ///
 /// A bitfield carried by every entry of a parcel access-list reply (alongside
@@ -45,6 +47,15 @@ impl ParcelAccessFlags {
     }
 }
 
+impl_bitfield_serde!(
+    ParcelAccessFlags,
+    u32,
+    "ACCESS" => ParcelAccessFlags::ACCESS.0,
+    "BAN" => ParcelAccessFlags::BAN.0,
+    "ALLOW_EXPERIENCE" => ParcelAccessFlags::ALLOW_EXPERIENCE.0,
+    "BLOCK_EXPERIENCE" => ParcelAccessFlags::BLOCK_EXPERIENCE.0,
+);
+
 /// The kinds of objects to return or select on a parcel, as the `ReturnType` of
 /// a parcel object-return or object-select request. A bitfield: combine the
 /// constants with [`ParcelReturnType::union`].
@@ -75,3 +86,14 @@ impl ParcelReturnType {
         Self(self.0 | other.0)
     }
 }
+
+impl_bitfield_serde!(
+    ParcelReturnType,
+    u32,
+    "NONE" => ParcelReturnType::NONE.0,
+    "OWNER" => ParcelReturnType::OWNER.0,
+    "GROUP" => ParcelReturnType::GROUP.0,
+    "OTHER" => ParcelReturnType::OTHER.0,
+    "LIST" => ParcelReturnType::LIST.0,
+    "SELL" => ParcelReturnType::SELL.0,
+);

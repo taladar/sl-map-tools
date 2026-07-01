@@ -1,5 +1,7 @@
 //! Experience value types: the property bitfield carried in experience info.
 
+use crate::serde_helpers::impl_bitfield_serde;
+
 /// Experience [`properties`](ExperienceProperties) bit: the experience id is
 /// invalid (a placeholder for an `error_ids` entry the grid could not resolve).
 pub const PROPERTY_INVALID: i32 = 1 << 0;
@@ -69,3 +71,14 @@ impl ExperienceProperties {
         self.contains(PROPERTY_SUSPENDED)
     }
 }
+
+impl_bitfield_serde!(
+    ExperienceProperties,
+    i32,
+    "INVALID" => PROPERTY_INVALID,
+    "PRIVILEGED" => PROPERTY_PRIVILEGED,
+    "GRID" => PROPERTY_GRID,
+    "PRIVATE" => PROPERTY_PRIVATE,
+    "DISABLED" => PROPERTY_DISABLED,
+    "SUSPENDED" => PROPERTY_SUSPENDED,
+);

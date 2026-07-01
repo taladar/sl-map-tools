@@ -4,7 +4,9 @@
 use chumsky::{IterParser as _, Parser, text::digits};
 
 /// represents a Second Life chat channel
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "this type is used outside of this module"
@@ -57,7 +59,18 @@ pub const COMBAT_CHANNEL: ChatChannel = ChatChannel(0x7FFF_FFFE);
 pub const DEBUG_CHANNEL: ChatChannel = ChatChannel(0x7FFF_FFFF);
 
 /// represents a Second Life chat volume
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, strum::EnumIs)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    strum::EnumIs,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "this type is used outside of this module"

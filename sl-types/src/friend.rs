@@ -1,5 +1,7 @@
 //! Friendship-related value types.
 
+use crate::serde_helpers::impl_bitfield_serde;
+
 /// The rights one party grants the other in a Second Life friendship: a
 /// bitfield shared by the login `buddy-list`, `GrantUserRights`, and
 /// `ChangeUserRights`. The flag values match the viewer's `RIGHTS_*`/`GRANT_*`
@@ -38,3 +40,11 @@ impl FriendRights {
         self.0 & Self::CAN_MODIFY_OBJECTS != 0
     }
 }
+
+impl_bitfield_serde!(
+    FriendRights,
+    i32,
+    "CAN_SEE_ONLINE" => FriendRights::CAN_SEE_ONLINE,
+    "CAN_SEE_ON_MAP" => FriendRights::CAN_SEE_ON_MAP,
+    "CAN_MODIFY_OBJECTS" => FriendRights::CAN_MODIFY_OBJECTS,
+);

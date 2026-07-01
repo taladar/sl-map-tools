@@ -57,7 +57,9 @@ pub fn uuid_parser<'src>()
 
 /// represents a general Second Life key without any knowledge about the type
 /// of entity this represents
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct Key(pub Uuid);
 
 impl std::fmt::Display for Key {
@@ -90,7 +92,9 @@ pub const NULL_KEY: Key = Key(uuid!("00000000-0000-0000-0000-000000000000"));
 pub const COMBAT_LOG_ID: Key = Key(uuid!("45e0fcfa-2268-4490-a51c-3e51bdfe80d1"));
 
 /// represents a Second Life key for an agent (avatar)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -142,7 +146,9 @@ pub fn app_agent_uri_as_agent_key_parser<'src>()
 }
 
 /// represents a Second Life key for a classified ad
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -175,7 +181,9 @@ pub fn classified_key_parser<'src>()
 }
 
 /// represents a Second Life key for an experience
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -208,7 +216,9 @@ pub fn experience_key_parser<'src>()
 }
 
 /// represents a Second Life key for an agent who is a friend
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -246,7 +256,9 @@ pub fn friend_key_parser<'src>()
 }
 
 /// represents a Second Life key for a group
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -298,7 +310,9 @@ pub fn app_group_uri_as_group_key_parser<'src>()
 }
 
 /// represents a Second Life key for an inventory item
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -331,7 +345,9 @@ pub fn inventory_key_parser<'src>()
 }
 
 /// represents a Second Life key for an object
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -363,7 +379,9 @@ pub fn object_key_parser<'src>()
 }
 
 /// represents a Second Life key for a parcel
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -395,7 +413,9 @@ pub fn parcel_key_parser<'src>()
 }
 
 /// represents a Second Life key for a texture
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -427,7 +447,9 @@ pub fn texture_key_parser<'src>()
 }
 
 /// represents a Second Life key for an inventory folder
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -463,7 +485,9 @@ pub fn inventory_folder_key_parser<'src>() -> impl Parser<
 }
 
 /// represents s Second Life key for an owner (e.g. of an object)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -734,7 +758,9 @@ impl OwnerKey {
 /// represents a Second Life key for a *role* within a group (e.g. the "Owners"
 /// role, or the nil-keyed default "Everyone" role), as distinct from the
 /// group's own [`GroupKey`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -783,7 +809,9 @@ pub fn group_role_key_parser<'src>()
 /// represents a Second Life key for a profile **pick** (the viewer's
 /// `LLPickData::mPickID`) — a profile-listed place. The picks-side parallel of
 /// [`ClassifiedKey`], kept distinct so the two cannot be transposed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -830,7 +858,9 @@ pub fn pick_key_parser<'src>()
 
 /// represents a Second Life key for a group **notice** (the viewer's group-notice
 /// `mNoticeID`) — one posting in a group's notice list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -880,7 +910,9 @@ pub fn group_notice_key_parser<'src>()
 /// as carried in the sculpt/mesh block of a prim whose shape comes from a mesh
 /// rather than a sculpt texture. A mesh asset is emphatically not a
 /// [`TextureKey`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -928,7 +960,9 @@ pub fn mesh_key_parser<'src>()
 /// a key that is either an **agent** ([`AgentKey`]) or an in-world **object**
 /// ([`ObjectKey`]), as selected by a separate source-type discriminator (an
 /// avatar or a prim can be the source of chat, sounds, effects, …)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -987,7 +1021,9 @@ impl From<AgentOrObjectKey> for Key {
 /// a key that is either an inventory **item** ([`InventoryKey`]) or a whole
 /// inventory **folder/category** ([`InventoryFolderKey`]), as selected by a
 /// separate asset-type discriminator
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"
@@ -1046,7 +1082,9 @@ impl From<InventoryItemOrFolderKey> for Key {
 /// the asset backing a prim's sculpt/mesh shape: either a sculpt **texture**
 /// ([`TextureKey`]) or a **mesh** asset ([`MeshKey`]), as selected by the prim's
 /// sculpt-type discriminator
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIs, serde::Serialize, serde::Deserialize,
+)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "the type is going to be used outside this module"

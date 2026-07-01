@@ -12,7 +12,18 @@ use crate::utils::url_text_component_parser;
 
 /// represents the various script trigger modes for the script_trigger_lbutton
 /// key binding
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, strum::FromRepr, strum::EnumIs)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    strum::FromRepr,
+    strum::EnumIs,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum ScriptTriggerMode {
     /// "first_person" or 0
     FirstPerson = 0,
@@ -85,7 +96,7 @@ impl std::str::FromStr for ScriptTriggerMode {
 }
 
 /// represents a Viewer URI
-#[derive(Debug, Clone, PartialEq, Eq, strum::EnumIs)]
+#[derive(Debug, Clone, PartialEq, Eq, strum::EnumIs, serde::Serialize, serde::Deserialize)]
 pub enum ViewerUri {
     /// a link to this location
     Location(crate::map::Location),

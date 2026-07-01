@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.2 - 2026-07-01 20:51:41Z
+
+### 🚀 Features
+
+- *(sl-types)* Add serde Serialize/Deserialize across public types
+
+### 🐛 Bug Fixes
+
+- *(sl-map-apis)* Migrate font name lookup off unmaintained ttf-parser
+
 ## 0.6.1 - 2026-06-27 12:54:02Z
 
 ### 🚀 Features

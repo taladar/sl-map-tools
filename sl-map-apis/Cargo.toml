@@ -23,22 +23,22 @@ image = { version = "0.25.10", default-features = false, features = [
   "rayon"
 ] }
 imageproc = "0.27.0"
-lru = "0.18.0"
+lru = "0.18.1"
 ratelimit = "2.0.0"
 redb = "4.1.0"
 reqwest = { version = "0.13.4", features = ["native-tls-vendored"] }
-serde_json = "1.0.150"
-skrifa = "0.43.2"
+serde_json = "1.0.151"
+skrifa = "0.45.0"
 sl-types = { path = "../sl-types", version = "0.6.2" }
-thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["full"] }
+thiserror = "2.0.19"
+tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"
 uniform-cubic-splines = { version = "0.5.2", default-features = false }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
 tempfile = "3.27.0"
-tokio = { version = "1.52.3", features = ["full", "test-util"] }
+tokio = { version = "1.53.1", features = ["full", "test-util"] }
 tracing-test = "0.2.6"
 
 [lints.clippy]

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.0 - 2026-07-23 11:24:17Z
+
+### 🐛 Bug Fixes
+
+- *(sl-types)* Percent-encode spaces in Location::as_maps_url
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update dependencies
+
+## 0.7.0 - 2026-07-23 11:17:52Z
+
+### 🐛 Bug Fixes
+
+- *(sl-types)* Percent-encode spaces in Location::as_maps_url
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update dependencies
+
 ## 0.6.2 - 2026-07-01 20:51:41Z
 
 ### 🚀 Features

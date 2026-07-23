@@ -1,3 +1,31 @@
+sl-map-web (0.6.0-1) unstable; urgency=medium
+
+  * Features - sl-types - Derive Ord/PartialOrd on key types
+  * Features - sl-types - Add serde Serialize/Deserialize across public types
+  * Features - sl-map-apis - Configurable map tile base URL
+  * Bug fixes - sl-map-apis - Migrate font name lookup off unmaintained ttf-parser
+  * Bug fixes - sl-types - Percent-encode spaces in Location::as_maps_url
+  * Documentation - sl-map-web - Fix private intra-doc link warning in ThemeSettings
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - dependencies - Update dependencies
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Thu, 23 Jul 2026 13:24:18 +0200
+
+sl-map-web (0.5.0-1) unstable; urgency=medium
+
+  * Features - sl-types - Derive Ord/PartialOrd on key types
+  * Features - sl-types - Add serde Serialize/Deserialize across public types
+  * Features - sl-map-apis - Configurable map tile base URL
+  * Bug fixes - sl-map-apis - Migrate font name lookup off unmaintained ttf-parser
+  * Bug fixes - sl-types - Percent-encode spaces in Location::as_maps_url
+  * Documentation - sl-map-web - Fix private intra-doc link warning in ThemeSettings
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - release - Release new version
+  * Miscellaneous tasks - dependencies - Update dependencies
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Thu, 23 Jul 2026 13:17:53 +0200
+
 sl-map-web (0.4.0-1) unstable; urgency=medium
 
   * Features - sl-map-web - Add a shared per-user saved-colour palette

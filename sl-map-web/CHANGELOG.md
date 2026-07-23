@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.0 - 2026-07-23 11:24:17Z
+
+### 🚀 Features
+
+- *(sl-types)* Derive Ord/PartialOrd on key types
+- *(sl-types)* Add serde Serialize/Deserialize across public types
+- *(sl-map-apis)* Configurable map tile base URL
+
+### 🐛 Bug Fixes
+
+- *(sl-map-apis)* Migrate font name lookup off unmaintained ttf-parser
+- *(sl-types)* Percent-encode spaces in Location::as_maps_url
+
+### 📚 Documentation
+
+- *(sl-map-web)* Fix private intra-doc link warning in ThemeSettings
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Release new version
+- *(release)* Release new version
+- *(dependencies)* Update dependencies
+
+## 0.5.0 - 2026-07-23 11:17:52Z
+
+### 🚀 Features
+
+- *(sl-types)* Derive Ord/PartialOrd on key types
+- *(sl-types)* Add serde Serialize/Deserialize across public types
+- *(sl-map-apis)* Configurable map tile base URL
+
+### 🐛 Bug Fixes
+
+- *(sl-map-apis)* Migrate font name lookup off unmaintained ttf-parser
+- *(sl-types)* Percent-encode spaces in Location::as_maps_url
+
+### 📚 Documentation
+
+- *(sl-map-web)* Fix private intra-doc link warning in ThemeSettings
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Release new version
+- *(release)* Release new version
+- *(dependencies)* Update dependencies
+
 ## 0.4.0 - 2026-06-24 18:49:10Z
 
 ### 🚀 Features

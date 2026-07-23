@@ -1418,11 +1418,19 @@ impl Location {
     }
 
     /// returns a maps.secondlife.com URL for the `Location`
+    ///
+    /// spaces in the region name are percent-encoded (`%20`), the form the
+    /// map site serves and [`str::parse`] on a `Location` decodes; the other
+    /// region-name characters (alphanumerics, apostrophe, hyphen) are
+    /// URL-safe as-is
     #[must_use]
     pub fn as_maps_url(&self) -> String {
         format!(
             "https://maps.secondlife.com/secondlife/{}/{}/{}/{}",
-            self.region_name, self.x, self.y, self.z
+            self.region_name.to_string().replace(' ', "%20"),
+            self.x,
+            self.y,
+            self.z
         )
     }
 }
@@ -1969,6 +1977,19 @@ mod test {
                 z: 24
             }),
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_as_maps_url_percent_encodes_spaces() -> Result<(), Box<dyn std::error::Error>> {
+        let location = Location::new(RegionName::try_new("Beach Valley")?, 110, 67, 24);
+        let url = location.as_maps_url();
+        assert_eq!(
+            url,
+            "https://maps.secondlife.com/secondlife/Beach%20Valley/110/67/24"
+        );
+        // The generated form round-trips through the parser.
+        assert_eq!(url.parse::<Location>(), Ok(location));
         Ok(())
     }
 

@@ -587,11 +587,21 @@ pub enum MapTileCacheError {
     CachePolicyError,
 }
 
+/// the map tile base URL of the Second Life main grid (agni), used when no
+/// grid-specific base URL is supplied
+pub const DEFAULT_MAP_TILE_BASE_URL: &str = "https://secondlife-maps-cdn.akamaized.net/";
+
 /// a cache for map tiles on the local filesystem
 #[derive(derive_more::Debug)]
 pub struct MapTileCache {
     /// the client used to make HTTP requests for map tiles not in the local cache
     client: reqwest::Client,
+    /// the base URL map tile requests are made against (ends in a slash);
+    /// defaults to the Second Life main grid CDN
+    /// ([`DEFAULT_MAP_TILE_BASE_URL`]) but other grids (e.g. OpenSim grids
+    /// announcing a `map-server-url` at login) serve the same
+    /// `map-{zoom}-{x}-{y}-objects.jpg` naming under their own base URL
+    base_url: String,
     /// the rate limiter for map tile requests to the server
     #[debug(skip)]
     ratelimiter: Option<ratelimit::Ratelimiter>,
@@ -632,14 +642,37 @@ impl http_cache_semantics::ResponseLike for MapTileNegativeResponse {
 }
 
 impl MapTileCache {
-    /// creates a new `MapTileCache`
-    #[expect(clippy::missing_panics_doc, reason = "we know 16 is non-zero")]
+    /// creates a new `MapTileCache` fetching from the Second Life main grid
+    /// map tile CDN ([`DEFAULT_MAP_TILE_BASE_URL`])
     #[must_use]
     pub fn new(cache_directory: PathBuf, ratelimiter: Option<ratelimit::Ratelimiter>) -> Self {
+        Self::new_with_base_url(
+            cache_directory,
+            ratelimiter,
+            DEFAULT_MAP_TILE_BASE_URL.to_owned(),
+        )
+    }
+
+    /// creates a new `MapTileCache` fetching from a custom map tile base URL
+    /// (e.g. an OpenSim grid's `map-server-url`); a missing trailing slash is
+    /// added so tile file names always append cleanly
+    #[expect(clippy::missing_panics_doc, reason = "we know 16 is non-zero")]
+    #[must_use]
+    pub fn new_with_base_url(
+        cache_directory: PathBuf,
+        ratelimiter: Option<ratelimit::Ratelimiter>,
+        base_url: String,
+    ) -> Self {
         #[expect(clippy::unwrap_used, reason = "we know 16 is non-zero")]
         let cache = lru::LruCache::new(std::num::NonZeroUsize::new(16).unwrap());
+        let base_url = if base_url.ends_with('/') {
+            base_url
+        } else {
+            format!("{base_url}/")
+        };
         Self {
             client: reqwest::Client::new(),
+            base_url,
             ratelimiter,
             cache_directory,
             cache,
@@ -685,11 +718,12 @@ impl MapTileCache {
         ))
     }
 
-    /// the URL of a map tile on the Second Life main map server
+    /// the URL of a map tile on the map server this cache fetches from
     #[must_use]
-    fn map_tile_url(map_tile_descriptor: &MapTileDescriptor) -> String {
+    fn map_tile_url(&self, map_tile_descriptor: &MapTileDescriptor) -> String {
         format!(
-            "https://secondlife-maps-cdn.akamaized.net/{}",
+            "{}{}",
+            self.base_url,
             Self::map_tile_file_name(map_tile_descriptor),
         )
     }
@@ -920,7 +954,7 @@ impl MapTileCache {
         map_tile_descriptor: &MapTileDescriptor,
     ) -> Result<(Option<MapTile>, TileOutcome), MapTileCacheError> {
         tracing::debug!("Map tile {map_tile_descriptor:?} requested");
-        let url = Self::map_tile_url(map_tile_descriptor);
+        let url = self.map_tile_url(map_tile_descriptor);
         let request = self.client.get(&url).build()?;
         let now = std::time::SystemTime::now();
         // peek without disturbing the LRU order so we can distinguish a
@@ -1030,7 +1064,7 @@ impl MapTileCache {
         &mut self,
         map_tile_descriptor: &MapTileDescriptor,
     ) -> Result<bool, MapTileCacheError> {
-        let url = Self::map_tile_url(map_tile_descriptor);
+        let url = self.map_tile_url(map_tile_descriptor);
         if let Some((map_tile, cache_policy)) = self.cache.get(map_tile_descriptor) {
             let request = self.client.get(&url).build()?;
             let now = std::time::SystemTime::now();
@@ -1772,6 +1806,38 @@ mod test {
     use tracing_test::traced_test;
 
     use super::*;
+
+    #[test]
+    fn test_map_tile_url_default_base() -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = tempfile::tempdir()?;
+        let map_tile_cache = MapTileCache::new(temp_dir.path().to_path_buf(), None);
+        let url = map_tile_cache.map_tile_url(&MapTileDescriptor::new(
+            ZoomLevel::try_new(2)?,
+            GridCoordinates::new(1000, 1001),
+        ));
+        assert_eq!(
+            url,
+            "https://secondlife-maps-cdn.akamaized.net/map-2-1000-1000-objects.jpg"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_map_tile_url_custom_base_without_trailing_slash()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = tempfile::tempdir()?;
+        let map_tile_cache = MapTileCache::new_with_base_url(
+            temp_dir.path().to_path_buf(),
+            None,
+            "http://127.0.0.1:9000".to_owned(),
+        );
+        let url = map_tile_cache.map_tile_url(&MapTileDescriptor::new(
+            ZoomLevel::try_new(1)?,
+            GridCoordinates::new(1000, 1000),
+        ));
+        assert_eq!(url, "http://127.0.0.1:9000/map-1-1000-1000-objects.jpg");
+        Ok(())
+    }
 
     #[tokio::test]
     async fn test_fetch_map_tile_highest_detail() -> Result<(), Box<dyn std::error::Error>> {

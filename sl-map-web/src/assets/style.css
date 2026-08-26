@@ -642,10 +642,6 @@ button:disabled {
   border: 1px solid var(--border);
 }
 
-.hidden {
-  display: none !important;
-}
-
 .topbar {
   display: flex;
   align-items: center;
@@ -992,10 +988,6 @@ body.auth-page {
   height: auto;
 }
 
-.image-modal-img.hidden {
-  display: none;
-}
-
 .muted {
   color: var(--muted, #888);
   font-style: italic;
@@ -1018,4 +1010,17 @@ body.auth-page {
 
 .label-measure {
   margin: 0.25rem 0 0;
+}
+
+/* --- visibility helper --- */
+
+/* Generic "this element is currently not shown" class, toggled from JS.
+ *
+ * KEEP THIS RULE LAST IN THE FILE. It has to beat the `display` of whatever
+ * element it is put on (e.g. `.modal-overlay`, `.metadata-list`, `.button`),
+ * and it does so purely by source order rather than with `!important`. Adding
+ * rules below this one, or raising a competing selector above a single class,
+ * would silently make hidden elements visible again. */
+.hidden {
+  display: none;
 }

@@ -554,11 +554,16 @@ pub enum MapTileCacheError {
     #[error("reqwest error when fetching the map tile from the server: {0}")]
     ReqwestError(#[from] reqwest::Error),
     /// HTTP request is not success
+    ///
+    /// the header map is boxed because it is by far the largest field in this
+    /// enum (96 bytes) and keeping it inline would make every
+    /// `Result<_, MapTileCacheError>` in this module 152 bytes wide
+    /// (`clippy::result_large_err`)
     #[error("HTTP request is not success: URL {0} response status {1} headers {2:#?} body {3}")]
     HttpError(
         String,
         reqwest::StatusCode,
-        reqwest::header::HeaderMap,
+        Box<reqwest::header::HeaderMap>,
         String,
     ),
     /// failed to clone request for cache policy use (which should not happen
@@ -1033,7 +1038,7 @@ impl MapTileCache {
             return Err(MapTileCacheError::HttpError(
                 url.to_owned(),
                 response.status(),
-                response.headers().to_owned(),
+                Box::new(response.headers().to_owned()),
                 response.text().await?,
             ));
         }
@@ -1697,10 +1702,6 @@ impl Map {
     ///
     /// returns an error if the zoom level that fits the rectangle into the
     /// output image cannot be calculated
-    #[expect(
-        clippy::result_large_err,
-        reason = "returns the same large MapError as the other Map constructors for a consistent error type at call sites; the only failure here is the zoom-fit calculation"
-    )]
     pub fn blank_fit(
         grid_rectangle: GridRectangle,
         max_width: u32,
@@ -1802,7 +1803,6 @@ impl MapLike for Map {
 
 #[cfg(test)]
 mod test {
-    use image::GenericImageView as _;
     use tracing_test::traced_test;
 
     use super::*;

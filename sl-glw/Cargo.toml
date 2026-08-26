@@ -3,7 +3,7 @@ name = "sl-glw"
 description = "Fetch, parse, and render GlobalWind (GLW) wind/current/wave event overlays for Second Life sailing maps"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2024"
 rust-version = "1.94.0"
@@ -29,8 +29,8 @@ redb = "4.2.0"
 reqwest = { version = "0.13.4", features = ["json", "native-tls-vendored"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-sl-map-apis = { path = "../sl-map-apis", version = "0.8.0" }
-sl-types = { path = "../sl-types", version = "0.8.0" }
+sl-map-apis = { path = "../sl-map-apis", version = "0.9.0" }
+sl-types = { path = "../sl-types", version = "0.9.0" }
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"

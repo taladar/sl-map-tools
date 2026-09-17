@@ -286,6 +286,110 @@
           Also save a copy without the route
         </label>
       </div>
+      <details class="route-style">
+        <summary>Route line style</summary>
+        <div class="row">
+          <label
+            >Thickness (px)
+            <input
+              type="number"
+              id="route_thickness"
+              min="1"
+              max="64"
+              step="1"
+              placeholder="3"
+            />
+          </label>
+          <label
+            >Line
+            <select id="route_line">
+              <option value="" selected>Dotted (default)</option>
+              <option value="dotted">Dotted</option>
+              <option value="dashed">Dashed</option>
+              <option value="solid">Solid</option>
+            </select>
+          </label>
+          <label
+            >Dash (px)
+            <input
+              type="number"
+              id="route_dash"
+              min="0"
+              max="256"
+              step="1"
+              placeholder="auto"
+            />
+          </label>
+          <label
+            >Gap (px)
+            <input
+              type="number"
+              id="route_gap"
+              min="0"
+              max="256"
+              step="1"
+              placeholder="auto"
+            />
+          </label>
+        </div>
+        <div class="row">
+          <label
+            >Sideways offset (px)
+            <input
+              type="number"
+              id="route_offset"
+              min="-32"
+              max="32"
+              step="1"
+              placeholder="0"
+            />
+          </label>
+          <label
+            >Arrow size
+            <input
+              type="number"
+              id="route_arrow_scale"
+              min="0.1"
+              max="10"
+              step="0.1"
+              placeholder="1"
+            />
+          </label>
+          <label
+            >Arrow every nth waypoint
+            <input
+              type="number"
+              id="route_arrow_every"
+              min="0"
+              max="100"
+              step="1"
+              placeholder="1"
+            />
+          </label>
+        </div>
+        <p class="note">
+          A thicker line stays visible when the map is used as a PPS HUD
+          texture. The sideways offset shifts the line relative to the direction
+          of travel, so a cruise that runs out and back through the same water
+          draws as two separate lines instead of one on top of the other. Leave
+          a field empty for its default.
+        </p>
+        <div class="row">
+          <strong>Sections</strong>
+          <button type="button" id="route_section_add" class="row-action">
+            Add section
+          </button>
+          <span id="route_section_hint" class="note"></span>
+        </div>
+        <ul id="route_sections" class="route-sections"></ul>
+        <p class="note">
+          A section changes the style from one waypoint to the end of the route,
+          until the next section changes it again. Fields you leave empty keep
+          whatever the previous section set, so a section that only picks a
+          colour keeps the thickness. Use it to tell the early legs of a cruise
+          apart from the later ones when it revisits an area.
+        </p>
+      </details>
       <fieldset class="borders">
         <legend>Borders (extra regions added around the route)</legend>
         <label
@@ -498,6 +602,107 @@
           </label>
         </div>
         <p class="note lm-fit"></p>
+      </div>
+    </template>
+
+    <template id="route-section-modal-template">
+      <div class="modal-form">
+        <label class="grow"
+          >Starting waypoint
+          <select class="rs-waypoint"></select>
+        </label>
+        <div class="row">
+          <label class="color-toggle">
+            <input type="checkbox" class="rs-color-on" />
+            Colour
+            <input type="color" class="rs-color" list="saved_colors" />
+          </label>
+          <label
+            >Thickness (px)
+            <input
+              type="number"
+              class="rs-thickness"
+              min="1"
+              max="64"
+              step="1"
+              placeholder="unchanged"
+            />
+          </label>
+          <label
+            >Sideways offset (px)
+            <input
+              type="number"
+              class="rs-offset"
+              min="-32"
+              max="32"
+              step="1"
+              placeholder="unchanged"
+            />
+          </label>
+        </div>
+        <div class="row">
+          <label
+            >Line
+            <select class="rs-line">
+              <option value="" selected>Unchanged</option>
+              <option value="dotted">Dotted</option>
+              <option value="dashed">Dashed</option>
+              <option value="solid">Solid</option>
+            </select>
+          </label>
+          <label
+            >Dash (px)
+            <input
+              type="number"
+              class="rs-dash"
+              min="0"
+              max="256"
+              step="1"
+              placeholder="unchanged"
+            />
+          </label>
+          <label
+            >Gap (px)
+            <input
+              type="number"
+              class="rs-gap"
+              min="0"
+              max="256"
+              step="1"
+              placeholder="unchanged"
+            />
+          </label>
+        </div>
+        <div class="row">
+          <label
+            >Arrow size
+            <input
+              type="number"
+              class="rs-arrow-scale"
+              min="0.1"
+              max="10"
+              step="0.1"
+              placeholder="unchanged"
+            />
+          </label>
+          <label
+            >Arrow every nth waypoint
+            <input
+              type="number"
+              class="rs-arrow-every"
+              min="0"
+              max="100"
+              step="1"
+              placeholder="unchanged"
+            />
+          </label>
+        </div>
+        <p class="note">
+          Anything left empty keeps whatever the previous section set. The
+          change applies from this waypoint to the end of the route, or until
+          the next section changes it again.
+        </p>
+        <p class="note rs-error"></p>
       </div>
     </template>
 

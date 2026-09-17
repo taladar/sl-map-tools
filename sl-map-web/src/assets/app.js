@@ -388,7 +388,18 @@ function readThemeSettings() {
     glw_style: glwStyle,
     glw_font_id: $("glw_font_id").value || null,
     route_color: $("route_color").value || null,
+    // Only the route-wide settings: the per-section changes name one cruise's
+    // waypoints and mean nothing on another route, so they never go in a theme.
+    route_style: themeRouteStyle(),
   };
+}
+
+// The route-wide half of the route style, for a theme. Always without
+// sections, which the server also rejects in a theme.
+function themeRouteStyle() {
+  const style = readRouteStyle();
+  if (!style) return null;
+  return { ...style, sections: [] };
 }
 
 // Apply a stored theme onto the form. Note this deliberately does NOT touch
@@ -420,6 +431,11 @@ function applyTheme(s) {
   if (s.glw_font_id) populateFontSelect($("glw_font_id"), s.glw_font_id);
   if (s.route_color && ROUTE_COLOR_RE.test(s.route_color))
     $("route_color").value = s.route_color;
+  if (s.route_style) {
+    // Keep whatever sections the form already has: a theme carries none, and
+    // they belong to the loaded notecard rather than to the presentation.
+    applyRouteStyle({ ...s.route_style, sections: routeSections });
+  }
 }
 
 function selectedThemeScope() {
@@ -805,6 +821,7 @@ async function fetchRoutePreview(rect, waypoints) {
       max_width: shared.max_width,
       max_height: shared.max_height,
       color: $("route_color").value,
+      route_style: readRouteStyle(),
       waypoints: waypoints.map((w) => ({
         region_x: w.region_x,
         region_y: w.region_y,
@@ -862,6 +879,7 @@ async function fetchPlacementOverlay(rect) {
     if (shared.missing_region_color)
       fd.append("missing_region_color", shared.missing_region_color);
     fd.append("color", $("route_color").value);
+    appendRouteStyleToForm(fd);
     const glw = readGlwOptions();
     if (glw) fd.append("glw_json", JSON.stringify(glw));
     fd.append("labels_json", JSON.stringify(labels));
@@ -1070,6 +1088,11 @@ function drawRegionOverlay(viewport, rect) {
 function renderPreview(rect, waypoints) {
   const container = $("preview-container");
   container.replaceChildren();
+  // Remember the resolved waypoints so the route-section picker can name them
+  // and a style change can re-rasterise the route on its own.
+  lastRouteWaypoints = Array.isArray(waypoints) ? waypoints : [];
+  routeOverlayImg = null;
+  renderRouteSections();
   const sizeX = rect.upper_right_x - rect.lower_left_x + 1;
   const sizeY = rect.upper_right_y - rect.lower_left_y + 1;
   if (sizeX <= 0 || sizeY <= 0) {
@@ -1214,6 +1237,7 @@ function renderPreview(rect, waypoints) {
   let routeImg = null;
   if (waypoints && waypoints.length > 1) {
     routeImg = document.createElement("img");
+    routeOverlayImg = routeImg;
     routeImg.className = "route-overlay";
     routeImg.style.left = `${boundsX.toFixed(1)}px`;
     routeImg.style.top = `${boundsY.toFixed(1)}px`;
@@ -2026,6 +2050,7 @@ async function renderNotecard() {
       fd.append("missing_region_color", shared.missing_region_color);
     }
     fd.append("color", $("route_color").value);
+    appendRouteStyleToForm(fd);
     fd.append("save_to", $("save_to").value);
     const withWithoutRoute = $("save_without_route").checked;
     if (withWithoutRoute) fd.append("save_without_route", "true");
@@ -2161,6 +2186,7 @@ function applySettings(s) {
     $("border_east").value = s.border_east || "";
     $("border_west").value = s.border_west || "";
     if (s.color) $("route_color").value = s.color;
+    applyRouteStyle(s.route_style || null);
     $("save_without_route").checked = !!s.save_without_route;
     applyRegionOverlaySettings(s);
     if (s.notecard_id) {
@@ -2368,6 +2394,283 @@ function applyGlwStyleDefaults() {
 // Returns null when the panel is disabled (so the caller can omit the
 // whole field). Throws Error with a user-friendly message when the user
 // has selected a source but left its inputs blank.
+// Append the route line style to a multipart render form, following the same
+// JSON-stringified-field pattern as glw_json / labels_json. Sends nothing when
+// the style is untouched.
+function appendRouteStyleToForm(fd) {
+  const style = readRouteStyle();
+  if (style) fd.append("route_style_json", JSON.stringify(style));
+}
+
+// --- route line style -------------------------------------------------
+//
+// The library models a route's style as one cascading list in which the entry
+// at waypoint 0 is the route-wide style. The form keeps the two apart because
+// that is how people think about it: a set of route-wide controls plus a list
+// of "from here on, change this" sections. The server puts them back together.
+
+// Waypoints of the most recent notecard preview, used to label the starting
+// waypoint of a section. Empty until Preview has been run once.
+let lastRouteWaypoints = [];
+// The <img> holding the rasterised route of the current preview, so a style
+// change can refresh just the route instead of re-resolving the notecard.
+let routeOverlayImg = null;
+// The style changes, each a wire-shaped object: from_waypoint plus the fields
+// it actually changes.
+let routeSections = [];
+
+// The numeric fields of the route-wide controls, in wire-field order.
+const ROUTE_STYLE_NUMBERS = [
+  ["thickness", "route_thickness"],
+  ["offset", "route_offset"],
+  ["dash", "route_dash"],
+  ["gap", "route_gap"],
+  ["arrow_scale", "route_arrow_scale"],
+  ["arrow_every", "route_arrow_every"],
+];
+
+// Read a numeric input, treating an empty box as "not set" rather than 0.
+function optionalNumber(id) {
+  const el = $(id);
+  if (!el) return null;
+  const raw = el.value.trim();
+  if (raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Read the route style controls into the wire shape, or null when nothing has
+// been touched — so an untouched form sends no style at all and the server
+// renders exactly as it always did.
+function readRouteStyle() {
+  if (!ON_RENDER_PAGE) return null;
+  const style = { sections: routeSections.map((s) => ({ ...s })) };
+  for (const [key, id] of ROUTE_STYLE_NUMBERS) style[key] = optionalNumber(id);
+  style.line = ($("route_line") && $("route_line").value) || null;
+  const touched =
+    style.sections.length > 0 ||
+    style.line !== null ||
+    ROUTE_STYLE_NUMBERS.some(([key]) => style[key] !== null);
+  return touched ? style : null;
+}
+
+// Write a stored style back onto the form. The inverse of readRouteStyle.
+function applyRouteStyle(s) {
+  if (!ON_RENDER_PAGE) return;
+  for (const [key, id] of ROUTE_STYLE_NUMBERS) {
+    const el = $(id);
+    if (!el) continue;
+    const v = s ? s[key] : null;
+    el.value = v == null ? "" : String(v);
+  }
+  const line = $("route_line");
+  if (line) line.value = (s && s.line) || "";
+  routeSections =
+    s && Array.isArray(s.sections) ? s.sections.map((x) => ({ ...x })) : [];
+  renderRouteSections();
+}
+
+// A human label for a waypoint index, using the region name and notecard
+// comment when a preview has resolved them.
+function waypointLabel(index) {
+  const w = lastRouteWaypoints[index];
+  if (!w) return `Waypoint ${index}`;
+  const comment = w.comment ? ` — ${w.comment}` : "";
+  return `${index}: ${w.region_name}${comment}`;
+}
+
+// One-line summary of what a section changes, for its row in the list.
+function describeRouteSection(s) {
+  const bits = [];
+  if (s.color) bits.push(`colour ${s.color}`);
+  if (s.thickness != null) bits.push(`${s.thickness}px`);
+  if (s.line) bits.push(s.line);
+  if (s.dash != null) bits.push(`dash ${s.dash}`);
+  if (s.gap != null) bits.push(`gap ${s.gap}`);
+  if (s.offset != null) bits.push(`offset ${s.offset}`);
+  if (s.arrow_scale != null) bits.push(`arrows ×${s.arrow_scale}`);
+  if (s.arrow_every != null)
+    bits.push(
+      s.arrow_every === 0 ? "no arrows" : `arrow every ${s.arrow_every}`,
+    );
+  return bits.length ? bits.join(", ") : "no changes";
+}
+
+// Redraw the section list and the hint under the Add button.
+function renderRouteSections() {
+  const list = $("route_sections");
+  if (!list) return;
+  routeSections.sort((a, b) => a.from_waypoint - b.from_waypoint);
+  list.replaceChildren();
+  for (const [index, section] of routeSections.entries()) {
+    const li = document.createElement("li");
+    const text = document.createElement("span");
+    text.className = "route-section-text";
+    text.textContent = `from ${waypointLabel(section.from_waypoint)} — ${describeRouteSection(section)}`;
+    li.appendChild(text);
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "row-action";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => editRouteSection(index));
+    li.appendChild(edit);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "row-action danger";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      routeSections.splice(index, 1);
+      renderRouteSections();
+      refreshRoutePreview();
+    });
+    li.appendChild(remove);
+    list.appendChild(li);
+  }
+  const hint = $("route_section_hint");
+  const add = $("route_section_add");
+  const ready = lastRouteWaypoints.length > 1;
+  if (add) add.disabled = !ready;
+  if (hint) {
+    hint.textContent = ready
+      ? ""
+      : "Preview the notecard first so the waypoints can be listed.";
+  }
+}
+
+// Open the add/edit dialog for a section. `existingIndex` is null when adding.
+async function openRouteSectionModal(existingIndex) {
+  const existing =
+    existingIndex == null ? null : routeSections[existingIndex] || null;
+  const value = await formModal({
+    title: existing ? "Edit route section" : "Add route section",
+    okText: existing ? "Save" : "Add",
+    build: (dialog) => {
+      const form = $(
+        "route-section-modal-template",
+      ).content.firstElementChild.cloneNode(true);
+      dialog.appendChild(form);
+      const waypoint = form.querySelector(".rs-waypoint");
+      // The last waypoint is deliberately not offered: a leg takes its style
+      // from the waypoint it starts at, and no leg starts at the last one, so
+      // a section there would change nothing.
+      for (let i = 0; i < lastRouteWaypoints.length - 1; i += 1) {
+        const option = document.createElement("option");
+        option.value = String(i);
+        option.textContent = waypointLabel(i);
+        waypoint.appendChild(option);
+      }
+      const colorOn = form.querySelector(".rs-color-on");
+      const color = form.querySelector(".rs-color");
+      const fields = {
+        thickness: form.querySelector(".rs-thickness"),
+        offset: form.querySelector(".rs-offset"),
+        dash: form.querySelector(".rs-dash"),
+        gap: form.querySelector(".rs-gap"),
+        arrow_scale: form.querySelector(".rs-arrow-scale"),
+        arrow_every: form.querySelector(".rs-arrow-every"),
+      };
+      const line = form.querySelector(".rs-line");
+      const error = form.querySelector(".rs-error");
+      const syncColor = () => {
+        color.disabled = !colorOn.checked;
+      };
+      colorOn.addEventListener("change", syncColor);
+      if (existing) {
+        waypoint.value = String(existing.from_waypoint);
+        colorOn.checked = Boolean(existing.color);
+        if (existing.color) color.value = existing.color;
+        for (const [key, el] of Object.entries(fields)) {
+          el.value = existing[key] == null ? "" : String(existing[key]);
+        }
+        line.value = existing.line || "";
+      }
+      syncColor();
+      return async () => {
+        const from = Number.parseInt(waypoint.value, 10);
+        if (!Number.isInteger(from)) {
+          error.textContent = "Pick a starting waypoint.";
+          return null;
+        }
+        const clash = routeSections.some(
+          (s, i) => i !== existingIndex && s.from_waypoint === from,
+        );
+        if (clash) {
+          error.textContent =
+            "There is already a section starting at that waypoint.";
+          return null;
+        }
+        const section = { from_waypoint: from };
+        if (colorOn.checked) section.color = color.value;
+        for (const [key, el] of Object.entries(fields)) {
+          const raw = el.value.trim();
+          if (raw === "") continue;
+          const n = Number(raw);
+          if (!Number.isFinite(n)) {
+            error.textContent = `${key.replace("_", " ")} must be a number.`;
+            return null;
+          }
+          section[key] = n;
+        }
+        if (line.value) section.line = line.value;
+        return section;
+      };
+    },
+  });
+  if (!value) return;
+  if (existingIndex == null) routeSections.push(value);
+  else routeSections[existingIndex] = value;
+  renderRouteSections();
+  refreshRoutePreview();
+}
+
+function editRouteSection(index) {
+  openRouteSectionModal(index).catch((err) => {
+    $("preview-status").textContent = `Section edit failed: ${err.message}`;
+  });
+}
+
+// Re-rasterise just the route of the current preview after a style change.
+// Cheap: the endpoint takes the already-resolved waypoints and touches neither
+// the database nor the network.
+function refreshRoutePreview() {
+  if (!routeOverlayImg || !lastPreviewRect || lastRouteWaypoints.length <= 1) {
+    return;
+  }
+  const img = routeOverlayImg;
+  fetchRoutePreview(lastPreviewRect, lastRouteWaypoints)
+    .then((url) => {
+      if (!url || img !== routeOverlayImg) return;
+      img.src = url;
+      img.addEventListener("load", () => URL.revokeObjectURL(url), {
+        once: true,
+      });
+    })
+    .catch((err) => {
+      $("preview-status").textContent = `Route overlay failed: ${err.message}`;
+    });
+}
+
+if (ON_RENDER_PAGE) {
+  const debouncedRoutePreview = debounce(() => refreshRoutePreview(), 250);
+  for (const [, id] of ROUTE_STYLE_NUMBERS) {
+    const el = $(id);
+    if (el) el.addEventListener("input", debouncedRoutePreview);
+  }
+  const line = $("route_line");
+  if (line) line.addEventListener("change", () => refreshRoutePreview());
+  const routeColor = $("route_color");
+  if (routeColor) routeColor.addEventListener("input", debouncedRoutePreview);
+  const add = $("route_section_add");
+  if (add) {
+    add.addEventListener("click", () => {
+      openRouteSectionModal(null).catch((err) => {
+        $("preview-status").textContent = `Section add failed: ${err.message}`;
+      });
+    });
+  }
+  renderRouteSections();
+}
+
 function readGlwOptions() {
   if (!$("glw_enabled").checked) return null;
   const source = readGlwSource();
@@ -3724,6 +4027,7 @@ async function findFreeSlots() {
       if (shared.missing_region_color)
         fd.append("missing_region_color", shared.missing_region_color);
       fd.append("color", $("route_color").value);
+      appendRouteStyleToForm(fd);
       const glw = readGlwOptions();
       if (glw) fd.append("glw_json", JSON.stringify(glw));
       if (groupSlots.length)

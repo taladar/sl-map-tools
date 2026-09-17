@@ -1024,3 +1024,28 @@ body.auth-page {
 .hidden {
   display: none;
 }
+
+/* The route line style section list: one row per "from waypoint N, change
+   this" entry, with its edit/remove actions on the right. */
+.route-sections {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.route-sections li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  background: var(--panel-alt, rgba(127, 127, 127, 0.12));
+}
+
+.route-section-text {
+  flex: 1 1 auto;
+  font-size: 0.9rem;
+}

@@ -28,6 +28,10 @@ pub struct ResolvedWaypoint {
     pub y: f32,
     /// in-region z coordinate of the waypoint (metres).
     pub z: f32,
+    /// the waypoint's notecard comment, if it has one. Used to label the
+    /// waypoint in the route-section picker, where a region name alone is
+    /// often not enough to tell two passes of the same water apart.
+    pub comment: Option<String>,
 }
 
 /// Response shape for `/api/notecard/derive-rectangle`.
@@ -117,6 +121,7 @@ async fn resolve_waypoints(
             x: rc.x(),
             y: rc.y(),
             z: rc.z(),
+            comment: waypoint.comment().cloned(),
         });
     }
     Ok(out)

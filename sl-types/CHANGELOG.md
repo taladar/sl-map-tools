@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 - 2026-09-17 22:04:11Z
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update rustls and chacha20 to clear cargo-deny
+- *(dependencies)* Update dependencies
+
 ## 0.9.0 - 2026-08-26 13:49:58Z
 
 ### ⚙️ Miscellaneous Tasks

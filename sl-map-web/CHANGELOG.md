@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.0 - 2026-09-17 22:04:11Z
+
+### 🚀 Features
+
+- *(sl-map-apis)* [**breaking**] Configurable route style with per-section
+  overrides
+- *(sl-map-web)* Accept route line style on notecard renders
+- *(sl-map-web)* Route line style controls in the render form
+
+### 🐛 Bug Fixes
+
+- *(sl-map-apis)* Put route arrowheads back on the waypoints
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update rustls and chacha20 to clear cargo-deny
+- *(dependencies)* Update dependencies
+
 ## 0.7.0 - 2026-08-26 13:49:58Z
 
 ### ⚙️ Miscellaneous Tasks

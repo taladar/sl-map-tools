@@ -3,7 +3,6 @@
 
 use std::time::Duration;
 
-use argon2::password_hash::{Salt, SaltString};
 use argon2::{Argon2, PasswordHash, PasswordHasher as _, PasswordVerifier as _};
 use axum::extract::{FromRequestParts, Request, State};
 use axum::http::header;
@@ -251,15 +250,12 @@ impl FromRequestParts<AppState> for LslBearer {
 /// # Errors
 ///
 /// Returns [`Error::PasswordHash`] if the underlying hasher fails (which
-/// should not happen in practice — it can only fail on out-of-memory).
+/// should not happen in practice — it can only fail on out-of-memory or a
+/// failure of the system RNG that draws the salt).
 pub fn hash_password(password: &str) -> Result<String, Error> {
-    let mut salt_bytes = [0_u8; Salt::RECOMMENDED_LENGTH];
-    rand::rng().fill_bytes(&mut salt_bytes);
-    let salt =
-        SaltString::encode_b64(&salt_bytes).map_err(|err| Error::PasswordHash(err.to_string()))?;
     let argon = Argon2::default();
     let hash = argon
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map_err(|err| Error::PasswordHash(err.to_string()))?;
     Ok(hash.to_string())
 }
@@ -275,7 +271,7 @@ pub fn verify_password(password: &str, stored_hash: &str) -> Result<bool, Error>
         PasswordHash::new(stored_hash).map_err(|err| Error::PasswordHash(err.to_string()))?;
     match Argon2::default().verify_password(password.as_bytes(), &parsed) {
         Ok(()) => Ok(true),
-        Err(argon2::password_hash::Error::Password) => Ok(false),
+        Err(argon2::password_hash::Error::PasswordInvalid) => Ok(false),
         Err(err) => Err(Error::PasswordHash(err.to_string())),
     }
 }
@@ -487,5 +483,59 @@ pub async fn run_cleanup(pool: SqlitePool) {
         {
             tracing::warn!("set-password token cleanup failed: {err}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::expect_used,
+        reason = "test code panics on failure for clearer output"
+    )]
+
+    use pretty_assertions::{assert_eq, assert_ne};
+
+    use super::{hash_password, verify_password};
+
+    /// A PHC string produced by argon2 0.5 with the default Argon2id
+    /// parameters, standing in for the hashes already stored in the users
+    /// table. Password: `correct horse battery staple`.
+    const LEGACY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c2wtbWFwLXdlYi1maXhlZA$GXs5jAzRS3+tbrYx51GaZOHYPHz7/zvbsc9SBGM6E2c";
+
+    #[test]
+    fn hash_password_round_trips() {
+        let hash = hash_password("hunter2").expect("hashing should succeed");
+        assert_eq!(verify_password("hunter2", &hash).ok(), Some(true));
+    }
+
+    #[test]
+    fn verify_password_rejects_the_wrong_password() {
+        let hash = hash_password("hunter2").expect("hashing should succeed");
+        assert_eq!(verify_password("hunter3", &hash).ok(), Some(false));
+    }
+
+    #[test]
+    fn hash_password_uses_a_fresh_salt_each_time() {
+        let first = hash_password("hunter2").expect("hashing should succeed");
+        let second = hash_password("hunter2").expect("hashing should succeed");
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn verify_password_accepts_hashes_stored_by_older_argon2_versions() {
+        assert_eq!(
+            verify_password("correct horse battery staple", LEGACY_HASH).ok(),
+            Some(true),
+        );
+        assert_eq!(
+            verify_password("wrong password", LEGACY_HASH).ok(),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn verify_password_reports_an_unparseble_hash_as_an_error() {
+        verify_password("hunter2", "not a phc string")
+            .expect_err("an unparsable stored hash should not verify as a match");
     }
 }

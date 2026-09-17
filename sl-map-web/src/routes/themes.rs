@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::auth::{CurrentUser, uuid_from_bytes};
 use crate::error::{self, Error};
 use crate::library::{self, Destination, ThemeRow, is_canonical_hex_color};
-use crate::routes::render::GlwStyleOverrides;
+use crate::routes::render::{GlwStyleOverrides, RouteStyleOptions};
 use crate::state::AppState;
 
 /// Current `settings_json` schema version. Bumped if the shape of
@@ -80,6 +80,14 @@ pub struct ThemeSettings {
     /// default route polyline colour, as `#rrggbb`.
     #[serde(default)]
     pub route_color: Option<String>,
+    /// default route line style: thickness, dashes, offset and arrowheads.
+    ///
+    /// Only the route-wide settings are captured; the per-section changes are
+    /// tied to one cruise's waypoint indices and would be meaningless applied
+    /// to another route, so [`RouteStyleOptions::sections`] is always stored
+    /// empty here and ignored on apply.
+    #[serde(default)]
+    pub route_style: Option<RouteStyleOptions>,
 }
 
 impl ThemeSettings {
@@ -118,6 +126,18 @@ impl ThemeSettings {
                 return Err(Error::BadRequest(format!(
                     "{field} must be canonical `#rrggbb`, got {c:?}"
                 )));
+            }
+        }
+        if let Some(route_style) = &self.route_style {
+            // Reuses the render form's own range and line-style checks so a
+            // theme cannot smuggle in a style the render path would reject.
+            route_style.to_route_style(image::Rgba([0, 0, 0, 255]))?;
+            if !route_style.sections.is_empty() {
+                return Err(Error::BadRequest(
+                    "route_style.sections must be empty in a theme: per-section changes \
+                     refer to one cruise's waypoint indices and do not carry over to another route"
+                        .to_owned(),
+                ));
             }
         }
         Ok(())
@@ -577,6 +597,7 @@ mod tests {
             glw_style: GlwStyleOverrides::default(),
             glw_font_id: None,
             route_color: None,
+            route_style: None,
         }
     }
 

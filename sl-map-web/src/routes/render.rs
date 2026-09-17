@@ -226,6 +226,249 @@ pub struct GlwStyleOverrides {
     pub label_color: Option<String>,
 }
 
+/// A style change applied to the route from one waypoint onwards.
+///
+/// Every field but [`Self::from_waypoint`] is optional and, when absent, keeps
+/// whatever the previous section (or the route-wide settings) put in effect.
+/// Colours are validated server-side via `parse_color`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RouteSectionOptions {
+    /// index of the waypoint the change takes effect at, counting from 0.
+    pub from_waypoint: usize,
+    /// optional hex colour for the line and its arrowheads.
+    #[serde(default)]
+    pub color: Option<String>,
+    /// optional line thickness in pixels.
+    #[serde(default)]
+    pub thickness: Option<f32>,
+    /// optional sideways shift in pixels, positive being right of travel.
+    #[serde(default)]
+    pub offset: Option<f32>,
+    /// optional line style: `solid`, `dashed` or `dotted`.
+    #[serde(default)]
+    pub line: Option<String>,
+    /// optional length of each drawn run in pixels.
+    #[serde(default)]
+    pub dash: Option<f32>,
+    /// optional length of each gap in pixels.
+    #[serde(default)]
+    pub gap: Option<f32>,
+    /// optional multiplier on the arrowhead size.
+    #[serde(default)]
+    pub arrow_scale: Option<f32>,
+    /// optional "draw an arrowhead every nth waypoint"; 0 draws none.
+    #[serde(default)]
+    pub arrow_every: Option<u32>,
+}
+
+/// Route line style for a render: the route-wide settings plus any per-section
+/// changes. Absent fields fall back to the library defaults (a 3 pixel dotted
+/// line with an arrowhead on every waypoint).
+///
+/// The library models this as a single cascading list in which the entry at
+/// waypoint 0 *is* the route-wide style; this wire type keeps the two apart
+/// because that is how the form presents them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RouteStyleOptions {
+    /// route-wide line thickness in pixels.
+    #[serde(default)]
+    pub thickness: Option<f32>,
+    /// route-wide sideways shift in pixels, positive being right of travel.
+    #[serde(default)]
+    pub offset: Option<f32>,
+    /// route-wide line style: `solid`, `dashed` or `dotted`.
+    #[serde(default)]
+    pub line: Option<String>,
+    /// route-wide length of each drawn run in pixels.
+    #[serde(default)]
+    pub dash: Option<f32>,
+    /// route-wide length of each gap in pixels.
+    #[serde(default)]
+    pub gap: Option<f32>,
+    /// route-wide multiplier on the arrowhead size.
+    #[serde(default)]
+    pub arrow_scale: Option<f32>,
+    /// route-wide "draw an arrowhead every nth waypoint"; 0 draws none.
+    #[serde(default)]
+    pub arrow_every: Option<u32>,
+    /// style changes applied from a given waypoint onwards.
+    #[serde(default)]
+    pub sections: Vec<RouteSectionOptions>,
+}
+
+/// smallest route line thickness the form accepts, in pixels
+const MIN_ROUTE_THICKNESS: f32 = 1.0;
+
+/// largest route line thickness the form accepts, in pixels
+const MAX_ROUTE_THICKNESS: f32 = 64.0;
+
+/// largest dash or gap length the form accepts, in pixels
+const MAX_ROUTE_DASH: f32 = 256.0;
+
+/// largest absolute lateral offset the form accepts, in pixels
+const MAX_ROUTE_OFFSET: f32 = 32.0;
+
+/// smallest arrow scale the form accepts
+const MIN_ROUTE_ARROW_SCALE: f32 = 0.1;
+
+/// largest arrow scale the form accepts
+const MAX_ROUTE_ARROW_SCALE: f32 = 10.0;
+
+/// Validate one optional numeric route style field, naming it in any error.
+///
+/// # Errors
+///
+/// Returns [`Error::BadRequest`] when the value is not finite or falls outside
+/// the given range.
+fn validate_route_number(
+    field: &str,
+    value: Option<f32>,
+    min: f32,
+    max: f32,
+) -> Result<Option<f32>, Error> {
+    match value {
+        None => Ok(None),
+        Some(value) if value.is_finite() && value >= min && value <= max => Ok(Some(value)),
+        Some(value) => Err(Error::BadRequest(format!(
+            "{field} must be between {min} and {max}, got {value}"
+        ))),
+    }
+}
+
+/// Parse a `solid` / `dashed` / `dotted` line style name.
+///
+/// # Errors
+///
+/// Returns [`Error::BadRequest`] for any other value.
+fn parse_route_line_style(s: &str) -> Result<sl_map_apis::route_style::RouteLineStyle, Error> {
+    use sl_map_apis::route_style::RouteLineStyle;
+    match s.trim().to_ascii_lowercase().as_str() {
+        "solid" => Ok(RouteLineStyle::Solid),
+        "dashed" => Ok(RouteLineStyle::Dashed),
+        "dotted" => Ok(RouteLineStyle::Dotted),
+        other => Err(Error::BadRequest(format!(
+            "route line style must be `solid`, `dashed` or `dotted`, got {other:?}"
+        ))),
+    }
+}
+
+/// Turn an "arrowhead every nth waypoint" count into an arrow placement,
+/// treating 0 as "no arrowheads at all".
+fn arrow_placement_from_every(every: u32) -> sl_map_apis::route_style::RouteArrowPlacement {
+    use sl_map_apis::route_style::RouteArrowPlacement;
+    std::num::NonZeroU32::new(every).map_or(
+        RouteArrowPlacement::None,
+        RouteArrowPlacement::EveryNthWaypoint,
+    )
+}
+
+impl RouteSectionOptions {
+    /// Convert this section into the library's section style.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadRequest`] for a malformed colour or line style, or
+    /// a numeric field outside the accepted range.
+    fn to_section_style(&self) -> Result<sl_map_apis::route_style::RouteSectionStyle, Error> {
+        Ok(sl_map_apis::route_style::RouteSectionStyle {
+            from_waypoint: self.from_waypoint,
+            color: self.color.as_deref().map(parse_color).transpose()?,
+            thickness_pixels: validate_route_number(
+                "section thickness",
+                self.thickness,
+                MIN_ROUTE_THICKNESS,
+                MAX_ROUTE_THICKNESS,
+            )?,
+            offset_pixels: validate_route_number(
+                "section offset",
+                self.offset,
+                -MAX_ROUTE_OFFSET,
+                MAX_ROUTE_OFFSET,
+            )?,
+            line_style: self
+                .line
+                .as_deref()
+                .map(parse_route_line_style)
+                .transpose()?,
+            dash_length_pixels: validate_route_number(
+                "section dash",
+                self.dash,
+                0.0,
+                MAX_ROUTE_DASH,
+            )?,
+            gap_length_pixels: validate_route_number("section gap", self.gap, 0.0, MAX_ROUTE_DASH)?,
+            arrow_placement: self.arrow_every.map(arrow_placement_from_every),
+            arrow_scale: validate_route_number(
+                "section arrow scale",
+                self.arrow_scale,
+                MIN_ROUTE_ARROW_SCALE,
+                MAX_ROUTE_ARROW_SCALE,
+            )?,
+        })
+    }
+}
+
+impl RouteStyleOptions {
+    /// Build the library route style from these options plus the route colour.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadRequest`] for a malformed colour or line style, or
+    /// a numeric field outside the accepted range.
+    pub fn to_route_style(
+        &self,
+        color: Rgba<u8>,
+    ) -> Result<sl_map_apis::route_style::RouteStyle, Error> {
+        let mut style = RouteStyle::new(color);
+        {
+            let base = style.base_mut();
+            base.thickness_pixels = validate_route_number(
+                "thickness",
+                self.thickness,
+                MIN_ROUTE_THICKNESS,
+                MAX_ROUTE_THICKNESS,
+            )?;
+            base.offset_pixels =
+                validate_route_number("offset", self.offset, -MAX_ROUTE_OFFSET, MAX_ROUTE_OFFSET)?;
+            base.line_style = self
+                .line
+                .as_deref()
+                .map(parse_route_line_style)
+                .transpose()?;
+            base.dash_length_pixels =
+                validate_route_number("dash", self.dash, 0.0, MAX_ROUTE_DASH)?;
+            base.gap_length_pixels = validate_route_number("gap", self.gap, 0.0, MAX_ROUTE_DASH)?;
+            base.arrow_scale = validate_route_number(
+                "arrow scale",
+                self.arrow_scale,
+                MIN_ROUTE_ARROW_SCALE,
+                MAX_ROUTE_ARROW_SCALE,
+            )?;
+            base.arrow_placement = self.arrow_every.map(arrow_placement_from_every);
+        }
+        for section in &self.sections {
+            style.push_section(section.to_section_style()?);
+        }
+        Ok(style)
+    }
+}
+
+/// Build the route style for a render, from the optional form settings and the
+/// route colour. `None` means the plain colour with every default.
+///
+/// # Errors
+///
+/// Returns [`Error::BadRequest`] for any malformed or out-of-range field.
+fn route_style_for(
+    options: Option<&RouteStyleOptions>,
+    color: Rgba<u8>,
+) -> Result<RouteStyle, Error> {
+    options.map_or_else(
+        || Ok(RouteStyle::new(color)),
+        |options| options.to_route_style(color),
+    )
+}
+
 /// A free-floating text label to draw in one of the nine placement slots.
 /// Independent of the GLW overlay (labels can be added to any render).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -483,6 +726,11 @@ pub struct SavedUsbNotecardSettings {
     pub border_west: u16,
     /// canonical `#rrggbb` colour the route polyline was rendered in.
     pub color: String,
+    /// route line style (thickness, dashes, offset, arrowheads and the
+    /// per-section changes) the route was rendered with, so `Regenerate`
+    /// reproduces it. Absent on rows written before route styling existed.
+    #[serde(default)]
+    pub route_style: Option<RouteStyleOptions>,
     /// max output width in pixels.
     pub max_width: u32,
     /// max output height in pixels.
@@ -658,6 +906,11 @@ pub async fn usb_notecard(
         destination: parsed.destination,
         created_by: user.user_id,
     });
+    // Built here rather than in the worker so an invalid style is rejected
+    // while the caller is still listening, not halfway through a render. It
+    // also feeds the placement check below: a thicker or offset route covers
+    // different ground, so the occupancy must be measured with it.
+    let route_style = route_style_for(parsed.route_style.as_ref(), parsed.color)?;
     // Reject an over-full placement before persisting the render. The route's
     // rectangle is resolved here for the fit check; the job re-resolves it
     // (region lookups are cached) so it can also backfill the notecard bounds.
@@ -667,7 +920,7 @@ pub async fn usb_notecard(
         rect,
         &parsed.common,
         glw_ctx.as_ref(),
-        Some((&notecard, parsed.color)),
+        Some((&notecard, &route_style)),
         &parsed.labels,
         &parsed.logos,
     )
@@ -680,6 +933,7 @@ pub async fn usb_notecard(
         border_east: parsed.borders.2,
         border_west: parsed.borders.3,
         color: hex_from_rgba(parsed.color),
+        route_style: parsed.route_style.clone(),
         max_width: parsed.common.max_width,
         max_height: parsed.common.max_height,
         missing_map_tile_color: parsed.common.missing_map_tile_color.map(hex_from_rgba),
@@ -719,7 +973,7 @@ pub async fn usb_notecard(
         notecard_summary.notecard_id,
         notecard,
         parsed.borders,
-        parsed.color,
+        route_style,
         parsed.common,
         parsed.with_without_route,
         glw_ctx,
@@ -1026,13 +1280,14 @@ pub async fn free_placement_slots_usb_notecard(
     .expanded_south(border_south)
     .expanded_north(border_north);
     let mut map = Map::blank_fit(rect, parsed.common.max_width, parsed.common.max_height)?;
+    let route_style = route_style_for(parsed.route_style.as_ref(), parsed.color)?;
     // Same layering as the real render: GLW under the route.
     if let Some(glw) = parsed.glw.as_ref() {
         apply_glw_overlay_readonly(&state, user.user_id, glw, &mut map).await?;
     }
     {
         let mut region = state.region_cache.lock().await;
-        map.draw_route_with_progress(&mut region, &notecard, &RouteStyle::new(parsed.color), None)
+        map.draw_route_with_progress(&mut region, &notecard, &route_style, None)
             .await?;
     }
     let groups = parse_groups(&parsed.groups)?;
@@ -1221,6 +1476,10 @@ pub struct RoutePreviewRequest {
     pub max_height: u32,
     /// route colour as `#rrggbb`.
     pub color: String,
+    /// optional route line style (thickness, dashes, offset, arrowheads and
+    /// per-section changes), so the preview matches what the render will draw.
+    #[serde(default)]
+    pub route_style: Option<RouteStyleOptions>,
     /// the already-resolved waypoints, in order.
     pub waypoints: Vec<RoutePreviewWaypoint>,
 }
@@ -1276,7 +1535,8 @@ pub async fn route_preview(
         )]
         pixel_waypoints.push((x as f32, y as f32));
     }
-    map.draw_pixel_waypoint_route(&pixel_waypoints, &RouteStyle::new(color))
+    let route_style = route_style_for(req.route_style.as_ref(), color)?;
+    map.draw_pixel_waypoint_route(&pixel_waypoints, &route_style)
         .map_err(|err| Error::BadRequest(format!("route rasterisation failed: {err}")))?;
     // PNG keeps the transparent background so only the route composites over the
     // client's tiles.
@@ -1593,9 +1853,10 @@ pub async fn placement_preview_usb_notecard(
     } else {
         None
     };
+    let route_style = route_style_for(parsed.route_style.as_ref(), parsed.color)?;
     {
         let mut region = state.region_cache.lock().await;
-        occ.draw_route_with_progress(&mut region, &notecard, &RouteStyle::new(parsed.color), None)
+        occ.draw_route_with_progress(&mut region, &notecard, &route_style, None)
             .await?;
     }
     let png = render_placement_elements_png(
@@ -1658,6 +1919,10 @@ struct ParsedRenderForm {
     /// the browser doesn't have to send nested objects through
     /// `FormData`.
     glw: Option<GlwRenderOptions>,
+    /// optional route line style. Carried in the multipart form as the
+    /// `route_style_json` field — a JSON-stringified [`RouteStyleOptions`] —
+    /// following the same pattern as `glw_json`.
+    route_style: Option<RouteStyleOptions>,
     /// free-floating text labels. Carried in the multipart form as the
     /// `labels_json` field — a JSON-stringified `Vec<TextLabel>`.
     labels: Vec<TextLabel>,
@@ -1708,6 +1973,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
     let mut destination_raw: Option<String> = None;
     let mut notecard_name: Option<String> = None;
     let mut glw: Option<GlwRenderOptions> = None;
+    let mut route_style: Option<RouteStyleOptions> = None;
     let mut labels: Vec<TextLabel> = Vec::new();
     let mut logos: Vec<LogoPlacement> = Vec::new();
     let mut groups: Vec<Vec<String>> = Vec::new();
@@ -1815,6 +2081,14 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
                     );
                 }
             }
+            "route_style_json" => {
+                let raw = field.text().await?;
+                if !raw.trim().is_empty() {
+                    route_style = Some(serde_json::from_str::<RouteStyleOptions>(&raw).map_err(
+                        |e| Error::BadRequest(format!("invalid route_style_json: {e}")),
+                    )?);
+                }
+            }
             "labels_json" => {
                 let raw = field.text().await?;
                 if !raw.trim().is_empty() {
@@ -1882,6 +2156,7 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
         common,
         with_without_route,
         glw,
+        route_style,
         labels,
         logos,
         groups,
@@ -2259,7 +2534,7 @@ fn spawn_usb_notecard_job(
     notecard_id: Uuid,
     notecard: USBNotecard,
     borders: (u16, u16, u16, u16),
-    route_color: Rgba<u8>,
+    route_style: RouteStyle,
     common: CommonParams,
     with_without_route: bool,
     glw_ctx: Option<GlwJobCtx>,
@@ -2274,7 +2549,7 @@ fn spawn_usb_notecard_job(
             notecard_id,
             notecard,
             borders,
-            route_color,
+            route_style,
             common,
             with_without_route,
             glw_ctx,
@@ -2580,7 +2855,7 @@ async fn run_usb_notecard_job(
     notecard_id: Uuid,
     notecard: USBNotecard,
     borders: (u16, u16, u16, u16),
-    route_color: Rgba<u8>,
+    route_style: RouteStyle,
     common: CommonParams,
     with_without_route: bool,
     glw_ctx: Option<GlwJobCtx>,
@@ -2643,13 +2918,8 @@ async fn run_usb_notecard_job(
         let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
         {
             let mut region = state.region_cache.lock().await;
-            map.draw_route_with_progress(
-                &mut region,
-                &notecard,
-                &RouteStyle::new(route_color),
-                Some(&tx),
-            )
-            .await?;
+            map.draw_route_with_progress(&mut region, &notecard, &route_style, Some(&tx))
+                .await?;
         }
         // Labels and logos go last, above the route, sharing one
         // mutually-exclusive pool of placement slots. Their free space is
@@ -2661,7 +2931,7 @@ async fn run_usb_notecard_job(
             occ_rect,
             &common,
             glw_ctx.as_ref(),
-            Some((&notecard, route_color)),
+            Some((&notecard, &route_style)),
             &labels,
             &logos,
         )
@@ -3526,7 +3796,7 @@ async fn plan_placements(
     occ_rect: GridRectangle,
     common: &CommonParams,
     glw_ctx: Option<&GlwJobCtx>,
-    route: Option<(&USBNotecard, Rgba<u8>)>,
+    route: Option<(&USBNotecard, &RouteStyle)>,
     labels: &[TextLabel],
     logos: &[LogoPlacement],
 ) -> Result<(Vec<LabelDraw>, Vec<LogoDraw>), Error> {
@@ -3536,9 +3806,9 @@ async fn plan_placements(
         if let Some(ctx) = glw_ctx {
             apply_glw_overlay_readonly(state, ctx.created_by, &ctx.options, &mut occ).await?;
         }
-        if let Some((notecard, color)) = route {
+        if let Some((notecard, route_style)) = route {
             let mut region = state.region_cache.lock().await;
-            occ.draw_route_with_progress(&mut region, notecard, &RouteStyle::new(color), None)
+            occ.draw_route_with_progress(&mut region, notecard, route_style, None)
                 .await?;
         }
         occ
@@ -4587,6 +4857,168 @@ mod region_overlay_tests {
             .ok_or("other region not in map")?;
         let image::Rgba([_, _, _, a]) = map.get_pixel(other.0 + 1, other.1 + 1);
         assert_eq!(a, 0, "unfilled region stays transparent");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod route_style_tests {
+    //! Tests for the route style wire type: that it validates what it should,
+    //! and — the important part — that render settings persisted before route
+    //! styling existed still deserialise and still render exactly as they did.
+
+    #![expect(
+        clippy::float_cmp,
+        reason = "the resolved lengths are exact constants produced by exact arithmetic on exact inputs, so an exact comparison is the assertion we want"
+    )]
+
+    use super::{RouteSectionOptions, RouteStyleOptions, SavedRenderSettings};
+    use image::Rgba;
+    use pretty_assertions::assert_eq;
+
+    /// a `saved_renders.settings_json` payload exactly as it was written
+    /// before this feature existed: no `route_style` key anywhere
+    const LEGACY_NOTECARD_SETTINGS: &str = r##"{
+        "kind": "usb_notecard",
+        "notecard_id": "8ad2c0ce-1d9b-4f8f-9a2f-2d5f0f4f0b11",
+        "border_north": 1,
+        "border_south": 2,
+        "border_east": 3,
+        "border_west": 4,
+        "color": "#00ff00",
+        "max_width": 2048,
+        "max_height": 2048,
+        "missing_map_tile_color": "#000000",
+        "missing_region_color": null,
+        "format": "png",
+        "save_without_route": false
+    }"##;
+
+    /// A render saved before route styling existed must still load, and must
+    /// come back with no style so it renders exactly as it originally did.
+    #[test]
+    fn legacy_saved_render_settings_still_deserialise() -> Result<(), Box<dyn std::error::Error>> {
+        let settings: SavedRenderSettings = serde_json::from_str(LEGACY_NOTECARD_SETTINGS)?;
+        let SavedRenderSettings::UsbNotecard(notecard) = settings else {
+            return Err("expected usb_notecard settings".into());
+        };
+        assert_eq!(notecard.color, "#00ff00");
+        assert_eq!(notecard.border_north, 1);
+        assert!(
+            notecard.route_style.is_none(),
+            "an old row must carry no style, so the render reproduces its original look"
+        );
+        // and that absence must resolve to the historical defaults
+        let style = super::route_style_for(notecard.route_style.as_ref(), Rgba([0, 255, 0, 255]))?;
+        let resolved = style
+            .effective_styles_per_waypoint(1)
+            .first()
+            .copied()
+            .ok_or("one waypoint resolves one style")?;
+        assert_eq!(resolved.color, Rgba([0, 255, 0, 255]));
+        assert_eq!(resolved.stamp_size, 3, "the historical 3 px line");
+        assert_eq!(resolved.offset_pixels, 0.0, "no offset on an old render");
+        Ok(())
+    }
+
+    /// A theme saved before route styling existed must still load too.
+    #[test]
+    fn legacy_theme_settings_still_deserialise() -> Result<(), Box<dyn std::error::Error>> {
+        let legacy = r##"{
+            "version": 1,
+            "missing_map_tile_enabled": true,
+            "missing_map_tile_color": "#000000",
+            "route_color": "#ff0000"
+        }"##;
+        let theme: crate::routes::themes::ThemeSettings = serde_json::from_str(legacy)?;
+        assert_eq!(theme.route_color.as_deref(), Some("#ff0000"));
+        assert!(theme.route_style.is_none(), "an old theme carries no style");
+        Ok(())
+    }
+
+    /// A round trip through JSON must preserve every field, so a style saved
+    /// today reloads unchanged tomorrow.
+    #[test]
+    fn route_style_options_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+        let options = RouteStyleOptions {
+            thickness: Some(7.0),
+            offset: Some(-6.0),
+            line: Some("dashed".to_owned()),
+            dash: Some(12.0),
+            gap: Some(6.0),
+            arrow_scale: Some(1.5),
+            arrow_every: Some(2),
+            sections: vec![RouteSectionOptions {
+                from_waypoint: 12,
+                color: Some("#ffff00".to_owned()),
+                thickness: Some(9.0),
+                ..RouteSectionOptions::default()
+            }],
+        };
+        let json = serde_json::to_string(&options)?;
+        let back: RouteStyleOptions = serde_json::from_str(&json)?;
+        let style = back.to_route_style(Rgba([0, 255, 0, 255]))?;
+        let resolved = style.effective_styles_per_waypoint(13);
+        let first = resolved.first().copied().ok_or("a first waypoint")?;
+        assert_eq!(first.stamp_size, 7);
+        assert_eq!(first.offset_pixels, -6.0);
+        let at_section = resolved.get(12).copied().ok_or("a thirteenth waypoint")?;
+        assert_eq!(at_section.color, Rgba([255, 255, 0, 255]));
+        assert_eq!(at_section.stamp_size, 9);
+        assert_eq!(
+            at_section.offset_pixels, -6.0,
+            "the section inherits the route-wide offset"
+        );
+        Ok(())
+    }
+
+    /// Out-of-range and malformed values must be rejected with a clear message
+    /// rather than silently clamped somewhere deep in the rasteriser.
+    #[test]
+    fn invalid_route_style_options_are_rejected() {
+        let color = Rgba([0, 255, 0, 255]);
+        let too_thick = RouteStyleOptions {
+            thickness: Some(1000.0),
+            ..RouteStyleOptions::default()
+        };
+        assert!(too_thick.to_route_style(color).is_err(), "thickness range");
+        let bad_line = RouteStyleOptions {
+            line: Some("squiggly".to_owned()),
+            ..RouteStyleOptions::default()
+        };
+        assert!(bad_line.to_route_style(color).is_err(), "line style name");
+        let far_offset = RouteStyleOptions {
+            offset: Some(500.0),
+            ..RouteStyleOptions::default()
+        };
+        assert!(far_offset.to_route_style(color).is_err(), "offset range");
+        let bad_color = RouteStyleOptions {
+            sections: vec![RouteSectionOptions {
+                from_waypoint: 0,
+                color: Some("not a colour".to_owned()),
+                ..RouteSectionOptions::default()
+            }],
+            ..RouteStyleOptions::default()
+        };
+        assert!(bad_color.to_route_style(color).is_err(), "section colour");
+        let nan_dash = RouteStyleOptions {
+            dash: Some(f32::NAN),
+            ..RouteStyleOptions::default()
+        };
+        assert!(nan_dash.to_route_style(color).is_err(), "non-finite dash");
+    }
+
+    /// An empty style object is valid and means "all defaults".
+    #[test]
+    fn empty_route_style_options_are_the_defaults() -> Result<(), Box<dyn std::error::Error>> {
+        let style = RouteStyleOptions::default().to_route_style(Rgba([1, 2, 3, 255]))?;
+        let resolved = style
+            .effective_styles_per_waypoint(1)
+            .first()
+            .copied()
+            .ok_or("one waypoint resolves one style")?;
+        assert_eq!(resolved.color, Rgba([1, 2, 3, 255]));
+        assert_eq!(resolved.stamp_size, 3);
         Ok(())
     }
 }

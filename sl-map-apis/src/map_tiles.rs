@@ -1559,21 +1559,20 @@ impl Map {
                 )?;
             Ok((point_x, point_y))
         };
-        // For the common case (>= 3 waypoints) the parameter that lands on
-        // waypoint `i` keeps its historical value `i / (waypoint_count - 2)` so
-        // route rendering is unchanged. For exactly 2 waypoints the old
-        // denominator was 0 (NaN/inf), so use the mathematically correct uniform
-        // mapping `i / (waypoint_count - 1)` (= `i` for n == 2), which places
-        // waypoint 0 at x = 0 and waypoint 1 at x = 1.
+        // Waypoint `i` sits at spline parameter `i / (waypoint_count - 1)`.
+        // `uniform_cubic_splines` derives its segment count as
+        // `(knots.len() - 4) / B::STEP + 1`, and `CatmullRom::STEP` is 1, so the
+        // `waypoint_count + 2` knots above (the waypoints plus the two mirrored
+        // phantom control points) yield exactly `waypoint_count - 1` segments,
+        // with segment `j` interpolating waypoint `j` to waypoint `j + 1`.
+        //
+        // `waypoint_count >= 2` is guaranteed here (both `split_first` guards
+        // above returned early otherwise), so the denominator is never 0.
         #[expect(
             clippy::cast_precision_loss,
             reason = "if our waypoint counts get anywhere near 2^23 routes probably will not be finished anyway"
         )]
-        let waypoint_parameter_denominator = if waypoint_count <= 2 {
-            (waypoint_count as f32 - 1f32).max(1f32)
-        } else {
-            waypoint_count as f32 - 2f32
-        };
+        let waypoint_parameter_denominator = waypoint_count as f32 - 1f32;
         let spline_value_for_waypoint = |i: usize| -> f32 {
             #[expect(
                 clippy::cast_precision_loss,
@@ -1587,16 +1586,11 @@ impl Map {
             ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt()
         };
         let mut last_point: Option<(f32, f32)> = None;
-        // For >= 3 waypoints we iterate over all but the last waypoint (the
-        // historical behaviour). For exactly 2 waypoints we must also reach the
-        // second waypoint (i == 1) so that `last_point` is `Some` and the curve
-        // between the two waypoints is actually drawn (otherwise nothing renders).
-        let outer_loop_count = if waypoint_count <= 2 {
-            waypoint_count
-        } else {
-            waypoint_count - 1
-        };
-        for (i, waypoint) in pixel_waypoints.iter().enumerate().take(outer_loop_count) {
+        // Iterate every waypoint. Iteration `i` draws the leg that *ends* at
+        // waypoint `i` (so `i == 0` only seeds `last_point`), which means the
+        // loop covers all `waypoint_count - 1` legs and places one arrowhead on
+        // every waypoint but the first.
+        for (i, waypoint) in pixel_waypoints.iter().enumerate() {
             /// size of rectangles to use to draw the spline, should be odd
             /// or it won't be centered properly
             const SPLINE_RECT_SIZE: u8 = 3;
@@ -1620,19 +1614,20 @@ impl Map {
                 )]
                 let samples_between_last_waypoint_and_this_one =
                     (0.5f32 * distance_from_last_point / f32::from(SPLINE_RECT_SIZE)) as u32;
-                // The historical step uses `samples - 2` as the denominator so
-                // that at j = samples - 1 the factor slightly exceeds 1 and the
-                // drawing "overshoots" one sample past the previous waypoint for
-                // gap-free coverage. That denominator is 0 when samples == 2
-                // (NaN parameter -> stray rects at the clamped (0,0) corner), so
-                // floor it to 1 in that single case. For samples >= 3 the value
-                // is unchanged; samples <= 1 never enters this loop.
+                // `samples - 1` maps j = samples - 1 exactly onto the previous
+                // waypoint and j = 0 exactly onto this one, so the leg is
+                // covered end to end. The historical `samples - 2` deliberately
+                // overshot past the previous waypoint to paper over the gaps the
+                // (now fixed) wrong waypoint parameterisation produced, and was
+                // 0 — i.e. a NaN parameter and a stray rectangle at the clamped
+                // (0,0) corner — for samples == 2. Floored at 1 so samples <= 2
+                // stays finite.
                 #[expect(
                     clippy::cast_precision_loss,
                     reason = "if our waypoints are so far apart that we end up with 2^23 or more samples between two waypoints something is very broken anyway"
                 )]
                 let sample_step_denominator =
-                    (samples_between_last_waypoint_and_this_one as f32 - 2f32).max(1f32);
+                    (samples_between_last_waypoint_and_this_one as f32 - 1f32).max(1f32);
                 for j in (0..samples_between_last_waypoint_and_this_one).rev() {
                     #[expect(
                         clippy::cast_precision_loss,
@@ -2246,6 +2241,64 @@ mod test {
             BLANK_PIXEL,
             "samples == 2 must not draw a NaN-derived rectangle at the (0,0) corner"
         );
+        Ok(())
+    }
+
+    /// counts the drawn pixels inside the axis-aligned box of half-size
+    /// `half_size` centred on `center`, clipped to the image
+    #[cfg(test)]
+    fn drawn_pixel_count_near(map: &Map, center: (f32, f32), half_size: f32) -> usize {
+        map.image()
+            .pixels()
+            .filter(|(x, y, pixel)| {
+                if pixel.0 == BLANK_PIXEL {
+                    return false;
+                }
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "test image coordinates are far below 2^23"
+                )]
+                let (x, y) = (*x as f32, *y as f32);
+                (x - center.0).abs() <= half_size && (y - center.1).abs() <= half_size
+            })
+            .count()
+    }
+
+    /// Arrowheads must sit on the waypoints. Waypoint `i` lives at spline
+    /// parameter `i / (waypoint_count - 1)` because the `waypoint_count + 2`
+    /// knots give `waypoint_count - 1` Catmull-Rom segments; the code used to
+    /// divide by `waypoint_count - 2`, which stretched the parameterisation so
+    /// every sampled "waypoint" drifted progressively along the curve and the
+    /// arrows landed between waypoints instead of on them.
+    ///
+    /// A straight route makes that measurable: the arrowhead is much wider than
+    /// the line, so the box around a real waypoint holds clearly more drawn
+    /// pixels than an equally sized box around a leg midpoint.
+    #[test]
+    fn test_draw_route_arrows_sit_on_the_waypoints() -> Result<(), Box<dyn std::error::Error>> {
+        let route_color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let mut map = Map::new_blank_for_test(512, 128);
+        // evenly spaced and collinear, so the spline is a straight horizontal
+        // line and a midpoint carries line pixels but no arrowhead
+        let pixel_waypoints = vec![
+            (60f32, 64f32),
+            (160f32, 64f32),
+            (260f32, 64f32),
+            (360f32, 64f32),
+        ];
+        map.draw_pixel_waypoint_route(&pixel_waypoints, route_color)?;
+        // half of the 100 px leg spacing, minus a margin, so the boxes around a
+        // waypoint and around a midpoint never overlap
+        let half_size = 20f32;
+        for waypoint in pixel_waypoints.iter().skip(1) {
+            let midpoint = (waypoint.0 - 50f32, waypoint.1);
+            let at_waypoint = drawn_pixel_count_near(&map, *waypoint, half_size);
+            let at_midpoint = drawn_pixel_count_near(&map, midpoint, half_size);
+            assert!(
+                at_waypoint > at_midpoint,
+                "waypoint {waypoint:?} should carry an arrowhead and so outweigh the plain line at the midpoint {midpoint:?}, got {at_waypoint} vs {at_midpoint} drawn pixels"
+            );
+        }
         Ok(())
     }
 

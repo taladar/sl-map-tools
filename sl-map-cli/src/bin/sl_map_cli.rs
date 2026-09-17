@@ -71,6 +71,12 @@ pub enum Error {
          per-feature font path) — DejaVuSans.ttf is checked in at the workspace root"
     )]
     TextFontRequired(&'static str),
+    /// a hex colour could not be parsed
+    #[error("error parsing hex colour: {0}")]
+    ParseHexColorError(#[from] hex_color::ParseHexColorError),
+    /// the route line style was not one of `solid`, `dashed` or `dotted`
+    #[error("unknown route line style {0:?}, expected `solid`, `dashed` or `dotted`")]
+    InvalidRouteLineStyle(String),
     /// a logo or label placement could not be satisfied (bad slot/alignment,
     /// non-rectangular combined slot, overflow of the free area, or a slot clash)
     #[error("placement error: {0}")]
@@ -270,6 +276,184 @@ pub struct LabelSpec {
     /// absent → the slot's outward default
     #[serde(default)]
     v_align: Option<String>,
+}
+
+/// A style change applied to the route from one waypoint onwards, supplied as
+/// one JSON object per `--route-section` flag.
+///
+/// Every field but `from_waypoint` is optional and, when absent, keeps
+/// whatever the previous section (or the route-wide `--route-*` flags) put in
+/// effect. The change stays in effect until the next section overrides it, so
+/// a cruise that passes through the same water twice can draw its later legs
+/// in a different colour.
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct RouteSectionSpec {
+    /// index of the waypoint this style change takes effect at, counting from
+    /// 0 for the first waypoint of the notecard
+    from_waypoint: usize,
+    /// line and arrowhead colour as a hex string (e.g. `#ff0`)
+    #[serde(default)]
+    color: Option<String>,
+    /// line thickness in pixels
+    #[serde(default)]
+    thickness: Option<f32>,
+    /// lateral offset in pixels, positive being right of the direction of
+    /// travel
+    #[serde(default)]
+    offset: Option<f32>,
+    /// `solid`, `dashed` or `dotted`
+    #[serde(default)]
+    line: Option<String>,
+    /// length of each drawn run in pixels
+    #[serde(default)]
+    dash: Option<f32>,
+    /// length of each gap in pixels
+    #[serde(default)]
+    gap: Option<f32>,
+    /// multiplier on the thickness-derived arrowhead size
+    #[serde(default)]
+    arrow_scale: Option<f32>,
+    /// draw an arrowhead only at every nth waypoint; `0` draws none
+    #[serde(default)]
+    arrow_every: Option<u32>,
+}
+
+impl RouteSectionSpec {
+    /// convert this spec into the library's section style
+    ///
+    /// # Errors
+    ///
+    /// fails if the colour or the line style cannot be parsed
+    fn build(&self) -> Result<sl_map_apis::route_style::RouteSectionStyle, crate::Error> {
+        Ok(sl_map_apis::route_style::RouteSectionStyle {
+            from_waypoint: self.from_waypoint,
+            color: self.color.as_deref().map(parse_color).transpose()?,
+            thickness_pixels: self.thickness,
+            offset_pixels: self.offset,
+            line_style: self
+                .line
+                .as_deref()
+                .map(parse_route_line_style)
+                .transpose()?,
+            dash_length_pixels: self.dash,
+            gap_length_pixels: self.gap,
+            arrow_placement: self.arrow_every.map(arrow_placement_from_every),
+            arrow_scale: self.arrow_scale,
+        })
+    }
+}
+
+/// Parse a `solid` / `dashed` / `dotted` line style name.
+///
+/// # Errors
+///
+/// fails if the name is not one of the three known line styles
+fn parse_route_line_style(
+    s: &str,
+) -> Result<sl_map_apis::route_style::RouteLineStyle, crate::Error> {
+    use sl_map_apis::route_style::RouteLineStyle;
+    match s.trim().to_ascii_lowercase().as_str() {
+        "solid" => Ok(RouteLineStyle::Solid),
+        "dashed" => Ok(RouteLineStyle::Dashed),
+        "dotted" => Ok(RouteLineStyle::Dotted),
+        other => Err(crate::Error::InvalidRouteLineStyle(other.to_owned())),
+    }
+}
+
+/// Turn an "arrowhead every nth waypoint" count into an arrow placement,
+/// treating 0 as "no arrowheads at all".
+fn arrow_placement_from_every(every: u32) -> sl_map_apis::route_style::RouteArrowPlacement {
+    use sl_map_apis::route_style::RouteArrowPlacement;
+    std::num::NonZeroU32::new(every).map_or(
+        RouteArrowPlacement::None,
+        RouteArrowPlacement::EveryNthWaypoint,
+    )
+}
+
+/// Parse a `--route-section` JSON object into a [`RouteSectionSpec`].
+///
+/// # Errors
+///
+/// fails if the string is not a valid route section JSON object
+fn parse_route_section_spec(s: &str) -> Result<RouteSectionSpec, serde_json::Error> {
+    serde_json::from_str(s)
+}
+
+/// Flags controlling how the route line is drawn, shared by the subcommands
+/// that draw a route.
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct RouteStyleArgs {
+    /// line thickness in pixels (default 3). Thicker lines stay visible when
+    /// the map is used as a PPS HUD texture.
+    #[clap(long)]
+    pub route_thickness: Option<f32>,
+    /// how the line is stroked: `solid`, `dashed` or `dotted` (default
+    /// `dotted`).
+    #[clap(long)]
+    pub route_line: Option<String>,
+    /// length of each drawn run in pixels, overriding what --route-line
+    /// derives from the thickness.
+    #[clap(long)]
+    pub route_dash: Option<f32>,
+    /// length of each gap in pixels, overriding what --route-line derives from
+    /// the thickness.
+    #[clap(long)]
+    pub route_gap: Option<f32>,
+    /// shift the line sideways by this many pixels, positive being right of
+    /// the direction of travel (default 0). Use it so the two passes of an
+    /// out-and-back cruise draw as two separate lines instead of on top of
+    /// each other.
+    #[clap(long)]
+    pub route_offset: Option<f32>,
+    /// multiplier on the arrowhead size, which otherwise scales with the line
+    /// thickness (default 1).
+    #[clap(long)]
+    pub route_arrow_scale: Option<f32>,
+    /// draw an arrowhead only at every nth waypoint (default 1); 0 draws none.
+    #[clap(long)]
+    pub route_arrow_every: Option<u32>,
+    /// change the style from a given waypoint onwards, as a JSON object, e.g.
+    /// `{"from_waypoint":12,"color":"#ff0"}`. May be given several times; each
+    /// change stays in effect until the next one.
+    #[clap(long = "route-section", value_parser = parse_route_section_spec)]
+    pub route_sections: Vec<RouteSectionSpec>,
+}
+
+impl RouteStyleArgs {
+    /// Build the library route style from these flags plus the route colour.
+    ///
+    /// The route-wide flags become the style change at waypoint 0 and each
+    /// `--route-section` becomes a later one, which is all the library's
+    /// single cascading list needs.
+    ///
+    /// # Errors
+    ///
+    /// fails if a colour or line style in any section cannot be parsed
+    fn build_style(
+        &self,
+        color: image::Rgba<u8>,
+    ) -> Result<sl_map_apis::route_style::RouteStyle, crate::Error> {
+        let mut style = sl_map_apis::route_style::RouteStyle::new(color);
+        {
+            let base = style.base_mut();
+            base.thickness_pixels = self.route_thickness;
+            base.offset_pixels = self.route_offset;
+            base.line_style = self
+                .route_line
+                .as_deref()
+                .map(parse_route_line_style)
+                .transpose()?;
+            base.dash_length_pixels = self.route_dash;
+            base.gap_length_pixels = self.route_gap;
+            base.arrow_scale = self.route_arrow_scale;
+            base.arrow_placement = self.route_arrow_every.map(arrow_placement_from_every);
+        }
+        for section in &self.route_sections {
+            style.push_section(section.build()?);
+        }
+        Ok(style)
+    }
 }
 
 /// Parse a `--logo` JSON object into a [`LogoSpec`].
@@ -646,6 +830,9 @@ pub struct FromUSBNotecard {
     /// --glw-event-key is set
     #[clap(flatten)]
     pub glw: GlwOverlayArgs,
+    /// how the route line is drawn
+    #[clap(flatten)]
+    pub route_style: RouteStyleArgs,
 }
 
 /// which subcommand to call
@@ -703,6 +890,11 @@ pub struct PlacementSlots {
     /// optional GLW overlay flags; its shapes count as occupied
     #[clap(flatten)]
     pub glw: GlwOverlayArgs,
+    /// how the route line is drawn. Mirrors the flags of `from-usb-notecard`
+    /// so the occupancy the slots are planned against matches the real render:
+    /// a thicker or offset route covers different ground.
+    #[clap(flatten)]
+    pub route_style: RouteStyleArgs,
 }
 
 /// Measure the rendered pixel size of a multi-line text label.
@@ -1455,7 +1647,7 @@ async fn plan_placements(
     route: Option<(
         &mut RegionNameToGridCoordinatesCache,
         &USBNotecard,
-        image::Rgba<u8>,
+        &sl_map_apis::route_style::RouteStyle,
     )>,
     labels: &[LabelSpec],
     logos: &[LogoSpec],
@@ -1474,8 +1666,8 @@ async fn plan_placements(
             occ.draw_glw_event_with_font(&event, &style, &font);
         }
     }
-    if let Some((region_cache, notecard, color)) = route {
-        occ.draw_route_with_progress(region_cache, notecard, color, None)
+    if let Some((region_cache, notecard, style)) = route {
+        occ.draw_route_with_progress(region_cache, notecard, style, None)
             .await?;
     }
     let (label_draws, label_slots) = plan_labels(global_font, labels, legend_slot, &[], &occ)?;
@@ -1558,7 +1750,8 @@ async fn run_placement_slots(
         }
     }
     if let Some(notecard) = &notecard {
-        occ.draw_route_with_progress(&mut region_cache, notecard, args.color, None)
+        let route_style = args.route_style.build_style(args.color)?;
+        occ.draw_route_with_progress(&mut region_cache, notecard, &route_style, None)
             .await?;
     }
     // Validate the requested groups (the rectangle rule lives in
@@ -1748,6 +1941,9 @@ async fn do_stuff() -> Result<(), crate::Error> {
             .expanded_south(border_south)
             .expanded_north(border_north);
             let placement = &from_usb_notecard.placement;
+            let route_style = from_usb_notecard
+                .route_style
+                .build_style(from_usb_notecard.color)?;
             // Plan placements up front, measuring occupancy on a blank map that
             // carries the route (and GLW shapes), so a clash fails before the
             // tile fetch.
@@ -1762,7 +1958,7 @@ async fn do_stuff() -> Result<(), crate::Error> {
                     Some((
                         &mut region_name_to_grid_coordinates_cache,
                         &usb_notecard,
-                        from_usb_notecard.color,
+                        &route_style,
                     )),
                     &placement.labels,
                     &placement.logos,
@@ -1814,7 +2010,7 @@ async fn do_stuff() -> Result<(), crate::Error> {
             map.draw_route_with_progress(
                 &mut region_name_to_grid_coordinates_cache,
                 &usb_notecard,
-                from_usb_notecard.color,
+                &route_style,
                 Some(&tx),
             )
             .await?;

@@ -1364,7 +1364,7 @@ mod test {
             let mut map = Map::blank(test_rectangle(), ZoomLevel::try_new(4)?);
             map.draw_pixel_waypoint_route(
                 &[(10f32, 10f32), (64f32, 64f32), (118f32, 118f32)],
-                image::Rgba([0, 0, 255, 255]),
+                &crate::route_style::RouteStyle::new(image::Rgba([0, 0, 255, 255])),
             )?;
             let grid = OccupancyGrid::from_map(&map, DEFAULT_COVERAGE_GRID);
             let slots = grid.evaluate_slots();

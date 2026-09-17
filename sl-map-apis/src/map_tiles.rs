@@ -304,34 +304,47 @@ pub trait MapLike: GridRectangleLike + image::GenericImage + image::GenericImage
     }
 
     /// draw an arrow from the direction of the first point with the
-    /// tip at the second point
-    fn draw_arrow(&mut self, from: (f32, f32), tip: (f32, f32), color: image::Rgba<u8>) {
-        /// length of the arrow at each waypoint from tip to base
-        const ARROW_LENGTH: f32 = 15f32;
-        /// width of the arrow from the center line (double this to get the length of the base side of the triangle)
-        const ARROW_HALF_WIDTH: f32 = 5f32;
+    /// tip at the second point, `length` pixels long from tip to base and
+    /// `half_width` pixels wide measured from its centre line (double that for
+    /// the length of the base side of the triangle)
+    fn draw_arrow(
+        &mut self,
+        from: (f32, f32),
+        tip: (f32, f32),
+        color: image::Rgba<u8>,
+        length: f32,
+        half_width: f32,
+    ) {
         if from == tip {
             // do not try to draw arrows from a point to itself
+            return;
+        }
+        if !length.is_finite() || !half_width.is_finite() || length < 1f32 || half_width < 0.5f32 {
+            // too small to render as anything but noise
             return;
         }
         let arrow_direction = (tip.0 - from.0, tip.1 - from.1);
         let arrow_direction_magnitude =
             (arrow_direction.0.powf(2f32) + arrow_direction.1.powf(2f32)).sqrt();
+        if !arrow_direction_magnitude.is_finite() || arrow_direction_magnitude < 1e-4f32 {
+            // no usable direction to point the arrow in
+            return;
+        }
         let arrow_direction = (
             arrow_direction.0 / arrow_direction_magnitude,
             arrow_direction.1 / arrow_direction_magnitude,
         );
         let arrow_base_middle = (
-            tip.0 - (ARROW_LENGTH * arrow_direction.0),
-            tip.1 - (ARROW_LENGTH * arrow_direction.1),
+            tip.0 - (length * arrow_direction.0),
+            tip.1 - (length * arrow_direction.1),
         );
         let arrow_base_side1 = (
-            arrow_base_middle.0 + (ARROW_HALF_WIDTH * arrow_direction.1),
-            arrow_base_middle.1 - (ARROW_HALF_WIDTH * arrow_direction.0),
+            arrow_base_middle.0 + (half_width * arrow_direction.1),
+            arrow_base_middle.1 - (half_width * arrow_direction.0),
         );
         let arrow_base_side2 = (
-            arrow_base_middle.0 - (ARROW_HALF_WIDTH * arrow_direction.1),
-            arrow_base_middle.1 + (ARROW_HALF_WIDTH * arrow_direction.0),
+            arrow_base_middle.0 - (half_width * arrow_direction.1),
+            arrow_base_middle.1 + (half_width * arrow_direction.0),
         );
         tracing::debug!(
             "Painting arrow with arrow direction {:?}, arrow tip {:?}, arrow base middle {:?}, arrow_base_side1 {:?}, arrow_base_side2 {:?} ",
@@ -1425,12 +1438,12 @@ impl Map {
         &mut self,
         region_name_to_grid_coordinates_cache: &mut RegionNameToGridCoordinatesCache,
         usb_notecard: &USBNotecard,
-        color: image::Rgba<u8>,
+        style: &crate::route_style::RouteStyle,
     ) -> Result<(), MapError> {
         self.draw_route_with_progress(
             region_name_to_grid_coordinates_cache,
             usb_notecard,
-            color,
+            style,
             None,
         )
         .await
@@ -1449,7 +1462,7 @@ impl Map {
         &mut self,
         region_name_to_grid_coordinates_cache: &mut RegionNameToGridCoordinatesCache,
         usb_notecard: &USBNotecard,
-        color: image::Rgba<u8>,
+        style: &crate::route_style::RouteStyle,
         progress: Option<&tokio::sync::mpsc::Sender<MapProgressEvent>>,
     ) -> Result<(), MapError> {
         tracing::debug!("Drawing route:\n{:#?}", usb_notecard);
@@ -1484,14 +1497,13 @@ impl Map {
                 "Drawing waypoint at ({x}, {y}) for location {:?}",
                 waypoint.location()
             );
-            //self.draw_waypoint(x, y, color);
             #[expect(
                 clippy::cast_precision_loss,
                 reason = "if our pixel coordinates get anywhere near 2^23 we probably should reconsider all types anyway"
             )]
             pixel_waypoints.push((x as f32, y as f32));
         }
-        self.draw_pixel_waypoint_route(&pixel_waypoints, color)?;
+        self.draw_pixel_waypoint_route(&pixel_waypoints, style)?;
         Ok(())
     }
 
@@ -1514,7 +1526,7 @@ impl Map {
     pub fn draw_pixel_waypoint_route(
         &mut self,
         pixel_waypoints: &[(f32, f32)],
-        color: image::Rgba<u8>,
+        style: &crate::route_style::RouteStyle,
     ) -> Result<(), uniform_cubic_splines::SplineError> {
         let waypoint_count = pixel_waypoints.len();
         let Some((first, pixel_waypoints_all_but_first)) = pixel_waypoints.split_first() else {
@@ -1559,106 +1571,185 @@ impl Map {
                 )?;
             Ok((point_x, point_y))
         };
-        // Waypoint `i` sits at spline parameter `i / (waypoint_count - 1)`.
-        // `uniform_cubic_splines` derives its segment count as
-        // `(knots.len() - 4) / B::STEP + 1`, and `CatmullRom::STEP` is 1, so the
-        // `waypoint_count + 2` knots above (the waypoints plus the two mirrored
-        // phantom control points) yield exactly `waypoint_count - 1` segments,
-        // with segment `j` interpolating waypoint `j` to waypoint `j + 1`.
-        //
-        // `waypoint_count >= 2` is guaranteed here (both `split_first` guards
-        // above returned early otherwise), so the denominator is never 0.
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "if our waypoint counts get anywhere near 2^23 routes probably will not be finished anyway"
-        )]
-        let waypoint_parameter_denominator = waypoint_count as f32 - 1f32;
-        let spline_value_for_waypoint = |i: usize| -> f32 {
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "if our waypoint counts get anywhere near 2^23 routes probably will not be finished anyway"
-            )]
-            let i = i as f32;
-            i / waypoint_parameter_denominator
-        };
-        let spline_value_between_waypoints = spline_value_for_waypoint(1);
-        let distance_between_points = |(x1, y1): (f32, f32), (x2, y2): (f32, f32)| -> f32 {
-            ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt()
-        };
-        let mut last_point: Option<(f32, f32)> = None;
-        // Iterate every waypoint. Iteration `i` draws the leg that *ends* at
-        // waypoint `i` (so `i == 0` only seeds `last_point`), which means the
-        // loop covers all `waypoint_count - 1` legs and places one arrowhead on
-        // every waypoint but the first.
-        for (i, waypoint) in pixel_waypoints.iter().enumerate() {
-            /// size of rectangles to use to draw the spline, should be odd
-            /// or it won't be centered properly
-            const SPLINE_RECT_SIZE: u8 = 3;
-            tracing::debug!("Waypoint {}: {:?}", i, waypoint);
-            let v = spline_value_for_waypoint(i);
-            let point = sample(v)?;
-            tracing::debug!("Sampled Catmull Rom curve {i} at point {v}: {point:?} for route");
-            if let Some(last_point) = last_point {
-                let distance_from_last_point = distance_between_points(point, last_point);
-                tracing::debug!(
-                    "Waypoint {i} is {:?} from last waypoint",
-                    distance_from_last_point
-                );
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "we want an integer count for the number of samples"
-                )]
-                #[expect(
-                    clippy::cast_sign_loss,
-                    reason = "we want a positive count for the number of samples"
-                )]
-                let samples_between_last_waypoint_and_this_one =
-                    (0.5f32 * distance_from_last_point / f32::from(SPLINE_RECT_SIZE)) as u32;
-                // `samples - 1` maps j = samples - 1 exactly onto the previous
-                // waypoint and j = 0 exactly onto this one, so the leg is
-                // covered end to end. The historical `samples - 2` deliberately
-                // overshot past the previous waypoint to paper over the gaps the
-                // (now fixed) wrong waypoint parameterisation produced, and was
-                // 0 — i.e. a NaN parameter and a stray rectangle at the clamped
-                // (0,0) corner — for samples == 2. Floored at 1 so samples <= 2
-                // stays finite.
-                #[expect(
-                    clippy::cast_precision_loss,
-                    reason = "if our waypoints are so far apart that we end up with 2^23 or more samples between two waypoints something is very broken anyway"
-                )]
-                let sample_step_denominator =
-                    (samples_between_last_waypoint_and_this_one as f32 - 1f32).max(1f32);
-                for j in (0..samples_between_last_waypoint_and_this_one).rev() {
-                    #[expect(
-                        clippy::cast_precision_loss,
-                        reason = "if our waypoints are so far apart that we end up with 2^23 or more samples between two waypoints something is very broken anyway"
-                    )]
-                    let v =
-                        v - spline_value_between_waypoints * (j as f32 / sample_step_denominator);
-                    let sample_point = sample(v)?;
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "we want integer pixel coordinates for use in the image library"
-                    )]
-                    imageproc::drawing::draw_filled_rect_mut(
-                        self.image_mut(),
-                        imageproc::rect::Rect::at(
-                            sample_point.0 as i32 - ((i32::from(SPLINE_RECT_SIZE) - 1) / 2),
-                            sample_point.1 as i32 - ((i32::from(SPLINE_RECT_SIZE) - 1) / 2),
-                        )
-                        .of_size(u32::from(SPLINE_RECT_SIZE), u32::from(SPLINE_RECT_SIZE)),
-                        color,
-                    );
-                }
-                self.draw_arrow(
-                    sample(v - (0.1f32 * spline_value_between_waypoints))?,
-                    point,
-                    color,
+        // Waypoint `i` sits at spline parameter `i / (waypoint_count - 1)`;
+        // see [`crate::route_geometry::RouteArcTable::build`], which is where
+        // that parameterisation now lives.
+        let table = crate::route_geometry::RouteArcTable::build(waypoint_count, sample)?;
+        let styles = style.effective_styles_per_waypoint(waypoint_count);
+        // Each leg is drawn in the style effective at its *starting* waypoint,
+        // so a style change at waypoint n is visible from waypoint n onwards.
+        // The arrowhead ending a leg belongs to that leg, so the arrow sitting
+        // on the boundary waypoint still carries the previous style.
+        for leg in 0..waypoint_count.saturating_sub(1) {
+            let (Some(leg_style), Some((leg_start, leg_end))) =
+                (styles.get(leg), table.leg_arc_range(leg))
+            else {
+                continue;
+            };
+            tracing::debug!(
+                "Drawing route leg {leg} from arc length {leg_start} to {leg_end} with {leg_style:?}"
+            );
+            for (dash_start, dash_end) in crate::route_geometry::dashes_for_leg(
+                leg_end - leg_start,
+                leg_style.dash_length_pixels,
+                leg_style.gap_length_pixels,
+            ) {
+                self.stamp_route_run(
+                    &table,
+                    leg_start + dash_start,
+                    leg_start + dash_end,
+                    leg_style,
                 );
             }
-            last_point = Some(point);
+            self.draw_route_leg_arrows(&table, leg, leg_start, leg_end, leg_style);
         }
         Ok(())
+    }
+
+    /// the point `arc_length` pixels along the route, displaced sideways by the
+    /// style's lateral offset
+    fn offset_route_point(
+        table: &crate::route_geometry::RouteArcTable,
+        arc_length: f32,
+        style: &crate::route_style::ResolvedRouteStyle,
+    ) -> (f32, f32) {
+        let point = table.point_at_arc(arc_length);
+        if style.offset_pixels == 0f32 {
+            return point;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "the stamp size was clamped into [1, 256] when the style was resolved"
+        )]
+        let spacing_hint = style.stamp_size as f32;
+        table
+            .unit_normal_at_arc(arc_length, spacing_hint)
+            .map_or(point, |normal| {
+                crate::route_geometry::offset_point(point, normal, style.offset_pixels)
+            })
+    }
+
+    /// stamp one drawn run of the route line, from `from_arc` to `to_arc` in
+    /// pixels of arc length along the (possibly offset) route
+    fn stamp_route_run(
+        &mut self,
+        table: &crate::route_geometry::RouteArcTable,
+        from_arc: f32,
+        to_arc: f32,
+        style: &crate::route_style::ResolvedRouteStyle,
+    ) {
+        let stamp = style.stamp_size;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "the stamp size was clamped into [1, 256] when the style was resolved"
+        )]
+        let stamp_pixels = stamp as f32;
+        // The run's *drawn* extent should be the requested dash length, so the
+        // stamp centres are pulled in by half a stamp at each end. A run no
+        // longer than one stamp collapses to a single centred stamp, which is
+        // what makes the default dotted style a row of single squares.
+        let run = to_arc - from_arc;
+        let (first_center, last_center) = if run <= stamp_pixels {
+            let middle = f32::midpoint(from_arc, to_arc);
+            (middle, middle)
+        } else {
+            (from_arc + stamp_pixels / 2f32, to_arc - stamp_pixels / 2f32)
+        };
+        // half a stamp between centres, so consecutive stamps overlap and a run
+        // comes out solid rather than beaded
+        let step = (stamp_pixels / 2f32).max(0.5f32);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the stamp count is bounded by the route length in pixels"
+        )]
+        let steps = ((last_center - first_center) / step).ceil().max(0f32) as u32;
+        for index in 0..=steps {
+            let center = if steps == 0 {
+                first_center
+            } else {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "the stamp count is bounded by the route length in pixels"
+                )]
+                let fraction = f32::from(u16::try_from(index).unwrap_or(u16::MAX)) / steps as f32;
+                (last_center - first_center).mul_add(fraction, first_center)
+            };
+            let point = Self::offset_route_point(table, center, style);
+            self.draw_route_stamp(point, stamp, style.color);
+        }
+    }
+
+    /// draw one square stamp of the route line centred on the given point
+    fn draw_route_stamp(&mut self, center: (f32, f32), stamp: u32, color: image::Rgba<u8>) {
+        if !center.0.is_finite() || !center.1.is_finite() {
+            return;
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_possible_wrap,
+            reason = "our pixel coordinates should be nowhere near i32::MAX and the stamp size is at most 256"
+        )]
+        let corner = (
+            center.0 as i32 - (stamp / 2) as i32,
+            center.1 as i32 - (stamp / 2) as i32,
+        );
+        imageproc::drawing::draw_filled_rect_mut(
+            self.image_mut(),
+            imageproc::rect::Rect::at(corner.0, corner.1).of_size(stamp, stamp),
+            color,
+        );
+    }
+
+    /// draw the direction arrowheads belonging to one leg of the route
+    fn draw_route_leg_arrows(
+        &mut self,
+        table: &crate::route_geometry::RouteArcTable,
+        leg: usize,
+        leg_start: f32,
+        leg_end: f32,
+        style: &crate::route_style::ResolvedRouteStyle,
+    ) {
+        let mut arrow_positions: Vec<f32> = Vec::new();
+        match style.arrow_placement {
+            crate::route_style::RouteArrowPlacement::None => {}
+            crate::route_style::RouteArrowPlacement::EveryNthWaypoint(every) => {
+                // leg `leg` ends at waypoint `leg + 1`, so `every == 1` puts an
+                // arrowhead on every waypoint but the first
+                if (leg + 1).is_multiple_of(every.get() as usize) {
+                    arrow_positions.push(leg_end);
+                }
+            }
+            crate::route_style::RouteArrowPlacement::EveryPixels(spacing) => {
+                let spacing = if spacing.is_finite() {
+                    spacing.max(1f32)
+                } else {
+                    1f32
+                };
+                let mut position = leg_end;
+                // always at least the arrow at the end of the leg
+                while position > leg_start {
+                    arrow_positions.push(position);
+                    position -= spacing;
+                }
+                if arrow_positions.is_empty() {
+                    arrow_positions.push(leg_end);
+                }
+            }
+        }
+        for tip_arc in arrow_positions {
+            let tip = Self::offset_route_point(table, tip_arc, style);
+            // clamped into the leg so the base direction stays local to it
+            let base_arc = (tip_arc - style.arrow_length_pixels).max(leg_start);
+            let base = Self::offset_route_point(table, base_arc, style);
+            self.draw_arrow(
+                base,
+                tip,
+                style.color,
+                style.arrow_length_pixels,
+                style.arrow_half_width_pixels,
+            );
+        }
     }
 
     /// creates a blank `Map` with a fully transparent RGBA image sized for the
@@ -2191,7 +2282,10 @@ mod test {
             (120f32, 120f32),
             (140f32, 100f32),
         ];
-        map.draw_pixel_waypoint_route(&pixel_waypoints, route_color)?;
+        map.draw_pixel_waypoint_route(
+            &pixel_waypoints,
+            &crate::route_style::RouteStyle::new(route_color),
+        )?;
         assert!(
             drawn_pixel_count(&map) > 0,
             "the route should still draw at least one pixel"
@@ -2212,7 +2306,10 @@ mod test {
         let route_color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
         let mut map = Map::new_blank_for_test(256, 256);
         let pixel_waypoints = vec![(60f32, 60f32), (180f32, 180f32)];
-        map.draw_pixel_waypoint_route(&pixel_waypoints, route_color)?;
+        map.draw_pixel_waypoint_route(
+            &pixel_waypoints,
+            &crate::route_style::RouteStyle::new(route_color),
+        )?;
         assert!(
             drawn_pixel_count(&map) > 0,
             "a two-waypoint route must draw a visible curve (regression for the waypoint_count - 2 == 0 bug)"
@@ -2235,7 +2332,10 @@ mod test {
         let route_color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
         let mut map = Map::new_blank_for_test(256, 256);
         let pixel_waypoints = vec![(100f32, 100f32), (110f32, 110f32)];
-        map.draw_pixel_waypoint_route(&pixel_waypoints, route_color)?;
+        map.draw_pixel_waypoint_route(
+            &pixel_waypoints,
+            &crate::route_style::RouteStyle::new(route_color),
+        )?;
         assert_eq!(
             map.image().get_pixel(0, 0).0,
             BLANK_PIXEL,
@@ -2286,7 +2386,10 @@ mod test {
             (260f32, 64f32),
             (360f32, 64f32),
         ];
-        map.draw_pixel_waypoint_route(&pixel_waypoints, route_color)?;
+        map.draw_pixel_waypoint_route(
+            &pixel_waypoints,
+            &crate::route_style::RouteStyle::new(route_color),
+        )?;
         // half of the 100 px leg spacing, minus a margin, so the boxes around a
         // waypoint and around a midpoint never overlap
         let half_size = 20f32;
@@ -2299,6 +2402,304 @@ mod test {
                 "waypoint {waypoint:?} should carry an arrowhead and so outweigh the plain line at the midpoint {midpoint:?}, got {at_waypoint} vs {at_midpoint} drawn pixels"
             );
         }
+        Ok(())
+    }
+
+    /// counts the pixels of the map drawn in exactly the given colour
+    #[cfg(test)]
+    fn color_pixel_count(map: &Map, color: image::Rgba<u8>) -> usize {
+        map.image()
+            .pixels()
+            .filter(|(_, _, pixel)| pixel.0 == color.0)
+            .count()
+    }
+
+    /// the lowest and highest x coordinate at which the given colour appears,
+    /// or `None` when the colour is absent
+    #[cfg(test)]
+    fn color_x_range(map: &Map, color: image::Rgba<u8>) -> Option<(u32, u32)> {
+        let xs: Vec<u32> = map
+            .image()
+            .pixels()
+            .filter(|(_, _, pixel)| pixel.0 == color.0)
+            .map(|(x, _, _)| x)
+            .collect();
+        Some((*xs.iter().min()?, *xs.iter().max()?))
+    }
+
+    /// whether any pixel in the horizontal band `center_y ± half` is drawn
+    #[cfg(test)]
+    fn any_drawn_in_row_band(map: &Map, center_y: u32, half: u32) -> bool {
+        map.image()
+            .pixels()
+            .any(|(_, y, pixel)| pixel.0 != BLANK_PIXEL && y.abs_diff(center_y) <= half)
+    }
+
+    /// a straight two-waypoint route used by the style tests, long enough that
+    /// the middle of the leg is clear of the arrowhead at its end
+    #[cfg(test)]
+    const STRAIGHT_ROUTE: [(f32, f32); 2] = [(20f32, 100f32), (280f32, 100f32)];
+
+    /// A thicker line must cover strictly more pixels, and must reach sideways
+    /// past where the default 3 px line stops.
+    #[test]
+    fn test_draw_route_thicker_lines_draw_more_pixels() -> Result<(), Box<dyn std::error::Error>> {
+        let color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let mut thin = Map::new_blank_for_test(300, 200);
+        thin.draw_pixel_waypoint_route(
+            &STRAIGHT_ROUTE,
+            &crate::route_style::RouteStyle::new(color),
+        )?;
+        let mut thick = Map::new_blank_for_test(300, 200);
+        thick.draw_pixel_waypoint_route(
+            &STRAIGHT_ROUTE,
+            &crate::route_style::RouteStyle::new(color).with_thickness(9f32),
+        )?;
+        assert!(
+            drawn_pixel_count(&thick) > drawn_pixel_count(&thin),
+            "a 9 px line must cover more than a 3 px one, got {} vs {}",
+            drawn_pixel_count(&thick),
+            drawn_pixel_count(&thin)
+        );
+        // 4 px off the centre line, clear of the arrowhead at x = 280
+        assert_eq!(
+            thin.image().get_pixel(100, 104).0,
+            BLANK_PIXEL,
+            "a 3 px line must not reach 4 px off its centre"
+        );
+        assert_eq!(
+            thick.image().get_pixel(100, 104).0,
+            color.0,
+            "a 9 px line must reach 4 px off its centre"
+        );
+        Ok(())
+    }
+
+    /// A lateral offset must move the whole line sideways, to the right of the
+    /// direction of travel. Travelling east, right is south, which is +y in
+    /// image coordinates.
+    #[test]
+    fn test_draw_route_offset_shifts_the_line_sideways() -> Result<(), Box<dyn std::error::Error>> {
+        let color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let mut map = Map::new_blank_for_test(300, 200);
+        map.draw_pixel_waypoint_route(
+            &STRAIGHT_ROUTE,
+            &crate::route_style::RouteStyle::new(color).with_offset(20f32),
+        )?;
+        assert!(
+            any_drawn_in_row_band(&map, 120, 3),
+            "an eastbound route offset by +20 must draw around y = 120"
+        );
+        assert!(
+            !any_drawn_in_row_band(&map, 100, 3),
+            "nothing may remain on the unoffset centre line at y = 100"
+        );
+        Ok(())
+    }
+
+    /// The point of the offset: an out-and-back route through the same corridor
+    /// draws as two separate lines rather than one on top of the other. Drawing
+    /// the return leg must not paint over any of the outbound one.
+    #[test]
+    fn test_draw_route_opposite_directions_stay_apart() -> Result<(), Box<dyn std::error::Error>> {
+        let outbound_color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let return_color = image::Rgba([0u8, 0u8, 255u8, 255u8]);
+        let offset = 6f32;
+        let outbound = [(20f32, 100f32), (280f32, 100f32)];
+        let inbound = [(280f32, 100f32), (20f32, 100f32)];
+
+        let mut alone = Map::new_blank_for_test(300, 200);
+        alone.draw_pixel_waypoint_route(
+            &outbound,
+            &crate::route_style::RouteStyle::new(outbound_color).with_offset(offset),
+        )?;
+        let outbound_alone = color_pixel_count(&alone, outbound_color);
+
+        let mut both = Map::new_blank_for_test(300, 200);
+        both.draw_pixel_waypoint_route(
+            &outbound,
+            &crate::route_style::RouteStyle::new(outbound_color).with_offset(offset),
+        )?;
+        both.draw_pixel_waypoint_route(
+            &inbound,
+            &crate::route_style::RouteStyle::new(return_color).with_offset(offset),
+        )?;
+        assert!(
+            color_pixel_count(&both, return_color) > 0,
+            "the return leg must be drawn"
+        );
+        assert_eq!(
+            color_pixel_count(&both, outbound_color),
+            outbound_alone,
+            "the return leg must not paint over any of the outbound one: both legs offset to their own right puts them on opposite sides"
+        );
+        Ok(())
+    }
+
+    /// Solid covers more than dashed, which covers more than dotted.
+    #[test]
+    fn test_draw_route_line_styles_differ_in_coverage() -> Result<(), Box<dyn std::error::Error>> {
+        let color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let mut counts = Vec::new();
+        for line_style in [
+            crate::route_style::RouteLineStyle::Dotted,
+            crate::route_style::RouteLineStyle::Dashed,
+            crate::route_style::RouteLineStyle::Solid,
+        ] {
+            let mut map = Map::new_blank_for_test(300, 200);
+            map.draw_pixel_waypoint_route(
+                &STRAIGHT_ROUTE,
+                &crate::route_style::RouteStyle::new(color).with_line_style(line_style),
+            )?;
+            counts.push(drawn_pixel_count(&map));
+        }
+        let [dotted, dashed, solid] = counts.as_slice() else {
+            return Err("expected exactly three coverage counts".into());
+        };
+        assert!(
+            dotted < dashed,
+            "dashed must cover more than dotted, got {dotted} vs {dashed}"
+        );
+        assert!(
+            dashed < solid,
+            "solid must cover more than dashed, got {dashed} vs {solid}"
+        );
+        Ok(())
+    }
+
+    /// A per-section colour change must take effect at the waypoint it names.
+    /// The arrowhead ending the previous leg sits *on* that waypoint and still
+    /// belongs to the previous section, so the old colour may reach the
+    /// boundary but must not continue past it.
+    #[test]
+    fn test_draw_route_section_colour_changes_at_the_boundary_waypoint()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let early = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let late = image::Rgba([0u8, 0u8, 255u8, 255u8]);
+        let waypoints = [
+            (20f32, 100f32),
+            (90f32, 100f32),
+            (160f32, 100f32),
+            (230f32, 100f32),
+            (300f32, 100f32),
+        ];
+        let boundary_x = 160u32;
+        let mut map = Map::new_blank_for_test(320, 200);
+        map.draw_pixel_waypoint_route(
+            &waypoints,
+            &crate::route_style::RouteStyle::new(early).with_section(
+                crate::route_style::RouteSectionStyle {
+                    color: Some(late),
+                    ..crate::route_style::RouteSectionStyle::new(2)
+                },
+            ),
+        )?;
+        let (early_min, early_max) =
+            color_x_range(&map, early).ok_or("the early section must be drawn")?;
+        let (late_min, late_max) =
+            color_x_range(&map, late).ok_or("the late section must be drawn")?;
+        assert!(
+            early_min < boundary_x,
+            "the early section starts before the boundary"
+        );
+        assert!(
+            early_max <= boundary_x + 2,
+            "the early section must not continue past the boundary waypoint, reached x {early_max}"
+        );
+        assert!(
+            late_min + 2 >= boundary_x,
+            "the late section must not start before the boundary waypoint, started at x {late_min}"
+        );
+        assert!(
+            late_max > boundary_x,
+            "the late section continues to the end of the route"
+        );
+        Ok(())
+    }
+
+    /// Arrow placement controls how many arrowheads are drawn, and the scale
+    /// controls how big they are.
+    #[test]
+    fn test_draw_route_arrow_placement_controls_the_arrows()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let waypoints = [
+            (20f32, 100f32),
+            (90f32, 100f32),
+            (160f32, 100f32),
+            (230f32, 100f32),
+        ];
+        let count_for = |placement| -> Result<usize, Box<dyn std::error::Error>> {
+            let mut map = Map::new_blank_for_test(300, 200);
+            map.draw_pixel_waypoint_route(
+                &waypoints,
+                &crate::route_style::RouteStyle::new(color).with_arrow_placement(placement),
+            )?;
+            Ok(drawn_pixel_count(&map))
+        };
+        let none = count_for(crate::route_style::RouteArrowPlacement::None)?;
+        let every_second = count_for(crate::route_style::RouteArrowPlacement::EveryNthWaypoint(
+            std::num::NonZeroU32::new(2).ok_or("2 is not zero")?,
+        ))?;
+        let every = count_for(crate::route_style::RouteArrowPlacement::EveryNthWaypoint(
+            std::num::NonZeroU32::MIN,
+        ))?;
+        assert!(
+            none < every_second,
+            "arrows on every second waypoint must add pixels over none, got {none} vs {every_second}"
+        );
+        assert!(
+            every_second < every,
+            "arrows on every waypoint must add more still, got {every_second} vs {every}"
+        );
+
+        let mut scaled = Map::new_blank_for_test(300, 200);
+        scaled.draw_pixel_waypoint_route(
+            &waypoints,
+            &crate::route_style::RouteStyle::new(color).with_section(
+                crate::route_style::RouteSectionStyle {
+                    arrow_scale: Some(2f32),
+                    ..crate::route_style::RouteSectionStyle::new(0)
+                },
+            ),
+        )?;
+        assert!(
+            drawn_pixel_count(&scaled) > every,
+            "doubling the arrow scale must grow the arrowheads"
+        );
+        Ok(())
+    }
+
+    /// The duplicate-waypoint case must stay safe with an offset and a thicker
+    /// line too: the normal is undefined at a zero-length segment, and must not
+    /// turn into a NaN-derived stamp at the clamped (0,0) corner.
+    #[test]
+    fn test_draw_route_duplicate_waypoints_with_offset_is_safe()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let color = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+        let mut map = Map::new_blank_for_test(256, 256);
+        let pixel_waypoints = [
+            (100f32, 100f32),
+            (120f32, 120f32),
+            (120f32, 120f32),
+            (140f32, 100f32),
+        ];
+        map.draw_pixel_waypoint_route(
+            &pixel_waypoints,
+            &crate::route_style::RouteStyle::new(color)
+                .with_offset(8f32)
+                .with_thickness(7f32)
+                .with_line_style(crate::route_style::RouteLineStyle::Solid),
+        )?;
+        assert!(
+            drawn_pixel_count(&map) > 0,
+            "the route should still draw at least one pixel"
+        );
+        assert_eq!(
+            map.image().get_pixel(0, 0).0,
+            BLANK_PIXEL,
+            "the (0,0) corner must stay background"
+        );
         Ok(())
     }
 
@@ -2337,7 +2738,7 @@ mod test {
         map.draw_route_with_progress(
             &mut region_cache,
             &notecard,
-            image::Rgba([255u8, 0u8, 0u8, 255u8]),
+            &crate::route_style::RouteStyle::new(image::Rgba([255u8, 0u8, 0u8, 255u8])),
             None,
         )
         .await?;

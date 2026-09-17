@@ -17,6 +17,7 @@ use image::{ImageFormat, Rgba};
 use serde::{Deserialize, Serialize};
 use sl_map_apis::map_tiles::{Map, MapProgressEvent};
 use sl_map_apis::region::usb_notecard_to_grid_rectangle;
+use sl_map_apis::route_style::RouteStyle;
 use sl_types::map::{
     GridCoordinates, GridRectangle, GridRectangleLike as _, RegionCoordinates, USBNotecard,
     ZoomLevel,
@@ -1031,7 +1032,7 @@ pub async fn free_placement_slots_usb_notecard(
     }
     {
         let mut region = state.region_cache.lock().await;
-        map.draw_route_with_progress(&mut region, &notecard, parsed.color, None)
+        map.draw_route_with_progress(&mut region, &notecard, &RouteStyle::new(parsed.color), None)
             .await?;
     }
     let groups = parse_groups(&parsed.groups)?;
@@ -1275,7 +1276,7 @@ pub async fn route_preview(
         )]
         pixel_waypoints.push((x as f32, y as f32));
     }
-    map.draw_pixel_waypoint_route(&pixel_waypoints, color)
+    map.draw_pixel_waypoint_route(&pixel_waypoints, &RouteStyle::new(color))
         .map_err(|err| Error::BadRequest(format!("route rasterisation failed: {err}")))?;
     // PNG keeps the transparent background so only the route composites over the
     // client's tiles.
@@ -1594,7 +1595,7 @@ pub async fn placement_preview_usb_notecard(
     };
     {
         let mut region = state.region_cache.lock().await;
-        occ.draw_route_with_progress(&mut region, &notecard, parsed.color, None)
+        occ.draw_route_with_progress(&mut region, &notecard, &RouteStyle::new(parsed.color), None)
             .await?;
     }
     let png = render_placement_elements_png(
@@ -2642,8 +2643,13 @@ async fn run_usb_notecard_job(
         let glw_data_id = apply_glw_overlay_to_map(&state, glw_ctx.as_ref(), &mut map).await?;
         {
             let mut region = state.region_cache.lock().await;
-            map.draw_route_with_progress(&mut region, &notecard, route_color, Some(&tx))
-                .await?;
+            map.draw_route_with_progress(
+                &mut region,
+                &notecard,
+                &RouteStyle::new(route_color),
+                Some(&tx),
+            )
+            .await?;
         }
         // Labels and logos go last, above the route, sharing one
         // mutually-exclusive pool of placement slots. Their free space is
@@ -3532,7 +3538,7 @@ async fn plan_placements(
         }
         if let Some((notecard, color)) = route {
             let mut region = state.region_cache.lock().await;
-            occ.draw_route_with_progress(&mut region, notecard, color, None)
+            occ.draw_route_with_progress(&mut region, notecard, &RouteStyle::new(color), None)
                 .await?;
         }
         occ
@@ -3716,7 +3722,7 @@ mod placement_slots_tests {
         let mut map = blank_map()?;
         map.draw_pixel_waypoint_route(
             &[(10f32, 10f32), (64f32, 64f32), (118f32, 118f32)],
-            Rgba([255, 0, 0, 255]),
+            &RouteStyle::new(Rgba([255, 0, 0, 255])),
         )?;
         let resp = compute_placement_slots(&map, &[]);
         let center = resp
@@ -3975,7 +3981,7 @@ mod route_preview_tests {
             pixel_for(&map, 1001, 1001, 128f32, 128f32).ok_or("waypoint outside rect")?,
             pixel_for(&map, 1009, 1009, 128f32, 128f32).ok_or("waypoint outside rect")?,
         ];
-        map.draw_pixel_waypoint_route(&pixel_waypoints, ROUTE_COLOR)?;
+        map.draw_pixel_waypoint_route(&pixel_waypoints, &RouteStyle::new(ROUTE_COLOR))?;
 
         let (w, h) = image::GenericImageView::dimensions(&map);
         let mut coloured = 0u32;
@@ -4018,7 +4024,7 @@ mod route_preview_tests {
         let p0 = pixel_for(&map, 1001, 1001, 128f32, 128f32).ok_or("waypoint outside rect")?;
         let p1 = pixel_for(&map, 1006, 1006, 128f32, 128f32).ok_or("waypoint outside rect")?;
         let p2 = pixel_for(&map, 1011, 1001, 128f32, 128f32).ok_or("waypoint outside rect")?;
-        map.draw_pixel_waypoint_route(&[p0, p1, p2], ROUTE_COLOR)?;
+        map.draw_pixel_waypoint_route(&[p0, p1, p2], &RouteStyle::new(ROUTE_COLOR))?;
 
         let (w, h) = image::GenericImageView::dimensions(&map);
         let mut max_off = 0f32;

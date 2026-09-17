@@ -111,6 +111,74 @@ It is also possible to additionally save the map without the route to a separate
 file by specifying the --output-file-without-route option with another file
 name.
 
+## Route line style
+
+The route line defaults to a 3 pixel wide dotted green-or-whatever-`--color`-says
+line with an arrowhead on every waypoint, but every part of that can be changed.
+
+| flag                   | meaning                                                      |
+| ---------------------- | ------------------------------------------------------------ |
+| `--route-thickness`    | line thickness in pixels (default `3`)                        |
+| `--route-line`         | `solid`, `dashed` or `dotted` (default `dotted`)              |
+| `--route-dash`         | length of each drawn run in pixels, overriding `--route-line` |
+| `--route-gap`          | length of each gap in pixels, overriding `--route-line`       |
+| `--route-offset`       | sideways shift in pixels, `+` is right of travel (default `0`)|
+| `--route-arrow-scale`  | multiplier on the arrowhead size (default `1`)                |
+| `--route-arrow-every`  | draw an arrowhead every nth waypoint, `0` for none (default `1`) |
+
+A thicker line stays visible when the map is used as a PPS HUD texture.
+
+`--route-offset` shifts the whole line sideways relative to the direction of
+travel, so a cruise that runs out and back through the same water draws as two
+separate lines instead of one on top of the other — each pass is offset to its
+own right, which puts them on opposite sides.
+
+Dashes are spaced by arc length, so they stay evenly spaced in pixels no matter
+how the waypoints are distributed.
+
+### Changing the style partway through a cruise
+
+`--route-section` takes a JSON object and changes the style from one waypoint
+onwards. The change stays in effect until the next section overrides it, so a
+cruise that revisits an area can show which legs came first. The flag may be
+repeated, and the sections need not be given in waypoint order.
+
+| field           | meaning                                                     |
+| --------------- | ----------------------------------------------------------- |
+| `from_waypoint` | required; waypoint index the change starts at, counting from `0` |
+| `color`         | hex line and arrowhead colour                                |
+| `thickness`     | line thickness in pixels                                     |
+| `offset`        | sideways shift in pixels                                     |
+| `line`          | `solid`, `dashed` or `dotted`                                |
+| `dash` / `gap`  | explicit run and gap lengths in pixels                       |
+| `arrow_scale`   | multiplier on the arrowhead size                             |
+| `arrow_every`   | draw an arrowhead every nth waypoint, `0` for none           |
+
+Every field but `from_waypoint` is optional and, when left out, keeps whatever
+is currently in effect — so a section that only sets `color` keeps the thickness
+an earlier section set.
+
+```shell
+sl_map_cli --cache-dir cache \
+  from-usb-notecard \
+  --usb-notecard usb_notecard.txt \
+  --color '#0f0' \
+  --max-width 2048 --max-height 2048 \
+  --output-file out.png \
+  --route-thickness 6 \
+  --route-offset 6 \
+  --route-section '{"from_waypoint":14,"color":"#ff0"}' \
+  --route-section '{"from_waypoint":28,"color":"#f0f","line":"solid","thickness":10}'
+```
+
+A style change applies to the legs that *start* at or after its waypoint. The
+arrowhead at the end of a leg belongs to that leg, so the arrow sitting on the
+boundary waypoint still carries the previous section's style. A section naming
+the very last waypoint therefore changes nothing: no leg starts there.
+
+The same `--route-*` flags are accepted by `placement-slots`, so the occupancy
+it plans against matches what the real render will draw.
+
 ## Output format
 
 Both map-producing subcommands take an optional `--format` flag (`png` or

@@ -770,7 +770,7 @@ async function fetchGlwOverlay(rect, z) {
       glw,
     }),
   });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) throw new Error(await errorText(resp));
   return URL.createObjectURL(await resp.blob());
 }
 
@@ -797,7 +797,7 @@ async function fetchGlwLegendOverlay(rect) {
       glw,
     }),
   });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) throw new Error(await errorText(resp));
   return URL.createObjectURL(await resp.blob());
 }
 
@@ -830,7 +830,7 @@ async function fetchRoutePreview(rect, waypoints) {
       })),
     }),
   });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) throw new Error(await errorText(resp));
   return URL.createObjectURL(await resp.blob());
 }
 
@@ -889,7 +889,7 @@ async function fetchPlacementOverlay(rect) {
       body: fd,
     });
   }
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) throw new Error(await errorText(resp));
   return URL.createObjectURL(await resp.blob());
 }
 
@@ -983,7 +983,7 @@ async function fetchRegionOverlay(rect) {
     if (err.name === "AbortError") return null;
     throw err;
   }
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) throw new Error(await errorText(resp));
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
@@ -1549,7 +1549,7 @@ async function previewNotecard() {
       method: "POST",
       body: fd,
     });
-    if (!resp.ok) throw new Error(await resp.text());
+    if (!resp.ok) throw new Error(await errorText(resp));
     const data = await resp.json();
     renderPreview(data, data.waypoints);
   } catch (err) {
@@ -1970,7 +1970,7 @@ async function followJob(jobId, withWithoutRoute) {
     };
   }).then(async () => {
     const metaResp = await fetch(`/api/render/${jobId}/metadata`);
-    if (!metaResp.ok) throw new Error(await metaResp.text());
+    if (!metaResp.ok) throw new Error(await errorText(metaResp));
     const meta = await metaResp.json();
     showResult(jobId, meta, withWithoutRoute);
   });
@@ -2118,7 +2118,7 @@ async function applyPrefillFromQuery() {
   if (isUuid(regen)) {
     try {
       const resp = await fetch(`/api/renders/${regen}/settings`);
-      if (!resp.ok) throw new Error(await resp.text());
+      if (!resp.ok) throw new Error(await errorText(resp));
       const settings = await resp.json();
       applySettings(settings);
     } catch (err) {
@@ -3070,7 +3070,7 @@ async function measureText(fontId, fontPx, lines) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ font_id: fontId, font_px: fontPx, lines }),
   });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) throw new Error(await errorText(resp));
   return resp.json();
 }
 
@@ -4037,7 +4037,7 @@ async function findFreeSlots() {
         body: fd,
       });
     }
-    if (!resp.ok) throw new Error(await resp.text());
+    if (!resp.ok) throw new Error(await errorText(resp));
     const data = await resp.json();
     lastPlacementSlots = {};
     for (const s of data.slots) lastPlacementSlots[s.slot] = s;

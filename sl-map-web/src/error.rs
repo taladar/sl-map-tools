@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Response};
 use axum::http::StatusCode as ReqwestStatusCode;
 use sl_map_apis::map_tiles::{MapError, MapTileCacheError};
 use sl_map_apis::region::{CacheError as RegionCacheError, USBNotecardToGridRectangleError};
-use sl_types::map::{LocationParseError, USBNotecardLoadError};
+use sl_types::map::{LocationParseError, RegionName, USBNotecardLoadError};
 
 /// Top-level error for the web service. Wraps the various library and IO
 /// errors so that handlers can use `?` and the central `IntoResponse` impl
@@ -174,8 +174,89 @@ pub fn is_unique_violation(err: &sqlx::Error) -> bool {
     db.message().contains("UNIQUE constraint failed")
 }
 
+/// the message shown when a region name given by the user does not exist on
+/// the grid
+///
+/// Region names starting with `SSP` are usually the preview names of new
+/// regions which are replaced by the name without that prefix once the region
+/// is released, so old notecards often still refer to them.
+fn unknown_region_message(region_name: &RegionName) -> String {
+    let name = region_name.as_ref();
+    match name.strip_prefix("SSP") {
+        Some(released_name) if !released_name.is_empty() => format!(
+            "The region \"{name}\" does not exist. Region names starting with \"SSP\" are usually \
+             preview names that are replaced once the region is released, try \
+             \"{released_name}\" instead."
+        ),
+        _ => format!(
+            "The region \"{name}\" does not exist. Please check the spelling of the region name."
+        ),
+    }
+}
+
+/// the message shown when the maps website used to look up region positions
+/// failed or returned something unexpected
+fn region_lookup_unavailable_message(region_name: Option<&RegionName>) -> String {
+    let what = region_name.map_or_else(
+        || "the region".to_owned(),
+        |region_name| format!("the region \"{region_name}\""),
+    );
+    format!(
+        "Could not look up the position of {what} because the Second Life maps service did not \
+         respond as expected. Please try again later."
+    )
+}
+
+/// the HTTP status and user facing message for a region cache error,
+/// lookup failures of the remote service are reported as a bad gateway with a
+/// readable message, local cache failures as a generic internal error
+fn region_cache_error_response(
+    err: &RegionCacheError,
+    region_name: Option<&RegionName>,
+) -> (ReqwestStatusCode, String) {
+    match err {
+        RegionCacheError::GridCoordinatesHttpError(_)
+        | RegionCacheError::RegionNameHttpError(_) => (
+            ReqwestStatusCode::BAD_GATEWAY,
+            region_lookup_unavailable_message(region_name),
+        ),
+        _ => (
+            ReqwestStatusCode::INTERNAL_SERVER_ERROR,
+            "internal error".to_owned(),
+        ),
+    }
+}
+
+/// the HTTP status and user facing message for an error resolving the grid
+/// rectangle of a USB notecard
+fn usb_notecard_to_grid_rectangle_error_response(
+    err: &USBNotecardToGridRectangleError,
+) -> (ReqwestStatusCode, String) {
+    match err {
+        USBNotecardToGridRectangleError::NoUSBNotecardWaypoints => (
+            ReqwestStatusCode::BAD_REQUEST,
+            "The notecard does not contain any waypoints.".to_owned(),
+        ),
+        USBNotecardToGridRectangleError::NoGridCoordinatesForRegion(region_name) => (
+            ReqwestStatusCode::UNPROCESSABLE_ENTITY,
+            unknown_region_message(region_name),
+        ),
+        USBNotecardToGridRectangleError::CacheError {
+            region_name,
+            source,
+        } => region_cache_error_response(source, Some(region_name)),
+    }
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
+        let region_error_response = match &self {
+            Self::RegionCache(err) => Some(region_cache_error_response(err, None)),
+            Self::USBNotecardToGridRectangle(err) => {
+                Some(usb_notecard_to_grid_rectangle_error_response(err))
+            }
+            _ => None,
+        };
         let status = match &self {
             Self::BadRequest(_)
             | Self::Multipart(_)
@@ -189,9 +270,12 @@ impl IntoResponse for Error {
             Self::JobNotFinished => ReqwestStatusCode::ACCEPTED,
             Self::RenderFailed(_) => ReqwestStatusCode::CONFLICT,
             Self::TooManyRequests { .. } => ReqwestStatusCode::TOO_MANY_REQUESTS,
-            Self::USBNotecardToGridRectangle(_)
-            | Self::RegionCache(_)
-            | Self::Map(_)
+            Self::USBNotecardToGridRectangle(_) | Self::RegionCache(_) => region_error_response
+                .as_ref()
+                .map_or(ReqwestStatusCode::INTERNAL_SERVER_ERROR, |(status, _)| {
+                    *status
+                }),
+            Self::Map(_)
             | Self::MapTileCache(_)
             | Self::Image(_)
             | Self::Io(_)
@@ -205,16 +289,22 @@ impl IntoResponse for Error {
         // (`Image`), or deserializer state (`Json`). Collapse them to a
         // generic body — the full Display is still recorded via the
         // `warn!` below so the operator gets the detail in logs.
-        let body_text = match &self {
-            Self::Io(_)
-            | Self::Image(_)
-            | Self::Json(_)
-            | Self::Map(_)
-            | Self::MapTileCache(_)
-            | Self::RegionCache(_)
-            | Self::USBNotecardToGridRectangle(_)
-            | Self::PasswordHash(_) => "internal error".to_owned(),
-            _ => format!("{self}"),
+        // Region lookup errors get a dedicated readable message (an unknown
+        // region is the user's to fix, a failing maps service is not).
+        let body_text = match (&self, region_error_response) {
+            (_, Some((_, message))) => message,
+            (
+                Self::Io(_)
+                | Self::Image(_)
+                | Self::Json(_)
+                | Self::Map(_)
+                | Self::MapTileCache(_)
+                | Self::RegionCache(_)
+                | Self::USBNotecardToGridRectangle(_)
+                | Self::PasswordHash(_),
+                None,
+            ) => "internal error".to_owned(),
+            (_, None) => format!("{self}"),
         };
         let retry_after = match &self {
             Self::TooManyRequests { retry_after_secs } => Some(*retry_after_secs),
@@ -255,5 +345,77 @@ impl IntoResponse for Error {
             );
         }
         response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use sl_map_apis::region::RegionNameToGridCoordinatesError;
+
+    #[test]
+    fn unknown_ssp_region_suggests_released_name() -> Result<(), Box<dyn std::error::Error>> {
+        let err = USBNotecardToGridRectangleError::NoGridCoordinatesForRegion(RegionName::try_new(
+            "SSPOutlandish",
+        )?);
+        let (status, message) = usb_notecard_to_grid_rectangle_error_response(&err);
+        assert_eq!(status, ReqwestStatusCode::UNPROCESSABLE_ENTITY);
+        assert!(message.contains("\"SSPOutlandish\" does not exist"));
+        assert!(message.contains("try \"Outlandish\" instead"));
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_region_asks_to_check_spelling() -> Result<(), Box<dyn std::error::Error>> {
+        let err = USBNotecardToGridRectangleError::NoGridCoordinatesForRegion(RegionName::try_new(
+            "Thorkel",
+        )?);
+        let (status, message) = usb_notecard_to_grid_rectangle_error_response(&err);
+        assert_eq!(status, ReqwestStatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            message,
+            "The region \"Thorkel\" does not exist. Please check the spelling of the region name."
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn failing_maps_service_is_a_bad_gateway_naming_the_region()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let err = USBNotecardToGridRectangleError::CacheError {
+            region_name: RegionName::try_new("Ahern")?,
+            source: RegionCacheError::GridCoordinatesHttpError(
+                RegionNameToGridCoordinatesError::FailedToCloneRequest,
+            ),
+        };
+        let (status, message) = usb_notecard_to_grid_rectangle_error_response(&err);
+        assert_eq!(status, ReqwestStatusCode::BAD_GATEWAY);
+        assert!(message.contains("position of the region \"Ahern\""));
+        assert!(message.contains("try again later"));
+        Ok(())
+    }
+
+    #[test]
+    fn no_waypoints_is_a_bad_request() {
+        let (status, _) = usb_notecard_to_grid_rectangle_error_response(
+            &USBNotecardToGridRectangleError::NoUSBNotecardWaypoints,
+        );
+        assert_eq!(status, ReqwestStatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn region_error_status_is_used_for_the_response() -> Result<(), Box<dyn std::error::Error>> {
+        let response = Error::from(USBNotecardToGridRectangleError::NoGridCoordinatesForRegion(
+            RegionName::try_new("Thorkel")?,
+        ))
+        .into_response();
+        assert_eq!(response.status(), ReqwestStatusCode::UNPROCESSABLE_ENTITY);
+        let response = Error::from(RegionCacheError::GridCoordinatesHttpError(
+            RegionNameToGridCoordinatesError::FailedToCloneRequest,
+        ))
+        .into_response();
+        assert_eq!(response.status(), ReqwestStatusCode::BAD_GATEWAY);
+        Ok(())
     }
 }

@@ -717,8 +717,14 @@ pub enum USBNotecardToGridRectangleError {
     )]
     NoUSBNotecardWaypoints,
     /// there were errors when converting region names to grid coordinates
-    #[error("error converting region name to grid coordinates: {0}")]
-    CacheError(#[from] CacheError),
+    #[error("error converting region name {region_name} to grid coordinates: {source}")]
+    CacheError {
+        /// the region name whose lookup failed
+        region_name: RegionName,
+        /// the underlying lookup error
+        #[source]
+        source: CacheError,
+    },
     /// no grid coordinates were returned for one of the region names in the
     /// USB Notecard
     #[error("No grid coordinates were returned for one of the regions in the USB notecard: {0}")]
@@ -739,9 +745,14 @@ pub async fn usb_notecard_to_grid_rectangle(
     let mut upper_right_x = None;
     let mut upper_right_y = None;
     for waypoint in usb_notecard.waypoints() {
+        let region_name = waypoint.location().region_name();
         let grid_coordinates = region_name_to_grid_coordinates_cache
-            .get_grid_coordinates(waypoint.location().region_name())
-            .await?;
+            .get_grid_coordinates(region_name)
+            .await
+            .map_err(|source| USBNotecardToGridRectangleError::CacheError {
+                region_name: region_name.to_owned(),
+                source,
+            })?;
         if let Some(grid_coordinates) = grid_coordinates {
             if let Some(llx) = lower_left_x {
                 lower_left_x = Some(std::cmp::min(llx, grid_coordinates.x()));

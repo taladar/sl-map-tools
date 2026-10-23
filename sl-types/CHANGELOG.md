@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.0 - 2026-10-23 21:08:41Z
+
+### 🐛 Bug Fixes
+
+- *(sl-types)* Fully percent-decode region names in locations
+- *(sl-types)* Tolerate blank lines and whitespace in USB notecards
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update dependencies
+
 ## 0.10.0 - 2026-09-17 22:04:11Z
 
 ### ⚙️ Miscellaneous Tasks

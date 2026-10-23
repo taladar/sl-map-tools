@@ -1,3 +1,14 @@
+sl-map-web (0.9.0-1) unstable; urgency=medium
+
+  * Features - sl-map-apis - [**breaking**] Look up region grid coordinates via the maps website
+  * Features - sl-map-web - [**breaking**] Readable errors for failed region lookups
+  * Bug fixes - sl-types - Fully percent-decode region names in locations
+  * Bug fixes - sl-types - Tolerate blank lines and whitespace in USB notecards
+  * Bug fixes - sl-map-web - Keep preview slot labels and buttons readable
+  * Miscellaneous tasks - dependencies - Update dependencies
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Fri, 23 Oct 2026 23:08:42 +0200
+
 sl-map-web (0.8.0-1) unstable; urgency=medium
 
   * Features - sl-map-apis - [**breaking**] Configurable route style with per-section overrides

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.9.0 - 2026-10-23 21:08:41Z
+
+### 🚀 Features
+
+- *(sl-map-apis)* [**breaking**] Look up region grid coordinates via the maps
+  website
+- *(sl-map-web)* [**breaking**] Readable errors for failed region lookups
+
+### 🐛 Bug Fixes
+
+- *(sl-types)* Fully percent-decode region names in locations
+- *(sl-types)* Tolerate blank lines and whitespace in USB notecards
+- *(sl-map-web)* Keep preview slot labels and buttons readable
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update dependencies
+
 ## 0.8.0 - 2026-09-17 22:04:11Z
 
 ### 🚀 Features

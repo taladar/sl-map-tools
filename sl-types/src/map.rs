@@ -1321,7 +1321,8 @@ impl std::str::FromStr for Location {
         // if the string is an USB-notecard line drop everything after the first comma
         let usb_location = s
             .split_once(',')
-            .map_or(s, |(usb_location, _usb_comment)| usb_location);
+            .map_or(s, |(usb_location, _usb_comment)| usb_location)
+            .trim();
         let parts = usb_location.split('/').collect::<Vec<_>>();
         if let [region_name, x, y, z] = parts.as_slice() {
             let region_name = RegionName::try_new(decode_region_name_component(region_name))
@@ -1951,7 +1952,12 @@ impl std::str::FromStr for USBNotecard {
     type Err = LocationParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // hand-edited notecards (e.g. with the waypoint comments removed)
+        // often contain blank lines or trailing whitespace, neither is a
+        // waypoint
         s.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
             .map(|line| line.parse::<USBWaypoint>())
             .collect::<Result<Vec<_>, _>>()
             .map(|waypoints| Self { waypoints })
@@ -2082,6 +2088,60 @@ mod test {
                 y: 67,
                 z: 24
             }),
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_usb_notecard_without_comments() -> Result<(), Box<dyn std::error::Error>> {
+        let notecard =
+            "Beach%20Valley/110/67/24\nAhab%27s%20Haunt/128/128/0\n".parse::<USBNotecard>()?;
+        assert_eq!(
+            notecard
+                .waypoints()
+                .iter()
+                .map(|waypoint| (waypoint.location().to_owned(), waypoint.comment().cloned()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    Location::new(RegionName::try_new("Beach Valley")?, 110, 67, 24),
+                    None
+                ),
+                (
+                    Location::new(RegionName::try_new("Ahab's Haunt")?, 128, 128, 0),
+                    None
+                ),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_usb_notecard_mixed_comments_blank_lines_and_whitespace()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notecard =
+            "Beach%20Valley/110/67/24,MUSTER\r\n\r\n  Ahab%27s%20Haunt/128/128/0  \n   \nThorkell/1/2/3 ,FINISH\n\n"
+                .parse::<USBNotecard>()?;
+        assert_eq!(
+            notecard
+                .waypoints()
+                .iter()
+                .map(|waypoint| (waypoint.location().to_owned(), waypoint.comment().cloned()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    Location::new(RegionName::try_new("Beach Valley")?, 110, 67, 24),
+                    Some("MUSTER".to_owned())
+                ),
+                (
+                    Location::new(RegionName::try_new("Ahab's Haunt")?, 128, 128, 0),
+                    None
+                ),
+                (
+                    Location::new(RegionName::try_new("Thorkell")?, 1, 2, 3),
+                    Some("FINISH".to_owned())
+                ),
+            ]
         );
         Ok(())
     }

@@ -1439,6 +1439,10 @@ function fitViewport(container, viewport, widthPx, heightPx) {
   const scale = Math.min(availWidth / widthPx, maxHeight / heightPx, 1);
   viewport.style.transformOrigin = "0 0";
   viewport.style.transform = `scale(${scale})`;
+  // The slot overlay's labels and buttons live inside the scaled viewport;
+  // they size themselves by this inverse factor (see style.css) so they keep a
+  // constant on-screen size however far a large map is scaled down.
+  viewport.style.setProperty("--ui-scale", String(1 / scale));
   // ensure the parent reserves the right amount of space so the page
   // doesn't overflow and the layout below the preview stays in flow
   container.style.height = `${heightPx * scale}px`;

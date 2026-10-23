@@ -15,15 +15,13 @@ pub enum RegionNameToGridCoordinatesError {
     /// failed to clone request for creation of cache policy
     #[error("failed to clone request for creation of cache policy")]
     FailedToCloneRequest,
-    /// Unexpected prefix in response body
-    #[error("Unexpected prefix in response body: {0}")]
-    UnexpectedPrefix(String),
-    /// Unexpected suffix in response body
-    #[error("Unexpected suffix in response body: {0}")]
-    UnexpectedSuffix(String),
-    /// Unexpected infix in response body
-    #[error("Unexpected infix in response body: {0}")]
-    UnexpectedInfix(String),
+    /// the maps website base URL can not have path segments appended to it
+    #[error("the maps website base URL {0} can not be used as a base URL")]
+    InvalidMapsBaseUrl(reqwest::Url),
+    /// the maps website page neither contained grid coordinates nor the
+    /// marker for an unknown region
+    #[error("the maps website page {0} contained neither grid coordinates nor an error marker")]
+    MissingGridCoordinates(reqwest::Url),
     /// error parsing the X coordinate
     #[error("error parsing the X coordinate {0}: {1}")]
     X(String, std::num::ParseIntError),
@@ -32,7 +30,82 @@ pub enum RegionNameToGridCoordinatesError {
     Y(String, std::num::ParseIntError),
 }
 
-/// converts a `RegionName` to `GridCoordinates` using the Linden Lab API
+/// the base URL of the Second Life main grid (Agni) maps website, including
+/// the grid path segment; region pages live below it at
+/// `<region name>/<x>/<y>/<z>`
+pub const SECOND_LIFE_MAPS_BASE_URL: &str = "https://maps.secondlife.com/secondlife/";
+
+/// returns the value of the attribute `name` on the `<body>` tag of `html`
+///
+/// this is deliberately not a general HTML parser, the maps website renders
+/// the grid coordinates of the requested region as plain double-quoted
+/// `data-*` attributes on its `<body>` tag
+fn body_attribute<'html>(html: &'html str, name: &str) -> Option<&'html str> {
+    let body_start = html.find("<body")?;
+    let body_tag = html.get(body_start..)?;
+    let body_tag = body_tag.get(..body_tag.find('>')?)?;
+    let needle = format!(" {name}=\"");
+    let value_start = body_tag.find(&needle)? + needle.len();
+    let value = body_tag.get(value_start..)?;
+    value.get(..value.find('"')?)
+}
+
+/// extracts the grid coordinates from a region page of the maps website
+///
+/// returns `Ok(None)` if the page marks the region as unknown
+///
+/// # Errors
+///
+/// returns an error if the page contains neither coordinates nor the error
+/// marker or if the coordinates are not numbers
+fn parse_maps_region_page(
+    url: &reqwest::Url,
+    html: &str,
+) -> Result<Option<GridCoordinates>, RegionNameToGridCoordinatesError> {
+    if body_attribute(html, "data-region-coords-error") == Some("true") {
+        return Ok(None);
+    }
+    let (Some(x), Some(y)) = (
+        body_attribute(html, "data-region-coords-x"),
+        body_attribute(html, "data-region-coords-y"),
+    ) else {
+        return Err(RegionNameToGridCoordinatesError::MissingGridCoordinates(
+            url.to_owned(),
+        ));
+    };
+    let x = x
+        .parse::<u32>()
+        .map_err(|err| RegionNameToGridCoordinatesError::X(x.to_owned(), err))?;
+    let y = y
+        .parse::<u32>()
+        .map_err(|err| RegionNameToGridCoordinatesError::Y(y.to_owned(), err))?;
+    Ok(Some(GridCoordinates::new(x, y)))
+}
+
+/// builds the URL of the maps website page for a region
+///
+/// # Errors
+///
+/// returns an error if the base URL can not have path segments appended
+fn maps_region_page_url(
+    maps_base_url: &reqwest::Url,
+    region_name: &RegionName,
+) -> Result<reqwest::Url, RegionNameToGridCoordinatesError> {
+    let mut url = maps_base_url.to_owned();
+    url.path_segments_mut()
+        .map_err(|()| {
+            RegionNameToGridCoordinatesError::InvalidMapsBaseUrl(maps_base_url.to_owned())
+        })?
+        .pop_if_empty()
+        .push(region_name.as_ref())
+        .extend(["128", "128", "0"]);
+    Ok(url)
+}
+
+/// converts a `RegionName` to `GridCoordinates` using the region page of a
+/// maps website compatible with the Second Life one (see
+/// [`SECOND_LIFE_MAPS_BASE_URL`]), which renders the grid coordinates of the
+/// region into the page
 ///
 /// # Errors
 ///
@@ -44,6 +117,7 @@ pub enum RegionNameToGridCoordinatesError {
 )]
 pub async fn region_name_to_grid_coordinates(
     client: &reqwest::Client,
+    maps_base_url: &reqwest::Url,
     region_name: &RegionName,
     cached_value_with_cache_policy: Option<(
         Option<GridCoordinates>,
@@ -57,11 +131,8 @@ pub async fn region_name_to_grid_coordinates(
         "Looking up grid coordinates for region name {}",
         region_name
     );
-    let url = format!(
-        "https://cap.secondlife.com/cap/0/d661249b-2b5a-4436-966a-3d3b8d7a574f?var=coords&sim_name={}",
-        region_name.to_string().replace(' ', "%20")
-    );
-    let request = client.get(&url).build()?;
+    let url = maps_region_page_url(maps_base_url, region_name)?;
+    let request = client.get(url.clone()).build()?;
     if let Some((cached_value, cache_policy)) = cached_value_with_cache_policy {
         let now = std::time::SystemTime::now();
         if let http_cache_semantics::BeforeRequest::Fresh(_) =
@@ -78,37 +149,12 @@ pub async fn region_name_to_grid_coordinates(
                 .ok_or(RegionNameToGridCoordinatesError::FailedToCloneRequest)?,
         )
         .await?;
+    let response = response.error_for_status()?;
     let cache_policy = http_cache_semantics::CachePolicy::new(&request, &response);
     let response = response.text().await?;
-    if response == "var coords = {'error' : true };" {
-        tracing::debug!("Received negative response");
-        return Ok((None, cache_policy));
-    }
-    let Some(response) = response.strip_prefix("var coords = {'x' : ") else {
-        return Err(RegionNameToGridCoordinatesError::UnexpectedPrefix(
-            response.to_owned(),
-        ));
-    };
-    let Some(response) = response.strip_suffix(" };") else {
-        return Err(RegionNameToGridCoordinatesError::UnexpectedSuffix(
-            response.to_owned(),
-        ));
-    };
-    let parts = response.split(", 'y' : ").collect::<Vec<_>>();
-    let [x, y] = parts.as_slice() else {
-        return Err(RegionNameToGridCoordinatesError::UnexpectedInfix(
-            response.to_owned(),
-        ));
-    };
-    let x = x
-        .parse::<u32>()
-        .map_err(|err| RegionNameToGridCoordinatesError::X(x.to_string(), err))?;
-    let y = y
-        .parse::<u32>()
-        .map_err(|err| RegionNameToGridCoordinatesError::Y(y.to_string(), err))?;
-    let grid_coordinates = GridCoordinates::new(x, y);
+    let grid_coordinates = parse_maps_region_page(&url, &response)?;
     tracing::debug!("Received response: {:?}", grid_coordinates);
-    Ok((Some(grid_coordinates), cache_policy))
+    Ok((grid_coordinates, cache_policy))
 }
 
 /// Represents the possible errors that can occur when converting grid coordinates to a region name
@@ -201,6 +247,9 @@ pub async fn grid_coordinates_to_region_name(
 pub struct RegionNameToGridCoordinatesCache {
     /// the reqwest Client used to lookup data not cached locally
     client: reqwest::Client,
+    /// the base URL of the maps website used for region name to grid
+    /// coordinate lookups
+    maps_base_url: reqwest::Url,
     /// the cache database
     db: redb::Database,
     /// the in memory cache of region names to grid coordinates
@@ -244,6 +293,9 @@ pub enum CacheError {
     /// error handling system time for cache age calculations
     #[error("error handling system time for cache age calculations: {0}")]
     SystemTimeError(#[from] std::time::SystemTimeError),
+    /// the maps website base URL can not have path segments appended to it
+    #[error("the maps website base URL {0} can not be used as a base URL")]
+    InvalidMapsBaseUrl(reqwest::Url),
 }
 
 /// describes the redb table to store region names and grid coordinates
@@ -285,15 +337,79 @@ const LEGACY_REGION_NAME_CACHE_TABLE: redb::TableDefinition<(u16, u16), String> 
 const LEGACY_REGION_NAME_CACHE_POLICY_TABLE: redb::TableDefinition<(u16, u16), String> =
     redb::TableDefinition::new("region_name_cache_policy");
 
+/// the name of the cache database file for the given maps website
+///
+/// the Second Life main grid keeps the historical `region_name.redb` so
+/// existing caches remain in use, any other maps website gets a file named
+/// after its host (and port, if any)
+fn cache_file_name(maps_base_url: &reqwest::Url) -> String {
+    if maps_base_url.as_str() == SECOND_LIFE_MAPS_BASE_URL {
+        return "region_name.redb".to_owned();
+    }
+    let host = maps_base_url.host_str().unwrap_or("unknown-host");
+    let host: String = host
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    match maps_base_url.port() {
+        Some(port) => format!("region_name-{host}_{port}.redb"),
+        None => format!("region_name-{host}.redb"),
+    }
+}
+
 impl RegionNameToGridCoordinatesCache {
-    /// create a new cache
+    /// create a new cache for the Second Life main grid, looking up region
+    /// names on [`SECOND_LIFE_MAPS_BASE_URL`]
     ///
     /// # Errors
     ///
     /// returns an error if the database could not be created or opened
+    ///
+    /// # Panics
+    ///
+    /// does not panic in practice, [`SECOND_LIFE_MAPS_BASE_URL`] is a valid
+    /// URL (verified by a unit test)
     pub fn new(cache_directory: std::path::PathBuf) -> Result<Self, CacheError> {
+        #[expect(
+            clippy::expect_used,
+            reason = "the constant is a valid URL, verified by a unit test"
+        )]
+        let maps_base_url = reqwest::Url::parse(SECOND_LIFE_MAPS_BASE_URL)
+            .expect("SECOND_LIFE_MAPS_BASE_URL is a valid URL");
+        Self::with_maps_base_url(cache_directory, maps_base_url)
+    }
+
+    /// create a new cache that looks up region names on the maps website at
+    /// `maps_base_url`, a site compatible with the Second Life one, for use
+    /// with other grids (e.g. the Aditi beta grid)
+    ///
+    /// the base URL includes the grid path segment, region pages are looked up
+    /// below it at `<region name>/<x>/<y>/<z>`, for the Second Life main grid it
+    /// is [`SECOND_LIFE_MAPS_BASE_URL`]
+    ///
+    /// since region names and grid coordinates are grid specific the cache
+    /// database for any maps website other than the Second Life main grid one
+    /// is kept in a separate file named after its host
+    ///
+    /// # Errors
+    ///
+    /// returns an error if the base URL can not have path segments appended
+    /// or if the database could not be created or opened
+    pub fn with_maps_base_url(
+        cache_directory: std::path::PathBuf,
+        maps_base_url: reqwest::Url,
+    ) -> Result<Self, CacheError> {
+        if maps_base_url.cannot_be_a_base() {
+            return Err(CacheError::InvalidMapsBaseUrl(maps_base_url));
+        }
         let client = reqwest::Client::new();
-        let db = redb::Database::create(cache_directory.join("region_name.redb"))?;
+        let db = redb::Database::create(cache_directory.join(cache_file_name(&maps_base_url)))?;
         // drop the pre-`u32` (`u16`-coordinate) cache tables if an older cache
         // file still carries them — they are superseded by the `_v2` tables and
         // would otherwise just waste space (deleting a missing table is a no-op)
@@ -308,6 +424,7 @@ impl RegionNameToGridCoordinatesCache {
         let region_name_cache = lru::LruCache::unbounded();
         Ok(Self {
             client,
+            maps_base_url,
             db,
             grid_coordinate_cache,
             region_name_cache,
@@ -367,6 +484,7 @@ impl RegionNameToGridCoordinatesCache {
         };
         match region_name_to_grid_coordinates(
             &self.client,
+            &self.maps_base_url,
             region_name,
             cached_value_with_cache_policy,
         )
@@ -674,26 +792,153 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
+    /// a trimmed down region page of the maps website for a known region
+    const KNOWN_REGION_PAGE: &str = r#"<!DOCTYPE html>
+<html><head><title>Second Life Maps | Ahern</title>
+<script type="text/javascript">
+    slurl_data = {"region":{"name":"Ahern","x":"128","y":"128","z":"0","default":false}};
+</script></head>
+<body data-region-coords-x="997" data-region-coords-y="1002">
+<div id="map-container" data-region-coords-x="1" data-region-coords-y="2"></div>
+</body></html>"#;
+
+    /// a trimmed down region page of the maps website for an unknown region
+    const UNKNOWN_REGION_PAGE: &str = r#"<!DOCTYPE html>
+<html><head><title>Second Life Maps | SSPOutlandish</title></head>
+<body data-region-coords-error="true">
+</body></html>"#;
+
+    /// a trimmed down default page of the maps website, as served when no
+    /// region was requested
+    const DEFAULT_PAGE: &str = r#"<!DOCTYPE html>
+<html><head><title>Second Life Maps</title></head>
+<body data-region-coords-default="true">
+</body></html>"#;
+
+    #[test]
+    fn test_second_life_maps_base_url_is_valid() -> Result<(), Box<dyn std::error::Error>> {
+        let url = reqwest::Url::parse(SECOND_LIFE_MAPS_BASE_URL)?;
+        assert!(!url.cannot_be_a_base());
+        assert_eq!(cache_file_name(&url), "region_name.redb");
+        Ok(())
+    }
+
+    #[test]
+    fn test_cache_file_name_other_grid() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            cache_file_name(&reqwest::Url::parse("https://maps.example.org/aditi/")?),
+            "region_name-maps.example.org.redb"
+        );
+        assert_eq!(
+            cache_file_name(&reqwest::Url::parse("http://localhost:8080/")?),
+            "region_name-localhost_8080.redb"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_maps_region_page_url() -> Result<(), Box<dyn std::error::Error>> {
+        let base = reqwest::Url::parse(SECOND_LIFE_MAPS_BASE_URL)?;
+        assert_eq!(
+            maps_region_page_url(&base, &RegionName::try_new("Da Boom")?)?.as_str(),
+            "https://maps.secondlife.com/secondlife/Da%20Boom/128/128/0"
+        );
+        let base_without_trailing_slash = reqwest::Url::parse("https://maps.example.org/aditi")?;
+        assert_eq!(
+            maps_region_page_url(&base_without_trailing_slash, &RegionName::try_new("Ahern")?)?
+                .as_str(),
+            "https://maps.example.org/aditi/Ahern/128/128/0"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_maps_region_page_url_invalid_base() -> Result<(), Box<dyn std::error::Error>> {
+        let base = reqwest::Url::parse("mailto:someone@example.org")?;
+        assert!(matches!(
+            maps_region_page_url(&base, &RegionName::try_new("Ahern")?),
+            Err(RegionNameToGridCoordinatesError::InvalidMapsBaseUrl(_))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_maps_region_page_known() -> Result<(), Box<dyn std::error::Error>> {
+        let url = reqwest::Url::parse(SECOND_LIFE_MAPS_BASE_URL)?;
+        assert_eq!(
+            parse_maps_region_page(&url, KNOWN_REGION_PAGE)?,
+            Some(GridCoordinates::new(997, 1002))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_maps_region_page_unknown() -> Result<(), Box<dyn std::error::Error>> {
+        let url = reqwest::Url::parse(SECOND_LIFE_MAPS_BASE_URL)?;
+        assert_eq!(parse_maps_region_page(&url, UNKNOWN_REGION_PAGE)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_maps_region_page_without_coordinates() -> Result<(), Box<dyn std::error::Error>> {
+        let url = reqwest::Url::parse(SECOND_LIFE_MAPS_BASE_URL)?;
+        assert!(matches!(
+            parse_maps_region_page(&url, DEFAULT_PAGE),
+            Err(RegionNameToGridCoordinatesError::MissingGridCoordinates(_))
+        ));
+        assert!(matches!(
+            parse_maps_region_page(&url, "Invalid Capability ID.\n"),
+            Err(RegionNameToGridCoordinatesError::MissingGridCoordinates(_))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_maps_region_page_bad_number() -> Result<(), Box<dyn std::error::Error>> {
+        let url = reqwest::Url::parse(SECOND_LIFE_MAPS_BASE_URL)?;
+        assert!(matches!(
+            parse_maps_region_page(
+                &url,
+                r#"<body data-region-coords-x="abc" data-region-coords-y="1">"#
+            ),
+            Err(RegionNameToGridCoordinatesError::X(_, _))
+        ));
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_region_name_to_grid_coordinates() -> Result<(), Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
+        let base = reqwest::Url::parse(SECOND_LIFE_MAPS_BASE_URL)?;
         assert_eq!(
-            region_name_to_grid_coordinates(&client, &RegionName::try_new("Thorkell")?, None)
-                .await?
-                .0,
+            region_name_to_grid_coordinates(
+                &client,
+                &base,
+                &RegionName::try_new("Thorkell")?,
+                None
+            )
+            .await?
+            .0,
             Some(GridCoordinates::new(1136, 1075))
         );
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_grid_coordinates_to_region_name() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_region_name_to_grid_coordinates_negative()
+    -> Result<(), Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
+        let base = reqwest::Url::parse(SECOND_LIFE_MAPS_BASE_URL)?;
         assert_eq!(
-            grid_coordinates_to_region_name(&client, &GridCoordinates::new(1136, 1075), None)
-                .await?
-                .0,
-            Some(RegionName::try_new("Thorkell")?)
+            region_name_to_grid_coordinates(
+                &client,
+                &base,
+                &RegionName::try_new("SSPOutlandish")?,
+                None
+            )
+            .await?
+            .0,
+            None
         );
         Ok(())
     }
@@ -746,60 +991,6 @@ mod tests {
         assert_eq!(
             cache
                 .get_grid_coordinates(&RegionName::try_new("Thorkel")?)
-                .await?,
-            None,
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_cache_grid_coordinates_to_region_name() -> Result<(), Box<dyn std::error::Error>>
-    {
-        let tempdir = tempfile::tempdir()?;
-        let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
-        assert_eq!(
-            cache
-                .get_region_name(&GridCoordinates::new(1136, 1075))
-                .await?,
-            Some(RegionName::try_new("Thorkell")?)
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_cache_grid_coordinates_to_region_name_twice()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let tempdir = tempfile::tempdir()?;
-        let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
-        assert_eq!(
-            cache
-                .get_region_name(&GridCoordinates::new(1136, 1075))
-                .await?,
-            Some(RegionName::try_new("Thorkell")?)
-        );
-        assert_eq!(
-            cache
-                .get_region_name(&GridCoordinates::new(1136, 1075))
-                .await?,
-            Some(RegionName::try_new("Thorkell")?)
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_cache_grid_coordinates_to_region_name_negative_twice()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let tempdir = tempfile::tempdir()?;
-        let mut cache = RegionNameToGridCoordinatesCache::new(tempdir.path().to_path_buf())?;
-        assert_eq!(
-            cache
-                .get_region_name(&GridCoordinates::new(11136, 1075))
-                .await?,
-            None,
-        );
-        assert_eq!(
-            cache
-                .get_region_name(&GridCoordinates::new(11136, 1075))
                 .await?,
             None,
         );

@@ -936,6 +936,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_region_name_to_grid_coordinates_percent_encoded_notecard_name()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let client = reqwest::Client::new();
+        let base = reqwest::Url::parse(SECOND_LIFE_MAPS_BASE_URL)?;
+        let location = "Ahab%27s%20Haunt/128/128/0".parse::<sl_types::map::Location>()?;
+        assert_eq!(
+            region_name_to_grid_coordinates(&client, &base, location.region_name(), None)
+                .await?
+                .0,
+            Some(GridCoordinates::new(1128, 1062))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_region_name_to_grid_coordinates_negative()
     -> Result<(), Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();

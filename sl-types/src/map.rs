@@ -1303,6 +1303,17 @@ pub enum LocationParseError {
     Z(String, std::num::ParseIntError),
 }
 
+/// decodes the percent-encoded region name component of a location URL or
+/// USB notecard line (e.g. `Ahab%27s%20Haunt` to `Ahab's Haunt`)
+///
+/// malformed percent sequences are kept literally and if the decoded bytes are
+/// not valid UTF-8 the component is returned unchanged
+fn decode_region_name_component(component: &str) -> String {
+    percent_encoding::percent_decode_str(component)
+        .decode_utf8()
+        .map_or_else(|_| component.to_owned(), std::borrow::Cow::into_owned)
+}
+
 impl std::str::FromStr for Location {
     type Err = LocationParseError;
 
@@ -1313,7 +1324,7 @@ impl std::str::FromStr for Location {
             .map_or(s, |(usb_location, _usb_comment)| usb_location);
         let parts = usb_location.split('/').collect::<Vec<_>>();
         if let [region_name, x, y, z] = parts.as_slice() {
-            let region_name = RegionName::try_new(region_name.replace("%20", " "))
+            let region_name = RegionName::try_new(decode_region_name_component(region_name))
                 .map_err(|err| LocationParseError::RegionName(s.to_owned(), err))?;
             let x = x
                 .parse()
@@ -1356,7 +1367,7 @@ impl std::str::FromStr for Location {
                     path.to_string(),
                 ));
             }
-            let region_name = RegionName::try_new(region_name.replace("%20", " "))
+            let region_name = RegionName::try_new(decode_region_name_component(region_name))
                 .map_err(|err| LocationParseError::RegionName(s.to_owned(), err))?;
             let x = x
                 .parse()
@@ -1961,6 +1972,60 @@ mod test {
                 x: 110,
                 y: 67,
                 z: 24
+            }),
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_location_bare_percent_encoded_apostrophe()
+    -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            "Ahab%27s%20Haunt/128/128/0,Waypoint".parse::<Location>(),
+            Ok(Location {
+                region_name: RegionName::try_new("Ahab's Haunt")?,
+                x: 128,
+                y: 128,
+                z: 0
+            }),
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_location_url_maps_percent_encoded_apostrophe()
+    -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            "https://maps.secondlife.com/secondlife/Ahab%27s%20Haunt/128/128/0".parse::<Location>(),
+            Ok(Location {
+                region_name: RegionName::try_new("Ahab's Haunt")?,
+                x: 128,
+                y: 128,
+                z: 0
+            }),
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_location_keeps_malformed_percent_sequences()
+    -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            "100%25%20Fun/1/2/3".parse::<Location>(),
+            Ok(Location {
+                region_name: RegionName::try_new("100% Fun")?,
+                x: 1,
+                y: 2,
+                z: 3
+            }),
+        );
+        assert_eq!(
+            "Odd%zz%20Name/1/2/3".parse::<Location>(),
+            Ok(Location {
+                region_name: RegionName::try_new("Odd%zz Name")?,
+                x: 1,
+                y: 2,
+                z: 3
             }),
         );
         Ok(())

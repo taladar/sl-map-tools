@@ -26,8 +26,8 @@ envy = "0.4.2"
 pretty_assertions = "1.4.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde-aux = { version = "4.7.0", default-features = false }
-thiserror = "2.0.20"
-tokio = { version = "1.53.1", features = ["full"] }
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1.44"
 tracing-test = "0.2.6"
 

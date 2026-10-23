@@ -24,23 +24,23 @@ image = { version = "0.25.10", default-features = false, features = [
     "rayon",
 ] }
 imageproc = "0.27.0"
-lru = "0.18.4"
-redb = "4.3.0"
+lru = "0.19.0"
+redb = "4.4.0"
 reqwest = { version = "0.13.5", features = ["json", "native-tls-vendored"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = "1.0.154"
 sl-map-apis = { path = "../sl-map-apis", version = "0.10.0" }
 sl-types = { path = "../sl-types", version = "0.10.0" }
-thiserror = "2.0.20"
-tokio = { version = "1.53.1", features = ["full"] }
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1.44"
 url = "2.5"
 
 [dev-dependencies]
-fs-err = "3.3.1"
+fs-err = "3.3.2"
 pretty_assertions = "1.4.1"
 tempfile = "3.27.0"
-tokio = { version = "1.53.1", features = ["full", "test-util"] }
+tokio = { version = "1.54.1", features = ["full", "test-util"] }
 tracing-test = "0.2.6"
 wiremock = "0.6"
 

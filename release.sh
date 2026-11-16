@@ -66,15 +66,30 @@ for p in "${workspace_binary_crates[@]}"; do
   debian_package_revision="$(cargo metadata --format-version 1 --no-deps | jq -r -C ".packages[] | select(.name == \"${p}\") | .metadata.deb.revision")"
 
   git cliff --config cliff-debian.toml --prepend changelog -u -t "${p_tag_basename}_${version}" --context --output context.json
-  jq < \
-  context.json \
-    --arg debian_package_name "${debian_package_name}" \
-    --arg debian_package_revision "${debian_package_revision}" \
-    '.[0] += { "extra": { "debian_package_name": $debian_package_name, "debian_package_revision": $debian_package_revision }}' \
-    >full_context.json
-  git cliff --config cliff-debian.toml --prepend changelog -u -t "${p_tag_basename}_${version}" --from-context full_context.json
-  tail -n +2 changelog | sponge changelog
-  rm context.json full_context.json
+  if [[ "$(cat context.json)" == "[]" ]]; then
+    # No commits touched this crate since its last release (it is only bumped
+    # alongside the rest of the workspace), so git cliff has no release to
+    # render; prepend a minimal entry by hand instead.
+    maintainer="$(grep -m1 '^ -- ' changelog | sed -E 's/^ -- (.*>).*/\1/')"
+    {
+      printf '%s (%s-%s) unstable; urgency=medium\n\n' \
+        "${debian_package_name}" "${version}" "${debian_package_revision}"
+      printf '  * No changes in this package; released together with the rest of the sl-map-tools workspace.\n\n'
+      printf ' -- %s  %s\n\n' "${maintainer}" "$(date -R)"
+      cat changelog
+    } | sponge changelog
+    rm context.json
+  else
+    jq < \
+    context.json \
+      --arg debian_package_name "${debian_package_name}" \
+      --arg debian_package_revision "${debian_package_revision}" \
+      '.[0] += { "extra": { "debian_package_name": $debian_package_name, "debian_package_revision": $debian_package_revision }}' \
+      >full_context.json
+    git cliff --config cliff-debian.toml --prepend changelog -u -t "${p_tag_basename}_${version}" --from-context full_context.json
+    tail -n +2 changelog | sponge changelog
+    rm context.json full_context.json
+  fi
   popd >/dev/null
 done
 

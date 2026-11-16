@@ -1,3 +1,9 @@
+sl-map-cli (0.12.0-1) unstable; urgency=medium
+
+  * No changes in this package; released together with the rest of the sl-map-tools workspace.
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Mon, 16 Nov 2026 17:20:50 +0100
+
 sl-map-cli (0.11.0-1) unstable; urgency=medium
 
   * Miscellaneous tasks - dependencies - Update dependencies

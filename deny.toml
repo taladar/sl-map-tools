@@ -72,6 +72,7 @@ feature-depth = 1
 ignore = [
   { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained but only reachable transitively via imageproc -> image/default -> avif -> ravif -> rav1e; no fix without dropping AVIF format support" },
   { id = "RUSTSEC-2026-0192", reason = "ttf-parser is only pulled in transitively via ab_glyph/imageproc for text rasterization; our own direct usage was migrated to skrifa, and ab_glyph cannot be replaced without a larger rasterization migration" },
+  { id = "RUSTSEC-2026-0459", reason = "bundled SQLite <3.54 in libsqlite3-sys 0.37, reached via sqlx-sqlite 0.9.0 (sl-map-web) which caps libsqlite3-sys <0.38; no sqlx release allows the fixed 0.39 yet, and sl-map-web only opens its own service-owned database, never attacker-supplied db/-wal files" },
   # "RUSTSEC-0000-0000",
   # { id = "RUSTSEC-0000-0000", reason = "you can specify a reason the advisory is ignored" },
   # "a-crate-that-is-yanked@0.1.1", # you can also ignore yanked crate versions if you wish

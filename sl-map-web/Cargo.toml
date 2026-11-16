@@ -66,7 +66,7 @@ image = { version = "0.25.10", default-features = false, features = [
 ] }
 ipnet = "2.12.2"
 log-panics = { version = "2.1.0", features = ["with-backtrace"] }
-rand = "0.10.3"
+rand = "0.10.4"
 ratelimit = "2.0.0"
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "native-tls-vendored"] }
 secrecy = "0.10"
@@ -89,7 +89,7 @@ tracing-subscriber = { version = "0.3.23", features = [
     "env-filter",
     "tracing-log",
 ] }
-uuid = { version = "1.29.0", features = ["serde", "v4"] }
+uuid = { version = "1.29.2", features = ["serde", "v4"] }
 zeroize = "1"
 
 [dev-dependencies]

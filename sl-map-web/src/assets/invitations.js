@@ -4,12 +4,6 @@ function $(id) {
   return document.getElementById(id);
 }
 
-function fmtDate(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
-
 function td(text) {
   const el = document.createElement("td");
   el.textContent = text;

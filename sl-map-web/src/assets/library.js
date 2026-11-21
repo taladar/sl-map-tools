@@ -6,12 +6,6 @@ function $(id) {
   return document.getElementById(id);
 }
 
-function fmtDate(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
-
 function fmtCoord(x, y) {
   if (x === null || x === undefined || y === null || y === undefined) return "";
   return `${x}, ${y}`;

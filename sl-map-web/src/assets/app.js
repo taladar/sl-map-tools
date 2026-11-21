@@ -16,6 +16,39 @@ function isUuid(s) {
   return typeof s === "string" && UUID_RE.test(s);
 }
 
+// Shared date display for every page (app.js is loaded first everywhere):
+// ISO 8601 in the viewer's local time zone, independent of the browser's
+// locale, so all pages show e.g. "2026-11-21 01:39:26 +01:00 (CET)".
+function fmtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  // ISO 8601 in local time, with a space instead of the "T" separator,
+  // followed by the local UTC offset (and the timezone abbreviation).
+  const pad = (n) => String(n).padStart(2, "0");
+  // getTimezoneOffset() is minutes behind UTC, so a positive value means a
+  // negative offset (e.g. -05:00). Invert it to render the ISO offset.
+  const offMin = -d.getTimezoneOffset();
+  const sign = offMin >= 0 ? "+" : "-";
+  const absMin = Math.abs(offMin);
+  const offset = `${sign}${pad(Math.floor(absMin / 60))}:${pad(absMin % 60)}`;
+  let tzName = "";
+  try {
+    const parts = new Intl.DateTimeFormat(undefined, {
+      timeZoneName: "short",
+    }).formatToParts(d);
+    const tz = parts.find((p) => p.type === "timeZoneName");
+    if (tz) tzName = ` (${tz.value})`;
+  } catch (_) {
+    // Intl unavailable; fall back to just the numeric offset.
+  }
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ` +
+    `${offset}${tzName}`
+  );
+}
+
 // --- auth: redirect to /login on 401 and populate the header bar ---
 
 function redirectToLogin() {
@@ -994,8 +1027,7 @@ async function fetchRegionOverlay(rect) {
       const { value, done } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf("\n")) >= 0) {
+      for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n")) {
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
         if (!line) continue;
@@ -2305,9 +2337,9 @@ async function loadFonts() {
     }
     if (fonts.length === 1) sel.value = fonts[0].id;
     // refill any per-label font dropdowns now that the list is known
-    document
-      .querySelectorAll(".label-font")
-      .forEach((labelSel) => populateFontSelect(labelSel));
+    document.querySelectorAll(".label-font").forEach((labelSel) => {
+      populateFontSelect(labelSel);
+    });
     // the region name / coordinate overlay shares the same font list
     populateFontSelect($("region_label_font_id"));
   } catch (err) {
@@ -3503,17 +3535,17 @@ async function editLogo(g) {
       };
       const activateSource = (name) => {
         source = name;
-        sourceTabs.forEach((t) =>
-          t.classList.toggle("active", t.dataset.logoSource === name),
-        );
-        sourcePanels.forEach((p) =>
-          p.classList.toggle("active", p.dataset.logoSource === name),
-        );
+        sourceTabs.forEach((t) => {
+          t.classList.toggle("active", t.dataset.logoSource === name);
+        });
+        sourcePanels.forEach((p) => {
+          p.classList.toggle("active", p.dataset.logoSource === name);
+        });
         refresh();
       };
-      sourceTabs.forEach((t) =>
-        t.addEventListener("click", () => activateSource(t.dataset.logoSource)),
-      );
+      sourceTabs.forEach((t) => {
+        t.addEventListener("click", () => activateSource(t.dataset.logoSource));
+      });
       pick.addEventListener("change", refresh);
       scale.addEventListener("change", refresh);
       uploadFile.addEventListener("change", () => {

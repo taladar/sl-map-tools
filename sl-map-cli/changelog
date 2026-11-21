@@ -1,3 +1,9 @@
+sl-map-cli (0.13.1-1) unstable; urgency=medium
+
+  * No changes in this package; released together with the rest of the sl-map-tools workspace.
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Sat, 21 Nov 2026 12:46:19 +0100
+
 sl-map-cli (0.13.0-1) unstable; urgency=medium
 
   * Miscellaneous tasks - dependencies - Update dependencies, replace chrono with time

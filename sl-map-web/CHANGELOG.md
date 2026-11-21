@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.1 - 2026-11-21 01:01:07Z
+
+### 🐛 Bug Fixes
+
+- *(sl-map-web)* Show dates in one locale-independent format on all pages
+
 ## 0.11.0 - 2026-11-21 00:13:19Z
 
 ### ⚙️ Miscellaneous Tasks

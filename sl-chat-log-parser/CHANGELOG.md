@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0 - 2026-11-21 00:13:19Z
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update dependencies, replace chrono with time
+
 ## 0.10.0 - 2026-11-16 16:20:49Z
 
 ### ⚙️ Miscellaneous Tasks

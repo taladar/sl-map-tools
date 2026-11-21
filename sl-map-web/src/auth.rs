@@ -11,12 +11,12 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Redirect, Response};
 use axum_extra::extract::cookie::{Cookie, Key, SameSite, SignedCookieJar};
 use base64::Engine as _;
-use chrono::{DateTime, Utc};
 use rand::Rng as _;
 use secrecy::ExposeSecret as _;
 use sha2::{Digest as _, Sha256};
 use sqlx::SqlitePool;
 use subtle::ConstantTimeEq as _;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::config::Config;
@@ -25,11 +25,11 @@ use crate::state::AppState;
 
 /// `(user_id_bytes, legacy_name, username, sessions.expires_at)` — the
 /// columns selected in the [`CurrentUser`] extractor's session/user join.
-pub type SessionRow = (Vec<u8>, String, String, DateTime<Utc>);
+pub type SessionRow = (Vec<u8>, String, String, OffsetDateTime);
 
 /// `(user_id_bytes, expires_at, used_at)` — columns selected when looking
 /// up a set-password token.
-pub type SetPasswordTokenRow = (Vec<u8>, DateTime<Utc>, Option<DateTime<Utc>>);
+pub type SetPasswordTokenRow = (Vec<u8>, OffsetDateTime, Option<OffsetDateTime>);
 
 /// Cookie attributes used for the session cookie. Centralised so the login
 /// handler and the logout (cookie-removal) handler agree on `Path`, `Secure`,
@@ -88,7 +88,7 @@ impl FromRequestParts<AppState> for CurrentUser {
             return Err(Error::Unauthenticated);
         };
         let session_id_hash = Sha256::digest(session_id).to_vec();
-        let now = Utc::now();
+        let now = OffsetDateTime::now_utc();
         // load the session and its user in one shot; reject if expired.
         let row: Option<SessionRow> = sqlx::query_as(
             "SELECT users.user_id, users.legacy_name, users.username, sessions.expires_at \
@@ -114,12 +114,13 @@ impl FromRequestParts<AppState> for CurrentUser {
         // request handling. Throttled in SQL: chatty clients (SSE, polling)
         // would otherwise hold SQLite's writer lock on every request and
         // serialise all other writes behind them.
-        // Fallback to MIN_UTC if the subtraction underflows (impossible in
-        // practice — would require `now` near year -262144); a MIN_UTC
-        // cutoff matches no rows, so we simply skip the bump that tick.
+        // Fallback to the minimum representable timestamp if the subtraction
+        // underflows (impossible in practice — would require `now` near year
+        // -9999); such a cutoff matches no rows, so we simply skip the bump
+        // that tick.
         let stale_cutoff = now
-            .checked_sub_signed(chrono::Duration::seconds(60))
-            .unwrap_or(chrono::DateTime::<Utc>::MIN_UTC);
+            .checked_sub(time::Duration::seconds(60))
+            .unwrap_or(time::PrimitiveDateTime::MIN.assume_utc());
         if let Err(err) = sqlx::query(
             "UPDATE sessions SET last_seen_at = ?1 \
              WHERE session_id_hash = ?2 AND last_seen_at < ?3",
@@ -346,10 +347,10 @@ pub async fn create_session(
     client_ip: Option<String>,
 ) -> Result<Cookie<'static>, Error> {
     let (raw, encoded) = generate_session_id();
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let expires_at = now
-        .checked_add_signed(chrono::Duration::seconds(cfg.session_ttl_seconds))
-        .unwrap_or(chrono::DateTime::<Utc>::MAX_UTC);
+        .checked_add(time::Duration::seconds(cfg.session_ttl_seconds))
+        .unwrap_or(time::PrimitiveDateTime::MAX.assume_utc());
     let session_id_hash = Sha256::digest(raw).to_vec();
     sqlx::query(
         "INSERT INTO sessions \
@@ -466,7 +467,7 @@ pub async fn run_cleanup(pool: SqlitePool) {
     let mut interval = tokio::time::interval(Duration::from_secs(300));
     loop {
         interval.tick().await;
-        let now = Utc::now();
+        let now = OffsetDateTime::now_utc();
         if let Err(err) = sqlx::query("DELETE FROM sessions WHERE expires_at <= ?1")
             .bind(now)
             .execute(&pool)

@@ -14,8 +14,8 @@
 //! serialises the write and the `ON CONFLICT DO UPDATE … WHERE`
 //! clause re-checks the post-refill token count on the second arrival.
 
-use chrono::Utc;
 use sqlx::SqlitePool;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::error::Error;
@@ -76,7 +76,7 @@ pub async fn try_acquire(
     user_id: Uuid,
 ) -> Result<(), Error> {
     let (capacity, seconds_per_token) = category.parameters();
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     // A single atomic UPSERT. On first request for this (category,
     // user) the INSERT path runs and the new row is created with
     // `capacity - 1` tokens. On subsequent requests the ON CONFLICT

@@ -52,9 +52,8 @@ argon2 = "0.6.0"
 axum = { version = "0.8", features = ["multipart", "macros"] }
 axum-extra = { version = "0.12.6", features = ["cookie", "cookie-signed", "typed-header"] }
 base64 = "0.23.1"
-bytes = "1.12.1"
-chrono = { version = "0.4.45", features = ["serde"] }
-clap = { version = "4.6.7", features = ["cargo", "derive", "env"] }
+bytes = "1.12.2"
+clap = { version = "4.6.9", features = ["cargo", "derive", "env"] }
 fs-err = "3.3.2"
 futures = "0.3.34"
 hex_color = "3.0.0"
@@ -76,10 +75,10 @@ sha2 = "0.11.1"
 sl-glw = { path = "../sl-glw", version = "0.8.0" }
 sl-map-apis = { path = "../sl-map-apis", version = "0.12.0" }
 sl-types = { path = "../sl-types", version = "0.12.0" }
-sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "time", "uuid"] }
 subtle = "2.6.1"
 thiserror = "2.0.21"
-time = "0.3.55"
+time = { version = "0.3.55", features = ["formatting", "macros", "parsing", "serde"] }
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 tower-http = { version = "0.7.1", features = ["trace", "compression-gzip", "set-header"] }
@@ -89,7 +88,7 @@ tracing-subscriber = { version = "0.3.23", features = [
     "env-filter",
     "tracing-log",
 ] }
-uuid = { version = "1.29.2", features = ["serde", "v4"] }
+uuid = { version = "1.29.3", features = ["serde", "v4"] }
 zeroize = "1"
 
 [dev-dependencies]

@@ -11,7 +11,6 @@ use std::sync::atomic::Ordering;
 use axum::Json;
 use axum::extract::{Multipart, State};
 use bytes::Bytes;
-use chrono::Utc;
 use image::GenericImageView as _;
 use image::{ImageFormat, Rgba};
 use serde::{Deserialize, Serialize};
@@ -22,6 +21,7 @@ use sl_types::map::{
     GridCoordinates, GridRectangle, GridRectangleLike as _, RegionCoordinates, USBNotecard,
     ZoomLevel,
 };
+use time::OffsetDateTime;
 use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
@@ -2163,10 +2163,36 @@ async fn parse_render_form(multipart: Multipart) -> Result<ParsedRenderForm, Err
     })
 }
 
+/// Format a UTC timestamp as `YYYY-MM-DD HH:MM UTC` for default display names.
+fn format_utc_minutes(ts: OffsetDateTime) -> String {
+    let ts = ts.to_offset(time::UtcOffset::UTC);
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02} UTC",
+        ts.year(),
+        u8::from(ts.month()),
+        ts.day(),
+        ts.hour(),
+        ts.minute()
+    )
+}
+
+/// Format a UTC timestamp as `YYYY-MM-DD HH:MM:SS UTC` for default display names.
+fn format_utc_seconds(ts: OffsetDateTime) -> String {
+    let ts = ts.to_offset(time::UtcOffset::UTC);
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+        ts.year(),
+        u8::from(ts.month()),
+        ts.day(),
+        ts.hour(),
+        ts.minute(),
+        ts.second()
+    )
+}
+
 /// Compose a fallback display name for an unnamed notecard.
 fn default_notecard_name() -> String {
-    let now = Utc::now();
-    format!("Uploaded {}", now.format("%Y-%m-%d %H:%M:%S UTC"))
+    format!("Uploaded {}", format_utc_seconds(OffsetDateTime::now_utc()))
 }
 
 /// Resolve the notecard source for a USB-notecard render. Returns the parsed
@@ -2257,7 +2283,7 @@ async fn insert_render_row(
         Destination::Personal => (Some(created_by.as_bytes().to_vec()), None),
         Destination::Group { group_id } => (None, Some(group_id.as_bytes().to_vec())),
     };
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let settings_json = serde_json::to_string(settings)?;
     let (ll_x, ll_y, ur_x, ur_y) = match bounds {
         Some(rect) => (
@@ -2364,7 +2390,7 @@ async fn update_render_bounds(
 /// image files to disk and updates metadata + filenames. On `Err`, records
 /// the error message.
 async fn finalize_render_row(state: &AppState, render_id: Uuid, outcome: &JobOutcome) {
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     match outcome {
         JobOutcome::Ok {
             image,
@@ -2470,12 +2496,7 @@ async fn finalize_render_row(state: &AppState, render_id: Uuid, outcome: &JobOut
 }
 
 /// Update a render row to `failed` with the supplied error message.
-async fn update_failed(
-    state: &AppState,
-    render_id: Uuid,
-    message: &str,
-    now: chrono::DateTime<Utc>,
-) {
+async fn update_failed(state: &AppState, render_id: Uuid, message: &str, now: OffsetDateTime) {
     if let Err(err) = sqlx::query(
         "UPDATE saved_renders SET status = 'failed', finished_at = ?1, error_message = ?2 \
          WHERE render_id = ?3",
@@ -3166,12 +3187,12 @@ async fn resolve_glw_event(
             let Some(event) = event_opt else {
                 return Ok(None);
             };
-            let now = Utc::now();
+            let now = OffsetDateTime::now_utc();
             let name = default_or_user_name(
                 ctx.options.save_as.as_deref(),
                 &format!(
                     "Event {event_id} fetched {ts}",
-                    ts = now.format("%Y-%m-%d %H:%M UTC")
+                    ts = format_utc_minutes(now)
                 ),
             );
             let payload_json = serde_json::to_string(&event)?;
@@ -3203,12 +3224,12 @@ async fn resolve_glw_event(
             let Some(event) = event_opt else {
                 return Ok(None);
             };
-            let now = Utc::now();
+            let now = OffsetDateTime::now_utc();
             let name = default_or_user_name(
                 ctx.options.save_as.as_deref(),
                 &format!(
                     "Key \"{event_key}\" fetched {ts}",
-                    ts = now.format("%Y-%m-%d %H:%M UTC")
+                    ts = format_utc_minutes(now)
                 ),
             );
             let payload_json = serde_json::to_string(&event)?;
@@ -3233,10 +3254,10 @@ async fn resolve_glw_event(
         }
         GlwSource::PastedJson { payload } => {
             let event: sl_glw::GlwEvent = serde_json::from_str(payload)?;
-            let now = Utc::now();
+            let now = OffsetDateTime::now_utc();
             let name = default_or_user_name(
                 ctx.options.save_as.as_deref(),
-                &format!("Pasted JSON {}", now.format("%Y-%m-%d %H:%M UTC")),
+                &format!("Pasted JSON {}", format_utc_minutes(now)),
             );
             let payload_json = serde_json::to_string(&event)?;
             let glw_data_id = crate::routes::glw::insert_glw_data_row(
@@ -3883,7 +3904,7 @@ async fn link_render_logos_or_fail(
             state,
             render_id,
             &format!("linking render logos failed: {err}"),
-            Utc::now(),
+            OffsetDateTime::now_utc(),
         )
         .await;
         return Err(err);

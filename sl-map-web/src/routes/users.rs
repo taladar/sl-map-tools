@@ -16,8 +16,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode as ReqwestStatusCode;
 use axum::response::{IntoResponse as _, Response};
 use axum_extra::extract::cookie::SignedCookieJar;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::auth::{self, CurrentUser, removal_cookie};
@@ -38,7 +38,8 @@ pub struct UserProfile {
     /// `Firstname Lastname` (the legacy display name).
     pub legacy_name: String,
     /// when the account was first registered.
-    pub created_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
 }
 
 /// `GET /api/users/{user_id}` — return the public profile of a user.
@@ -59,7 +60,7 @@ pub async fn get(
     State(state): State<AppState>,
     Path(user_id): Path<Uuid>,
 ) -> Result<Json<UserProfile>, Error> {
-    let row: Option<(String, String, DateTime<Utc>)> =
+    let row: Option<(String, String, OffsetDateTime)> =
         sqlx::query_as("SELECT username, legacy_name, created_at FROM users WHERE user_id = ?1")
             .bind(user_id.as_bytes().to_vec())
             .fetch_optional(&state.db)
@@ -260,7 +261,7 @@ pub async fn add_color(
     )
     .bind(user.user_id.as_bytes().to_vec())
     .bind(&req.color)
-    .bind(Utc::now())
+    .bind(OffsetDateTime::now_utc())
     .execute(&state.db)
     .await
     .map_err(|err| {

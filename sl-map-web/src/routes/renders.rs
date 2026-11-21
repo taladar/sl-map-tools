@@ -13,9 +13,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode as ReqwestStatusCode;
 use axum::http::header;
 use axum::response::{IntoResponse as _, Response};
-use chrono::DateTime;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::auth::{CurrentUser, uuid_from_bytes};
@@ -423,9 +422,9 @@ struct RenderListRow {
     /// MIME type of the stored image.
     content_type: Option<String>,
     /// row creation timestamp.
-    created_at: DateTime<Utc>,
+    created_at: OffsetDateTime,
     /// terminal-state timestamp, if any.
-    finished_at: Option<DateTime<Utc>>,
+    finished_at: Option<OffsetDateTime>,
     /// lower-left x grid coordinate of the rendered rectangle, if known.
     lower_left_x: Option<i64>,
     /// lower-left y grid coordinate of the rendered rectangle, if known.

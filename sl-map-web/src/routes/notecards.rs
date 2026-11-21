@@ -5,9 +5,9 @@ use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode as ReqwestStatusCode;
 use axum::http::header;
 use axum::response::{IntoResponse as _, Response};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sl_types::map::USBNotecard;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::auth::{CurrentUser, uuid_from_bytes};
@@ -88,7 +88,7 @@ pub async fn create(
         Some(&user.username),
         Some(&user.legacy_name),
         &parsed.name,
-        Utc::now(),
+        OffsetDateTime::now_utc(),
         NotecardExtras {
             start_region,
             end_region,
@@ -275,7 +275,7 @@ pub(crate) async fn insert_notecard_row(
     text: &str,
 ) -> Result<Uuid, Error> {
     let notecard_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let (owner_user, owner_group) = match destination {
         Destination::Personal => (Some(uploaded_by.as_bytes().to_vec()), None),
         Destination::Group { group_id } => (None, Some(group_id.as_bytes().to_vec())),
@@ -362,7 +362,7 @@ fn build_view(
     uploaded_by_username: Option<&str>,
     uploaded_by_legacy_name: Option<&str>,
     name: &str,
-    created_at: DateTime<Utc>,
+    created_at: OffsetDateTime,
     extras: NotecardExtras,
 ) -> NotecardView {
     NotecardView {
@@ -409,7 +409,7 @@ struct NotecardListRow {
     /// names; not returned to the client through the list response).
     body: String,
     /// row creation timestamp.
-    created_at: DateTime<Utc>,
+    created_at: OffsetDateTime,
     /// lower-left x grid coordinate of the route's bounding box, if a
     /// previous render has resolved and cached it.
     lower_left_x: Option<i64>,

@@ -11,6 +11,7 @@
 use std::path::PathBuf;
 
 use redb::ReadableDatabase as _;
+use redb::ReadableTable as _;
 
 use crate::client::{default_base_url, fetch_event_by_id, fetch_event_by_key};
 use crate::error::GlwEventCacheError;

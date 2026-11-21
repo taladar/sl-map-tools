@@ -25,7 +25,7 @@ image = { version = "0.25.10", default-features = false, features = [
 ] }
 imageproc = "0.27.0"
 lru = "0.19.0"
-redb = "4.6.0"
+redb = "5.0.0"
 reqwest = { version = "0.13.5", features = ["json", "native-tls-vendored"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

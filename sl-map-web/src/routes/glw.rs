@@ -12,8 +12,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode as ReqwestStatusCode;
 use axum::http::header;
 use axum::response::{IntoResponse as _, Response};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::auth::{CurrentUser, uuid_from_bytes};
@@ -310,7 +310,7 @@ pub struct InsertGlwData<'a> {
     /// human-readable event name from the resolved JSON.
     pub event_name: Option<&'a str>,
     /// when the event was originally fetched / pasted.
-    pub fetched_at: DateTime<Utc>,
+    pub fetched_at: OffsetDateTime,
 }
 
 /// Persist a fresh `saved_glw_data` row and return its id. Callers
@@ -324,7 +324,7 @@ pub async fn insert_glw_data_row(
     insert: &InsertGlwData<'_>,
 ) -> Result<Uuid, Error> {
     let glw_data_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let (owner_user, owner_group) = match insert.destination {
         Destination::Personal => (Some(insert.created_by.as_bytes().to_vec()), None),
         Destination::Group { group_id } => (None, Some(group_id.as_bytes().to_vec())),
@@ -392,9 +392,9 @@ struct GlwDataListRow {
     /// human-readable event name from the resolved JSON.
     event_name: Option<String>,
     /// when the event was fetched / pasted.
-    fetched_at: DateTime<Utc>,
+    fetched_at: OffsetDateTime,
     /// row creation timestamp.
-    created_at: DateTime<Utc>,
+    created_at: OffsetDateTime,
 }
 
 /// Run the list query for the given scope and optional source filters.

@@ -14,8 +14,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode as ReqwestStatusCode;
 use axum::response::{IntoResponse as _, Response};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::auth::{CurrentUser, uuid_from_bytes};
@@ -163,9 +163,11 @@ pub struct ThemeView {
     /// the presentation settings.
     pub settings: ThemeSettings,
     /// when the theme was created.
-    pub created_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
     /// when the theme was last renamed or its settings overwritten.
-    pub updated_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
 }
 
 /// Query parameters for `GET /api/themes`.
@@ -292,9 +294,9 @@ struct ThemeListRow {
     /// the presentation settings as JSON.
     settings_json: String,
     /// row creation timestamp.
-    created_at: DateTime<Utc>,
+    created_at: OffsetDateTime,
     /// last-modified timestamp.
-    updated_at: DateTime<Utc>,
+    updated_at: OffsetDateTime,
 }
 
 /// `GET /api/themes?scope=…` — list themes in a scope. Personal lists the
@@ -410,7 +412,7 @@ pub async fn create(
         Error::Database
     })?;
     let theme_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let (owner_user, owner_group) = match destination {
         Destination::Personal => (Some(user.user_id.as_bytes().to_vec()), None),
         Destination::Group { group_id } => (None, Some(group_id.as_bytes().to_vec())),
@@ -506,7 +508,7 @@ pub async fn update(
         }
         None => None,
     };
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     sqlx::query(
         "UPDATE themes \
          SET name = COALESCE(?1, name), \

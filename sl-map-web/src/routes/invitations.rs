@@ -4,8 +4,8 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode as ReqwestStatusCode;
 use axum::response::{IntoResponse as _, Response};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::auth::{self, CurrentUser, uuid_from_bytes};
@@ -57,9 +57,11 @@ pub struct InvitationView {
     /// the current invitation status.
     pub status: InvitationStatus,
     /// when the invitation was created.
-    pub created_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
     /// when the invitation reached a terminal status, if it has.
-    pub responded_at: Option<DateTime<Utc>>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub responded_at: Option<OffsetDateTime>,
 }
 
 /// Response carrying a list of invitations.
@@ -125,7 +127,7 @@ pub async fn create(
     }
 
     let invitation_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let insert = sqlx::query(
         "INSERT INTO group_invitations \
             (invitation_id, group_id, invitee_id, inviter_id, target_role, status, created_at) \
@@ -226,7 +228,7 @@ pub async fn accept(
 ) -> Result<Response, Error> {
     let row = fetch_pending_for_invitee(&state, invitation_id, user.user_id).await?;
     let (group_id_bytes, target_role) = row;
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let mut tx = state.db.begin().await.map_err(|err| {
         tracing::error!("begin accept tx failed: {err}");
         Error::Database
@@ -286,7 +288,7 @@ pub async fn reject(
     Path(invitation_id): Path<Uuid>,
 ) -> Result<Response, Error> {
     let _row = fetch_pending_for_invitee(&state, invitation_id, user.user_id).await?;
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let result = sqlx::query(
         "UPDATE group_invitations SET status = 'rejected', responded_at = ?1 \
          WHERE invitation_id = ?2 AND status = 'pending'",
@@ -421,8 +423,8 @@ async fn fetch_invitations(
             String,
             String,
             String,
-            DateTime<Utc>,
-            Option<DateTime<Utc>>,
+            OffsetDateTime,
+            Option<OffsetDateTime>,
         ),
     >(sql)
     .bind(blob)

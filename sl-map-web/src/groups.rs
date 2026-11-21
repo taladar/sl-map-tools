@@ -4,9 +4,9 @@
 //! exposes the typed DB primitives those checks (and the route handlers)
 //! build on.
 
-use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::SqlitePool;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::auth::uuid_from_bytes;
@@ -84,9 +84,11 @@ pub struct GroupView {
     /// group survives the creator's account being removed.
     pub created_by: Option<Uuid>,
     /// when the group was created.
-    pub created_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
     /// when the group's metadata was last updated (e.g. renamed).
-    pub updated_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
     /// the calling user's role in this group.
     pub my_role: GroupRole,
 }
@@ -103,7 +105,8 @@ pub struct GroupMemberView {
     /// the member's role in the group.
     pub role: GroupRole,
     /// when the membership row was created.
-    pub created_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
 }
 
 /// Look up the role a given user has in a given group, or `None` if they are
@@ -273,7 +276,7 @@ pub async fn require_exists(db: &SqlitePool, group_id: Uuid) -> Result<(), Error
 /// Returns [`Error::Database`] on insert failure.
 pub async fn create_group(db: &SqlitePool, name: &str, creator: Uuid) -> Result<Uuid, Error> {
     let group_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let mut tx = db.begin().await.map_err(|err| {
         tracing::error!("begin tx for group create failed: {err}");
         Error::Database
@@ -314,7 +317,7 @@ pub async fn create_group(db: &SqlitePool, name: &str, creator: Uuid) -> Result<
 
 /// Row shape for `list_members`: `(user_id, username, legacy_name, role,
 /// created_at)`.
-type MemberRow = (Vec<u8>, String, String, String, DateTime<Utc>);
+type MemberRow = (Vec<u8>, String, String, String, OffsetDateTime);
 
 /// List all members of a group, joined with the users table for display
 /// fields.
@@ -361,8 +364,8 @@ type GroupRow = (
     Vec<u8>,
     String,
     Option<Vec<u8>>,
-    DateTime<Utc>,
-    DateTime<Utc>,
+    OffsetDateTime,
+    OffsetDateTime,
     String,
 );
 
@@ -422,8 +425,8 @@ pub async fn get_for_user(
     type GetGroupRow = (
         String,
         Option<Vec<u8>>,
-        DateTime<Utc>,
-        DateTime<Utc>,
+        OffsetDateTime,
+        OffsetDateTime,
         String,
     );
     let row: Option<GetGroupRow> = sqlx::query_as(
@@ -464,7 +467,7 @@ pub async fn get_for_user(
 ///
 /// Returns [`Error::Database`] on update failure.
 pub async fn rename_group(db: &SqlitePool, group_id: Uuid, name: &str) -> Result<(), Error> {
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     sqlx::query("UPDATE groups SET name = ?1, updated_at = ?2 WHERE group_id = ?3")
         .bind(name)
         .bind(now)

@@ -12,10 +12,10 @@ use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode as ReqwestStatusCode;
 use axum::http::header;
 use axum::response::{IntoResponse as _, Response};
-use chrono::{DateTime, Utc};
 use image::GenericImageView as _;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::auth::{CurrentUser, uuid_from_bytes};
@@ -99,7 +99,7 @@ pub async fn create(
             }
         };
 
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     if let Err(err) = insert_logo_row(
         &state,
         &InsertLogo {
@@ -411,7 +411,7 @@ struct InsertLogo<'a> {
     /// size of the stored bytes.
     byte_size: usize,
     /// row creation timestamp.
-    created_at: DateTime<Utc>,
+    created_at: OffsetDateTime,
 }
 
 /// Persist a fresh `saved_logos` row. Callers must already have permission to
@@ -477,7 +477,7 @@ struct LogoListRow {
     /// size of the stored bytes.
     byte_size: i64,
     /// row creation timestamp.
-    created_at: DateTime<Utc>,
+    created_at: OffsetDateTime,
 }
 
 /// Run the list query for the given scope.
@@ -576,7 +576,7 @@ fn build_view(
     width: u32,
     height: u32,
     byte_size: usize,
-    created_at: DateTime<Utc>,
+    created_at: OffsetDateTime,
 ) -> LogoView {
     LogoView {
         logo_id,

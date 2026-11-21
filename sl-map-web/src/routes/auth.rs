@@ -4,8 +4,8 @@ use axum::Json;
 use axum::extract::State;
 use axum::response::{IntoResponse as _, Response};
 use axum_extra::extract::cookie::SignedCookieJar;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::auth::{
@@ -46,7 +46,8 @@ pub struct RegisterResponse {
     /// full URL the user should open to set their password.
     pub set_password_url: String,
     /// when the token in the URL stops being valid.
-    pub expires_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub expires_at: OffsetDateTime,
     /// the persisted user record.
     pub user: UserView,
 }
@@ -84,17 +85,17 @@ pub async fn register(
             "legacy_name and username must be non-empty".to_owned(),
         ));
     }
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let user_uuid = req.agent_key;
     let user_id_bytes = user_uuid.as_bytes().to_vec();
 
     // Generate a fresh single-use token, store only the hash.
     let (raw_token, token_hash) = generate_token();
     let expires_at = now
-        .checked_add_signed(chrono::Duration::seconds(
+        .checked_add(time::Duration::seconds(
             state.config.set_password_token_ttl_seconds,
         ))
-        .unwrap_or(chrono::DateTime::<Utc>::MAX_UTC);
+        .unwrap_or(time::PrimitiveDateTime::MAX.assume_utc());
 
     let mut tx = state.db.begin().await.map_err(|err| {
         tracing::error!("register begin tx failed: {err}");
@@ -225,7 +226,7 @@ pub async fn set_password(
     let Some((user_id_bytes, expires_at, used_at)) = row else {
         return Err(Error::InvalidOrExpiredToken);
     };
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     if used_at.is_some() || expires_at <= now {
         return Err(Error::InvalidOrExpiredToken);
     }

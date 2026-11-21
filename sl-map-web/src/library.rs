@@ -11,9 +11,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::SqlitePool;
+use time::OffsetDateTime;
 use tokio::time::interval;
 use uuid::Uuid;
 
@@ -181,7 +181,8 @@ pub struct NotecardView {
     /// the human-supplied display name of the notecard.
     pub name: String,
     /// when the notecard was saved.
-    pub created_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
     /// the region name of the route's first waypoint, if the notecard
     /// body parses and has at least one waypoint.
     pub start_region: Option<String>,
@@ -230,9 +231,11 @@ pub struct RenderView {
     /// error message if `status == "failed"`.
     pub error_message: Option<String>,
     /// when the row was created (submit time).
-    pub created_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
     /// when the row reached a terminal state.
-    pub finished_at: Option<DateTime<Utc>>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub finished_at: Option<OffsetDateTime>,
     /// whether a without-route variant is available for download.
     pub has_without_route: bool,
     /// the content type of the stored image.
@@ -503,7 +506,7 @@ pub struct NotecardRow {
     /// the raw notecard body (the text the user uploaded).
     pub body: String,
     /// when the row was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: OffsetDateTime,
     /// lower-left x grid coordinate of the route's bounding box, if a
     /// previous render has resolved and cached it.
     pub lower_left_x: Option<u16>,
@@ -546,9 +549,9 @@ pub struct RenderRow {
     /// the filename of the without-route variant, if any.
     pub image_without_route_filename: Option<String>,
     /// when the row was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: OffsetDateTime,
     /// when the row reached a terminal state.
-    pub finished_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<OffsetDateTime>,
     /// lower-left x grid coordinate of the rendered rectangle, if known.
     pub lower_left_x: Option<u16>,
     /// lower-left y grid coordinate of the rendered rectangle, if known.
@@ -568,7 +571,7 @@ type NotecardRowTuple = (
     Option<Vec<u8>>,
     String,
     String,
-    DateTime<Utc>,
+    OffsetDateTime,
     Option<i64>,
     Option<i64>,
     Option<i64>,
@@ -657,9 +660,9 @@ struct RenderRowDb {
     /// filename of the without-route image, if any.
     image_without_route_filename: Option<String>,
     /// row creation timestamp.
-    created_at: DateTime<Utc>,
+    created_at: OffsetDateTime,
     /// terminal-state timestamp, if any.
-    finished_at: Option<DateTime<Utc>>,
+    finished_at: Option<OffsetDateTime>,
     /// lower-left x grid coordinate of the rendered rectangle, if known.
     lower_left_x: Option<i64>,
     /// lower-left y grid coordinate of the rendered rectangle, if known.
@@ -782,7 +785,7 @@ async fn fetch_render_row(db: &SqlitePool, render_id: Uuid) -> Result<RenderRow,
 ///
 /// Returns [`Error::Database`] on UPDATE failure.
 pub async fn recover_orphaned_in_progress(pool: &SqlitePool) -> Result<u64, Error> {
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let result = sqlx::query(
         "UPDATE saved_renders \
          SET status = 'failed', finished_at = ?1, \
@@ -979,9 +982,9 @@ pub struct GlwDataRow {
     /// human-readable event name (from the JSON itself).
     pub event_name: Option<String>,
     /// when the event was fetched / pasted.
-    pub fetched_at: DateTime<Utc>,
+    pub fetched_at: OffsetDateTime,
     /// when the row was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: OffsetDateTime,
 }
 
 /// Public, serializable record of a saved GLW event. Excludes the raw
@@ -1015,9 +1018,11 @@ pub struct GlwDataView {
     /// human-readable event name.
     pub event_name: Option<String>,
     /// when the event was fetched / pasted.
-    pub fetched_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub fetched_at: OffsetDateTime,
     /// when the row was created.
-    pub created_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
 }
 
 /// Column tuple shape returned by the GLW row SELECT. Split out so the
@@ -1034,8 +1039,8 @@ type GlwDataRowTuple = (
     Option<i64>,     // event_id
     Option<String>,  // event_key
     Option<String>,  // event_name
-    DateTime<Utc>,   // fetched_at
-    DateTime<Utc>,   // created_at
+    OffsetDateTime,  // fetched_at
+    OffsetDateTime,  // created_at
 );
 
 /// Fetch a GLW data row by id; returns [`Error::NotFound`] if missing.
@@ -1200,9 +1205,9 @@ pub struct ThemeRow {
     /// the presentation settings as canonical JSON.
     pub settings_json: String,
     /// when the row was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: OffsetDateTime,
     /// when the row was last renamed or its settings overwritten.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: OffsetDateTime,
 }
 
 /// Column tuple shape returned by the theme row SELECT.
@@ -1212,8 +1217,8 @@ type ThemeRowTuple = (
     Option<Vec<u8>>, // created_by
     String,          // name
     String,          // settings_json
-    DateTime<Utc>,   // created_at
-    DateTime<Utc>,   // updated_at
+    OffsetDateTime,  // created_at
+    OffsetDateTime,  // updated_at
 );
 
 /// Fetch a theme row by id; returns [`Error::NotFound`] if missing.
@@ -1365,7 +1370,7 @@ pub struct LogoRow {
     /// size of the stored bytes.
     pub byte_size: u64,
     /// when the row was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: OffsetDateTime,
 }
 
 /// Public, serializable record of a saved logo. Excludes the raw bytes
@@ -1394,7 +1399,8 @@ pub struct LogoView {
     /// size of the stored bytes.
     pub byte_size: u64,
     /// when the logo was uploaded.
-    pub created_at: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
 }
 
 /// Tuple shape returned by the `saved_logos` lookup query.
@@ -1408,7 +1414,7 @@ type LogoRowTuple = (
     i64,             // width
     i64,             // height
     i64,             // byte_size
-    DateTime<Utc>,   // created_at
+    OffsetDateTime,  // created_at
 );
 
 /// Fetch a logo row by id; returns [`Error::NotFound`] if missing.

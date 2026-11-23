@@ -8,6 +8,7 @@ authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2024"
 # assert_matches! (used in tests) was stabilized in Rust 1.96.0
 rust-version = "1.96.0"
+publish = true
 repository = "https://github.com/taladar/sl-map-tools"
 keywords = ["map", "route", "secondlife", "usb_notecard", "web"]
 categories = ["web-programming::http-server"]

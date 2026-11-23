@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.1 - 2026-11-23 13:23:56Z
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Release new version
+- *(dependencies)* Update lru to 0.19.1
+- *(release)* Release new version
+- *(dependencies)* Update cookie to 0.18.3 for RUSTSEC-2026-0594
+
 ## 0.13.0 - 2026-11-21 00:13:19Z
 
 ### ⚙️ Miscellaneous Tasks

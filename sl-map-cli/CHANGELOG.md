@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.2 - 2026-11-23 13:23:55Z
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update cookie to 0.18.3 for RUSTSEC-2026-0594
+
 ## 0.13.1 - 2026-11-21 11:46:18Z
 
 ### ⚙️ Miscellaneous Tasks

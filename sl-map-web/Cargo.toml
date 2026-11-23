@@ -3,7 +3,7 @@ name = "sl-map-web"
 description = "Web UI and JSON API for the SL map renderer"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-version = "0.11.2"
+version = "0.11.3"
 authors = ["Matthias Hörmann <mhoermann@gmail.com>"]
 edition = "2024"
 # assert_matches! (used in tests) was stabilized in Rust 1.96.0
@@ -73,9 +73,9 @@ secrecy = "0.10"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
-sl-glw = { path = "../sl-glw", version = "0.9.1" }
-sl-map-apis = { path = "../sl-map-apis", version = "0.13.1" }
-sl-types = { path = "../sl-types", version = "0.13.0" }
+sl-glw = { path = "../sl-glw", version = "0.9.2" }
+sl-map-apis = { path = "../sl-map-apis", version = "0.13.2" }
+sl-types = { path = "../sl-types", version = "0.13.1" }
 sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "time", "uuid"] }
 subtle = "2.6.1"
 thiserror = "2.0.21"

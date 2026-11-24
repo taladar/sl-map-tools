@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.3 - 2026-11-24 18:38:42Z
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update lru to 0.19.2
+
 ## 0.13.2 - 2026-11-23 13:23:55Z
 
 ### ⚙️ Miscellaneous Tasks

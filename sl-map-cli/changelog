@@ -1,3 +1,9 @@
+sl-map-cli (0.13.3-1) unstable; urgency=medium
+
+  * No changes in this package; released together with the rest of the sl-map-tools workspace.
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Tue, 24 Nov 2026 19:38:42 +0100
+
 sl-map-cli (0.13.2-1) unstable; urgency=medium
 
   * Miscellaneous tasks - dependencies - Update cookie to 0.18.3 for RUSTSEC-2026-0594

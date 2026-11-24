@@ -1,3 +1,9 @@
+sl-map-web (0.11.4-1) unstable; urgency=medium
+
+  * Miscellaneous tasks - dependencies - Update lru to 0.19.2
+
+ -- Matthias Hörmann <mhoermann@gmail.com>  Tue, 24 Nov 2026 19:38:42 +0100
+
 sl-map-web (0.11.3-1) unstable; urgency=medium
 
   * Miscellaneous tasks - dependencies - Update cookie to 0.18.3 for RUSTSEC-2026-0594

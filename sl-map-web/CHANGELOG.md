@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.5 - 2026-11-26 18:06:28Z
+
+### ⚙️ Miscellaneous Tasks
+
+- *(dependencies)* Update clap to 4.6.10 and sha2 to 0.11.2
+
 ## 0.11.4 - 2026-11-24 18:38:42Z
 
 ### ⚙️ Miscellaneous Tasks
